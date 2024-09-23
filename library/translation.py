@@ -1,0 +1,63 @@
+# uncompyle6 version 2.11.5
+# Python bytecode 2.4 (62061)
+# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
+# [GCC 11.4.0]
+# Embedded file name: translation.pyo
+# Compiled at: 2009-11-04 08:33:23
+chooseParentCohortMsg = 'Choose parent cohort'
+resetParentCohortMsg = 'Reset Parent Cohort'
+quitMsg = 'Are you sure you want to quit ?'
+LERandomTextureMsg = 'Random texture'
+LEWealthDependantTextureMsg = 'Wealth dependant texture'
+LETreeTools = 'Tools'
+LETreeTextures = 'Textures'
+LETreeBaseTextures = 'Base textures'
+LETreeOverlayTextures = 'Overlay textures'
+LETreeProps = 'Props'
+LETreePropsByTGI = 'Single by TGI'
+LETreePropsByName = 'Single by Name'
+LETreePropsFamily = 'Families'
+LETreeFlora = 'Flora'
+LETreeLot = 'Lot'
+LETreeIcon = 'Icon'
+LETreePref = 'Preferences'
+LEToggleTop = 'Toggle on Top'
+LEConfirmDeletGroupMsg = 'Are you sure you want to removed that group'
+LEConfirmDeletGroupTitle = 'Group Confirmation'
+LEConfirmDeletFamilyMsg = 'Are you sure you want to removed that family'
+LEConfirmDeletFamilyTitle = 'Family Confirmation'
+LEMenuCreateGroup = 'Create a new group'
+LEMenuDeleteGroup = 'Delete that group'
+LEMenuDeleteFamily = 'Remove that family'
+LEGroupNameDlg = 'Group name'
+LEGroupNameDlgTitle = 'Add group'
+LEMainTitle = 'LE Tools'
+LEXPAN = 'Pan'
+LEXProps = 'Props'
+LEXBaseTexture = 'Base texture'
+LEXOverlayTexture = 'Overlay texture'
+LEXBuilding = 'Building'
+LEXFlora = 'Flora'
+modeNamesMsg = [
+ 'Full', 'LE-like', 'Transit Enable', 'Water land constraints']
+LEXSBDisplayMode = 'Display Mode'
+LEXSBDisplayMode0 = 'Full'
+LEXSBEditMode = 'Edit Mode'
+LEXSBEditMode0 = 'Pan'
+LEXSBUnderMouse = 'Under mouse'
+LEXSnapGripSize = 'Snap grid size'
+LotCreationDlgMsg = 'Lot creation'
+LotCreationDlgWidth = 'Width'
+LotCreationDlgHeight = 'Height'
+LotCreationDlgStage = 'Stage'
+DepDlgMissing = "<font color='red'>Missing dependencies</font>"
+DepDlgBuildingFoundation = 'Building foundation'
+DepDlgBuilding = 'Building'
+DepDlgNotFound = 'not found'
+DepDlgProps = 'Props'
+DepDlgTextures = 'Textures'
+DepDlgFlora = 'Flora'
+IconDlgTitle = 'Icon maker'
+IconDlgPicture = 'Icon picture'
+execfile('current.lang')
+# okay decompiling translation.pyo
