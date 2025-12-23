@@ -108,7 +108,7 @@ EVT_TREE_ITEM_CHECKED = wx.PyEventBinder(wxEVT_TREE_ITEM_CHECKED, 1)
 EVT_TREE_ITEM_HYPERLINK = wx.PyEventBinder(wxEVT_TREE_ITEM_HYPERLINK, 1)
 
 def GetFlaggedData():
-    return zlib.decompress('x\xda\x012\x02\xcd\xfd\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01\xe9IDAT(\x91u\x92\xd1K\xd3a\x14\x86\x9f\xef|J2J\xc3%\x85\x8e\x1cb\x93Hl\xd9,\x06F]4\x10\tD3\x83\x88\xc8\xbf\xc0\xb4\xaeBP1\xe9\xa2(\xec\xaan\xc3\x82pD\xa1\x84\xb0\x88@3\x8c\xc9\xa2bT\xa2^\x8c\x81V3\xb6\xb5\x9f\xce9\xbe.j\xb20\xdf\xeb\xf7\xe19\x07^\xa5D\x93\x9f\x9ea\xbf\t\x04\xbf\x12\x8b[\xd8Kl\xf8<.\xeet\xb5\xab\xfc\x8e\xca\x87*ZzM\xf3\xb1j|G\xab\xf0\xd4\x94\x13\x9a_&0\xbb\xc8\xd8\xf4g\xa2\xcfo\xa8-P\xc7\xf5\x07\xa6\xedD\r\x8d\xb5\xfb\x11\x11\xb4\xd6\x88h\xb4\xd6L}\x8a\xf0\xe4\xd5G\x1e\rt*\x00\xc9\x19\xb6\x03D4\xa7\xdcU\\8\xed\xa6\xa2\xa5\xd7\x00\xe8\xab\xf7\x9e\x9a\xca\xb2\x9d\\\xf2\xd5!"dT\x86\xc9\xe4\x14\x83s\x83HF\xe3\xdc\xe5\xa4\xa8\xb0\x88\xaa\xf2=D\x7f$il>\xdf\xafSe\xf5\xfd\x9dM\x87\xa9\xdc\xb7\x1b\xad5\x93\xc9)\xfc\xe9Q\x12\xe9\x04\x13\x0b\x13\x94\xaaR\xdc{\x8f "\xec(,\xe0\xfe\xb3\xb7H,a\xe1\xa9)\xdf<e$2Ble\x85\x94e\xb1\x96\xcep\xfb\xdd-D\x04\xa5\x14\xdeZ\'\xb1\x84\x85\xd8\x8bm\x84\xe6\x977\x7f8kog)\xba\xc4\xb7\xe5\xef$\xe2?\xe9\xa9\xbf\x86R\n\x11a&\x1c\xc1^lC|\r.\x02\xb3\x8b\x9b\xa6&G\x13W\xaa\xbb\x91_\x05\x0c\x1d\xbfI\xc7\xa1\x8e\xbf&a|:\x8c\xaf\xc1\x05J4\x8e\xd6>36\x192\xc9d\xdc\xa4RI\xb3\xbaj\x99tz\xcd\xac\xaf\xa7\xcd\xc6F\xc6d\xb3Y\xf32\xf8\xc58Z\xfb\x8c\x12\xfd\x07R\xa2\xb98\xf0\xd0\xbcx\xf3a[\xe0\xf2\xd0c\x93\xebnYD\xdb\xc9:\xcex\x0f\xe2\xadu2\x13\x8e0>\x1d\xc6\xff\xfa\xfd\xff\x17\x91K\xf7\xf0\xa8\t\x04\xe7X\x89[\x94\x96\xd8\xf0y\x0ep\xb7\xeb\xdc?\xdb\xfb\r|\xd0\xd1]\x98\xbdm\xdc\x00\x00\x00\x00IEND\xaeB`\x82\x91\xe2\x08\x8f')
+    return zlib.decompress('x\xda\x012\x02\xcd\xfd\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01\xe9IDAT(\x91u\x92\xd1K\xd3a\x14\x86\x9f\xef|J2J\xc3%\x85\x8e\x1cb\x93Hl\xd9,\x06F]4\x10\tD3\x83\x88\xc8\xbf\xc0\xb4\xaeBP1\xe9\xa2(\xec\xaan\xc3\x82pD\xa1\x84\xb0\x88@3\x8c\xc9\xa2bT\xa2^\x8c\x81V3\xb6\xb5\x9f\xce9\xbe.j\xb20\xdf\xeb\xf7\xe19\x07^\xa5D\x93\x9f\x9ea\xbf\t\x04\xbf\x12\x8b[\xd8Kl\xf8<.\xeet\xb5\xab\xfc\x8e\xca\x87*ZzM\xf3\xb1j|G\xab\xf0\xd4\x94\x13\x9a_&0\xbb\xc8\xd8\xf4g\xa2\xcfo\xa8-P\xc7\xf5\x07\xa6\xedD\r\x8d\xb5\xfb\x11\x11\xb4\xd6\x88h\xb4\xd6}\x8a\xf0\xe4\xd5G\x1e\rt*\x00\xc9\x19\xb6\x03D4\xa7\xdcU\\8\xed\xa6\xa2\xa5\xd7\x00\xe8\xab\xf7\x9e\x9a\xca\xb2\x9d\\\xf2\xd5!"dT\x86\xc9\xe4\x14\x83s\x83HF\xe3\xdc\xe5\xa4\xa8\xb0\x88\xaa\xf2=D\x7f$il>\xdf\xafSe\xf5\xfd\x9dM\x87\xa9\xdc\xb7\x1b\xad5\x93\xc9)\xfc\xe9Q\x12\xe9\x04\x13\x0b\x13\x94\xaaR\xdc{\x8f "\xec(,\xe0\xfe\xb3\xb7H,a\xe1\xa9)\xdf<e$2Ble\x85\x94e\xb1\x96\xcep\xfb\xdd-D\x04\xa5\x14\xdeZ\'\xb1\x84\x85\xd8\x8bm\x84\xe6\x977\x7f8kog)\xba\xc4\xb7\xe5\xef$\xe2?\xe9\xa9\xbf\x86R\n\x11a&\x1c\xc1^lC|\r.\x02\xb3\x8b\x9b\xa6&G\x13W\xaa\xbb\x91_\x05\x0c\x1d\xbfI\xc7\xa1\x8e\xbf&a|:\x8c\xaf\xc1\x05J4\x8e\xd6>36\x192\xc9d\xdc\xa4RI\xb3\xbaj\x99tz\xcd\xac\xaf\xa7\xcd\xc6F\xc6d\xb3Y\xf32\xf8\xc58Z\xfb\x8c\x12\xfd\x07R\xa2\xb98\xf0\xd0\xbcx\xf3a[\xe0\xf2\xd0c\x93\xebnYD\xdb\xc9:\xcex\x0f\xe2\xadu2\x13\x8e0>\x1d\xc6\xff\xfa\xfd\xff\x17\x91K\xf7\xf0\xa8\t\x04\xe7X\x89[\x94\x96\xd8\xf0y\x0ep\xb7\xeb\xdc?\xdb\xfb\r|\xd0\xd1]\x98\xbdm\xdc\x00\x00\x00\x00IEND\xaeB`\x82\x91\xe2\x08\x8f')
 
 
 def GetFlaggedBitmap():
@@ -178,13 +178,12 @@ def GrayOut(anImage):
     return anImage
 
 
-def MakeGray((r, g, b), factor, maskColor):
-    if (
-     r, g, b) != maskColor:
-        return map(lambda x: int((230 - x) * factor) + x, (r, g, b))
+def MakeGray(rgb, factor, maskColor):
+    r, g, b = rgb
+    if (r, g, b) != maskColor:
+        return list(map(lambda x: int((230 - x) * factor) + x, (r, g, b)))
     else:
-        return (
-         r, g, b)
+        return (r, g, b)
 
 
 def DrawTreeItemButton(win, dc, rect, flags):
@@ -769,7 +768,7 @@ class GenericTreeItem():
         if not recursively:
             return count
         total = count
-        for n in xrange(count):
+        for n in range(count):
             total += self._children[n].GetChildrenCount()
 
         return total
@@ -1924,7 +1923,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         children = parent.GetChildren()
         index = children.index(crt_item)
         count = len(children)
-        for n in xrange(index + 1, count):
+        for n in range(index + 1, count):
             if self.TagAllChildrenUntilLast(children[n], last_item, select):
                 return True
 
@@ -2100,21 +2099,21 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self._lineHeight = dc.GetCharHeight()
         if self._imageListNormal:
             n = self._imageListNormal.GetImageCount()
-            for i in xrange(n):
+            for i in range(n):
                 width, height = self._imageListNormal.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
 
         if self._imageListButtons:
             n = self._imageListButtons.GetImageCount()
-            for i in xrange(n):
+            for i in range(n):
                 width, height = self._imageListButtons.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
 
         if self._imageListCheck:
             n = self._imageListCheck.GetImageCount()
-            for i in xrange(n):
+            for i in range(n):
                 width, height = self._imageListCheck.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
@@ -2134,7 +2133,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             self.CalculateLineHeight()
             sz = imageList.GetSize(0)
             self._grayedImageList = wx.ImageList(sz[0], sz[1], True, 0)
-            for ii in xrange(imageList.GetImageCount()):
+            for ii in range(imageList.GetImageCount()):
                 bmp = imageList.GetBitmap(ii)
                 image = wx.ImageFromBitmap(bmp)
                 image = GrayOut(image)
@@ -2166,7 +2165,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             sizex, sizey = imglist.GetSize(0)
             self._imageListCheck = imglist
         self._grayedCheckList = wx.ImageList(sizex, sizey, True, 0)
-        for ii in xrange(self._imageListCheck.GetImageCount()):
+        for ii in range(self._imageListCheck.GetImageCount()):
             bmp = self._imageListCheck.GetBitmap(ii)
             image = wx.ImageFromBitmap(bmp)
             image = GrayOut(image)
@@ -2224,7 +2223,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         gstep = float(g2 - g1) / flrect
         bstep = float(b2 - b1) / flrect
         rf, gf, bf = (0, 0, 0)
-        for y in xrange(rect.y, rect.y + rect.height):
+        for y in range(rect.y, rect.y + rect.height):
             currCol = (r1 + rf, g1 + gf, b1 + bf)
             dc.SetBrush(wx.Brush(currCol, wx.SOLID))
             dc.DrawRectangle(rect.x, y, rect.width, 1)
@@ -2254,7 +2253,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         gstep = float(g2 - g1) / flrect
         bstep = float(b2 - b1) / flrect
         rf, gf, bf = (0, 0, 0)
-        for x in xrange(rect.x, rect.x + rect.width):
+        for x in range(rect.x, rect.x + rect.width):
             currCol = (int(r1 + rf), int(g1 + gf), int(b1 + bf))
             dc.SetBrush(wx.Brush(currCol, wx.SOLID))
             dc.DrawRectangle(x, rect.y, 1, rect.height)
@@ -2291,7 +2290,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         bstep = float(b2 - b1) / flrect
         rf, gf, bf = (0, 0, 0)
         dc.SetPen(wx.TRANSPARENT_PEN)
-        for y in xrange(filRect.y, filRect.y + filRect.height):
+        for y in range(filRect.y, filRect.y + filRect.height):
             currCol = (r1 + rf, g1 + gf, b1 + bf)
             dc.SetBrush(wx.Brush(currCol, wx.SOLID))
             dc.DrawRectangle(filRect.x, y, filRect.width, 1)
@@ -2767,569 +2766,3 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             event.Skip()
         return
 
-    def GetNextActiveItem--- This code section failed: ---
-
-4956       0  LOAD_FAST             2  'down'
-           3  JUMP_IF_FALSE        13  'to 19'
-           6  POP_TOP          
-
-4957       7  LOAD_FAST             0  'self'
-          10  LOAD_ATTR             2  'GetNextSibling'
-          13  STORE_FAST            3  'sibling'
-          16  JUMP_FORWARD         10  'to 29'
-        19_0  COME_FROM                '3'
-          19  POP_TOP          
-
-4959      20  LOAD_FAST             0  'self'
-          23  LOAD_ATTR             4  'GetPrevSibling'
-          26  STORE_FAST            3  'sibling'
-        29_0  COME_FROM                '16'
-
-4961      29  LOAD_FAST             0  'self'
-          32  LOAD_ATTR             5  'GetItemType'
-          35  LOAD_FAST             1  'item'
-          38  CALL_FUNCTION_1       1 
-          41  LOAD_CONST            1  2
-          44  COMPARE_OP            2  '=='
-          47  JUMP_IF_FALSE        89  'to 139'
-          50  POP_TOP          
-          51  LOAD_FAST             0  'self'
-          54  LOAD_ATTR             7  'IsItemChecked'
-          57  LOAD_FAST             1  'item'
-          60  CALL_FUNCTION_1       1 
-          63  UNARY_NOT        
-          64  JUMP_IF_FALSE        72  'to 139'
-          67  POP_TOP          
-
-4964      68  LOAD_CONST            2  ''
-          71  STORE_FAST            6  'found'
-
-4966      74  SETUP_LOOP          140  'to 217'
-
-4967      77  LOAD_FAST             3  'sibling'
-          80  LOAD_FAST             1  'item'
-          83  CALL_FUNCTION_1       1 
-          86  STORE_FAST            5  'child'
-
-4968      89  LOAD_FAST             5  'child'
-          92  JUMP_IF_FALSE        16  'to 111'
-          95  POP_TOP          
-          96  LOAD_FAST             0  'self'
-          99  LOAD_ATTR            10  'IsEnabled'
-         102  LOAD_FAST             5  'child'
-         105  CALL_FUNCTION_1       1 
-       108_0  COME_FROM                '92'
-         108  JUMP_IF_TRUE          8  'to 119'
-         111  POP_TOP          
-         112  LOAD_FAST             5  'child'
-         115  UNARY_NOT        
-       116_0  COME_FROM                '108'
-         116  JUMP_IF_FALSE         5  'to 124'
-       119_0  THEN                     125
-         119  POP_TOP          
-
-4969     120  BREAK_LOOP       
-         121  JUMP_FORWARD          1  'to 125'
-       124_0  COME_FROM                '116'
-         124  POP_TOP          
-       125_0  COME_FROM                '121'
-
-4970     125  LOAD_FAST             5  'child'
-         128  STORE_FAST            1  'item'
-         131  JUMP_BACK            77  'to 77'
-         134  POP_TOP          
-         135  POP_BLOCK        
-         136  JUMP_FORWARD         78  'to 217'
-       139_0  COME_FROM                '64'
-       139_1  COME_FROM                '47'
-         139  POP_TOP          
-
-4975     140  LOAD_FAST             0  'self'
-         143  LOAD_ATTR            11  'GetFirstChild'
-         146  LOAD_FAST             1  'item'
-         149  CALL_FUNCTION_1       1 
-         152  UNPACK_SEQUENCE_2     2 
-         155  STORE_FAST            5  'child'
-         158  STORE_FAST            4  'cookie'
-
-4976     161  SETUP_LOOP           53  'to 217'
-         164  LOAD_FAST             5  'child'
-         167  JUMP_IF_FALSE        45  'to 215'
-         170  POP_TOP          
-         171  LOAD_FAST             0  'self'
-         174  LOAD_ATTR            10  'IsEnabled'
-         177  LOAD_FAST             5  'child'
-         180  CALL_FUNCTION_1       1 
-         183  UNARY_NOT        
-       184_0  COME_FROM                '167'
-         184  JUMP_IF_FALSE        28  'to 215'
-         187  POP_TOP          
-
-4977     188  LOAD_FAST             0  'self'
-         191  LOAD_ATTR            13  'GetNextChild'
-         194  LOAD_FAST             1  'item'
-         197  LOAD_FAST             4  'cookie'
-         200  CALL_FUNCTION_2       2 
-         203  UNPACK_SEQUENCE_2     2 
-         206  STORE_FAST            5  'child'
-         209  STORE_FAST            4  'cookie'
-         212  JUMP_BACK           164  'to 164'
-         215  POP_TOP          
-         216  POP_BLOCK        
-       217_0  COME_FROM                '161'
-       217_1  COME_FROM                '74'
-
-4979     217  LOAD_FAST             5  'child'
-         220  JUMP_IF_FALSE        24  'to 247'
-         223  POP_TOP          
-         224  LOAD_FAST             0  'self'
-         227  LOAD_ATTR            10  'IsEnabled'
-         230  LOAD_FAST             5  'child'
-         233  CALL_FUNCTION_1       1 
-         236  JUMP_IF_FALSE         8  'to 247'
-       239_0  THEN                     248
-         239  POP_TOP          
-
-4980     240  LOAD_FAST             5  'child'
-         243  RETURN_VALUE     
-         244  JUMP_FORWARD          1  'to 248'
-       247_0  COME_FROM                '236'
-       247_1  COME_FROM                '220'
-         247  POP_TOP          
-       248_0  COME_FROM                '244'
-
-4982     248  LOAD_CONST            0  ''
-         251  RETURN_VALUE     
-
-Parse error at or near `JUMP_FORWARD' instruction at offset 136
-
-    def HitTest(self, point, flags=0):
-        w, h = self.GetSize()
-        flags = 0
-        if point.x < 0:
-            flags |= TREE_HITTEST_TOLEFT
-        if point.x > w:
-            flags |= TREE_HITTEST_TORIGHT
-        if point.y < 0:
-            flags |= TREE_HITTEST_ABOVE
-        if point.y > h:
-            flags |= TREE_HITTEST_BELOW
-        if flags:
-            return (None, flags)
-        if self._anchor == None:
-            flags = TREE_HITTEST_NOWHERE
-            return (
-             None, flags)
-        hit, flags = self._anchor.HitTest(self.CalcUnscrolledPosition(point), self, flags, 0)
-        if hit == None:
-            flags = TREE_HITTEST_NOWHERE
-            return (
-             None, flags)
-        if not self.IsEnabled(hit):
-            return (None, flags)
-        return (
-         hit, flags)
-
-    def GetBoundingRect(self, item, textOnly=False):
-        if not item:
-            raise Exception('\nERROR: Invalid Tree Item. ')
-        i = item
-        startX, startY = self.GetViewStart()
-        rect = wx.Rect()
-        rect.x = i.GetX() - startX * _PIXELS_PER_UNIT
-        rect.y = i.GetY() - startY * _PIXELS_PER_UNIT
-        rect.width = i.GetWidth()
-        rect.height = self.GetLineHeight(i)
-        return rect
-
-    def Edit(self, item):
-        te = TreeEvent(wxEVT_TREE_BEGIN_LABEL_EDIT, self.GetId())
-        te._item = item
-        te.SetEventObject(self)
-        if self.GetEventHandler().ProcessEvent(te) and not te.IsAllowed():
-            return
-        if self._dirty:
-            if wx.Platform in ['__WXMSW__', '__WXMAC__']:
-                self.Update()
-            else:
-                wx.YieldIfNeeded()
-        if self._textCtrl != None and item != self._textCtrl.item():
-            self._textCtrl.StopEditing()
-        self._textCtrl = TreeTextCtrl(self, item=item)
-        self._textCtrl.SetFocus()
-        return
-
-    def GetEditControl(self):
-        return self._textCtrl
-
-    def OnRenameAccept(self, item, value):
-        le = TreeEvent(wxEVT_TREE_END_LABEL_EDIT, self.GetId())
-        le._item = item
-        le.SetEventObject(self)
-        le._label = value
-        le._editCancelled = False
-        return not self.GetEventHandler().ProcessEvent(le) or le.IsAllowed()
-
-    def OnRenameCancelled(self, item):
-        le = TreeEvent(wxEVT_TREE_END_LABEL_EDIT, self.GetId())
-        le._item = item
-        le.SetEventObject(self)
-        le._label = ''
-        le._editCancelled = True
-        self.GetEventHandler().ProcessEvent(le)
-
-    def OnRenameTimer(self):
-        self.Edit(self._current)
-
-    def OnMouse(self, event):
-        if not self._anchor:
-            return
-        pt = self.CalcUnscrolledPosition(event.GetPosition())
-        flags = 0
-        thisItem, flags = self._anchor.HitTest(pt, self, flags, 0)
-        underMouse = thisItem
-        underMouseChanged = underMouse != self._underMouse
-        if underMouse:
-            if flags & TREE_HITTEST_ONITEM and not event.LeftIsDown() and not self._isDragging and (not self._renameTimer or not self._renameTimer.IsRunning()):
-                underMouse = underMouse
-            else:
-                underMouse = None
-            if underMouse != self._underMouse:
-                if self._underMouse:
-                    self._underMouse = None
-                self._underMouse = underMouse
-            hoverItem = thisItem
-            if underMouseChanged and not self._isDragging and (not self._renameTimer or not self._renameTimer.IsRunning()):
-                if hoverItem is not None:
-                    hevent = TreeEvent(wxEVT_TREE_ITEM_GETTOOLTIP, self.GetId())
-                    hevent._item = hoverItem
-                    hevent.SetEventObject(self)
-                    if self.GetEventHandler().ProcessEvent(hevent) and hevent.IsAllowed():
-                        self.SetToolTip(hevent._label)
-                    if hoverItem.IsHyperText() and flags & TREE_HITTEST_ONITEMLABEL and hoverItem.IsEnabled():
-                        self.SetCursor(wx.StockCursor(wx.CURSOR_HAND))
-                        self._isonhyperlink = True
-                    elif self._isonhyperlink:
-                        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
-                        self._isonhyperlink = False
-            if not (event.LeftDown() or event.LeftUp() or event.RightDown() or event.LeftDClick() or event.Dragging() or (event.Moving() or event.RightUp()) and self._isDragging):
-                event.Skip()
-                return
-            flags = 0
-            item, flags = self._anchor.HitTest(pt, self, flags, 0)
-            if event.Dragging() and not self._isDragging and (flags & TREE_HITTEST_ONITEMICON or flags & TREE_HITTEST_ONITEMLABEL):
-                if self._dragCount == 0:
-                    self._dragStart = pt
-                self._countDrag = 0
-                self._dragCount = self._dragCount + 1
-                if self._dragCount != 3:
-                    return
-                command = (event.RightIsDown() and [wxEVT_TREE_BEGIN_RDRAG] or [wxEVT_TREE_BEGIN_DRAG])[0]
-                nevent = TreeEvent(command, self.GetId())
-                nevent._item = self._current
-                nevent.SetEventObject(self)
-                newpt = self.CalcScrolledPosition(pt)
-                nevent.SetPoint(newpt)
-                nevent.Veto()
-                if self.GetEventHandler().ProcessEvent(nevent) and nevent.IsAllowed():
-                    self._isDragging = True
-                    self._oldCursor = self._cursor
-                    self._oldSelection = self.GetTreeStyle() & TR_MULTIPLE or self.GetSelection()
-                    if self._oldSelection:
-                        self._oldSelection.SetHilight(False)
-                        self.RefreshLine(self._oldSelection)
-                else:
-                    selections = self.GetSelections()
-                    if len(selections) == 1:
-                        self._oldSelection = selections[0]
-                        self._oldSelection.SetHilight(False)
-                        self.RefreshLine(self._oldSelection)
-                if self._dragImage:
-                    del self._dragImage
-                self._dragImage = DragImage(self, self._current)
-                self._dragImage.BeginDrag(wx.Point(0, 0), self)
-                self._dragImage.Show()
-                self._dragImage.Move(self.CalcScrolledPosition(pt))
-        elif event.Dragging() and self._isDragging:
-            self._dragImage.Move(self.CalcScrolledPosition(pt))
-            if self._countDrag == 0 and item:
-                self._oldItem = item
-            if item != self._dropTarget:
-                if self._dropTarget:
-                    self._dropTarget.SetHilight(False)
-                    self.RefreshLine(self._dropTarget)
-                if item:
-                    item.SetHilight(True)
-                    self.RefreshLine(item)
-                    self._countDrag = self._countDrag + 1
-                self._dropTarget = item
-                self.Update()
-            if self._countDrag >= 3:
-                self.RefreshLine(self._oldItem)
-                self._countDrag = 0
-        elif (event.LeftUp() or event.RightUp()) and self._isDragging:
-            if self._dragImage:
-                self._dragImage.EndDrag()
-            if self._dropTarget:
-                self._dropTarget.SetHilight(False)
-            if self._oldSelection:
-                self._oldSelection.SetHilight(True)
-                self.RefreshLine(self._oldSelection)
-                self._oldSelection = None
-            event = TreeEvent(wxEVT_TREE_END_DRAG, self.GetId())
-            event._item = item
-            event._pointDrag = self.CalcScrolledPosition(pt)
-            event.SetEventObject(self)
-            self.GetEventHandler().ProcessEvent(event)
-            self._isDragging = False
-            self._dropTarget = None
-            self.SetCursor(self._oldCursor)
-            if wx.Platform in ['__WXMSW__', '__WXMAC__']:
-                self.Refresh()
-            else:
-                wx.YieldIfNeeded()
-        else:
-            if event.LeftDown():
-                self._hasFocus = True
-                self.SetFocusIgnoringChildren()
-                event.Skip()
-            self._dragCount = 0
-            if item == None:
-                if self._textCtrl != None and item != self._textCtrl.item():
-                    self._textCtrl.StopEditing()
-                return
-            if event.RightDown():
-                if self._textCtrl != None and item != self._textCtrl.item():
-                    self._textCtrl.StopEditing()
-                self._hasFocus = True
-                self.SetFocusIgnoringChildren()
-                if not self.IsSelected(item):
-                    self.DoSelectItem(item, True, False)
-                nevent = TreeEvent(wxEVT_TREE_ITEM_RIGHT_CLICK, self.GetId())
-                nevent._item = item
-                nevent._pointDrag = self.CalcScrolledPosition(pt)
-                nevent.SetEventObject(self)
-                event.Skip(not self.GetEventHandler().ProcessEvent(nevent))
-                nevent2 = TreeEvent(wxEVT_TREE_ITEM_MENU, self.GetId())
-                nevent2._item = item
-                nevent2._pointDrag = self.CalcScrolledPosition(pt)
-                nevent2.SetEventObject(self)
-                self.GetEventHandler().ProcessEvent(nevent2)
-            elif event.LeftUp():
-                if self.HasFlag(TR_MULTIPLE):
-                    selections = self.GetSelections()
-                    if len(selections) > 1 and not event.CmdDown() and not event.ShiftDown():
-                        self.DoSelectItem(item, True, False)
-                if self._lastOnSame:
-                    if item == self._current and flags & TREE_HITTEST_ONITEMLABEL and self.HasFlag(TR_EDIT_LABELS):
-                        if self._renameTimer:
-                            if self._renameTimer.IsRunning():
-                                self._renameTimer.Stop()
-                        else:
-                            self._renameTimer = TreeRenameTimer(self)
-                        self._renameTimer.Start(_DELAY, True)
-                    self._lastOnSame = False
-            else:
-                if not item or not item.IsEnabled():
-                    if self._textCtrl != None and item != self._textCtrl.item():
-                        self._textCtrl.StopEditing()
-                    return
-                if self._textCtrl != None and item != self._textCtrl.item():
-                    self._textCtrl.StopEditing()
-                self._hasFocus = True
-                self.SetFocusIgnoringChildren()
-                if event.LeftDown():
-                    self._lastOnSame = item == self._current
-                if flags & TREE_HITTEST_ONITEMBUTTON:
-                    if event.LeftDown():
-                        self.Toggle(item)
-                    return
-                if item.GetType() > 0 and flags & TREE_HITTEST_ONITEMCHECKICON:
-                    if event.LeftDown():
-                        self.CheckItem(item, not self.IsItemChecked(item))
-                    return
-                if not self.IsSelected(item) or event.CmdDown():
-                    if flags & TREE_HITTEST_ONITEM:
-                        if item.IsHyperText():
-                            self.SetItemVisited(item, True)
-                        is_multiple, extended_select, unselect_others = EventFlagsToSelType(self.GetTreeStyle(), event.ShiftDown(), event.CmdDown())
-                        self.DoSelectItem(item, unselect_others, extended_select)
-                if event.LeftDClick():
-                    if self._renameTimer:
-                        self._renameTimer.Stop()
-                    self._lastOnSame = False
-                    nevent = TreeEvent(wxEVT_TREE_ITEM_ACTIVATED, self.GetId())
-                    nevent._item = item
-                    nevent._pointDrag = self.CalcScrolledPosition(pt)
-                    nevent.SetEventObject(self)
-                    if not self.GetEventHandler().ProcessEvent(nevent):
-                        self.Toggle(item)
-        return
-
-    def OnInternalIdle(self):
-        if not self.HasFlag(TR_MULTIPLE) and not self.GetSelection():
-            if self._select_me:
-                self.SelectItem(self._select_me)
-            elif self.GetRootItem():
-                self.SelectItem(self.GetRootItem())
-        if not self._dirty:
-            return
-        if self._freezeCount:
-            return
-        self._dirty = False
-        self.CalculatePositions()
-        self.Refresh()
-        self.AdjustMyScrollbars()
-
-    def CalculateSize(self, item, dc):
-        attr = item.GetAttributes()
-        if attr and attr.HasFont():
-            dc.SetFont(attr.GetFont())
-        else:
-            if item.IsBold():
-                dc.SetFont(self._boldFont)
-            else:
-                dc.SetFont(self._normalFont)
-            text_w, text_h, dummy = dc.GetMultiLineTextExtent(item.GetText())
-            text_h += 2
-            dc.SetFont(self._normalFont)
-            image_w, image_h = (0, 0)
-            image = item.GetCurrentImage()
-            if image != _NO_IMAGE:
-                if self._imageListNormal:
-                    image_w, image_h = self._imageListNormal.GetSize(image)
-                    image_w += 4
-            total_h = (image_h > text_h and [image_h] or [text_h])[0]
-            checkimage = item.GetCurrentCheckedImage()
-            if checkimage is not None:
-                wcheck, hcheck = self._imageListCheck.GetSize(checkimage)
-                wcheck += 4
-            else:
-                wcheck = 0
-            if total_h < 30:
-                total_h += 2
-            else:
-                total_h += total_h / 10
-            if total_h > self._lineHeight:
-                self._lineHeight = total_h
-            if not item.GetWindow():
-                item.SetWidth(image_w + text_w + wcheck + 2)
-                item.SetHeight(total_h)
-            item.SetWidth(item.GetWindowSize()[0] + image_w + text_w + wcheck + 2)
-        return
-
-    def CalculateLevel(self, item, dc, level, y):
-        x = level * self._indent
-        if not self.HasFlag(TR_HIDE_ROOT):
-            x += self._indent
-        elif level == 0:
-            children = item.GetChildren()
-            count = len(children)
-            level = level + 1
-            for n in xrange(count):
-                y = self.CalculateLevel(children[n], dc, level, y)
-
-            return y
-        self.CalculateSize(item, dc)
-        item.SetX(x + self._spacing)
-        item.SetY(y)
-        y += self.GetLineHeight(item)
-        if not item.IsExpanded():
-            return y
-        children = item.GetChildren()
-        count = len(children)
-        level = level + 1
-        for n in xrange(count):
-            y = self.CalculateLevel(children[n], dc, level, y)
-
-        return y
-
-    def CalculatePositions(self):
-        if not self._anchor:
-            return
-        dc = wx.ClientDC(self)
-        self.PrepareDC(dc)
-        dc.SetFont(self._normalFont)
-        dc.SetPen(self._dottedPen)
-        y = 2
-        y = self.CalculateLevel(self._anchor, dc, 0, y)
-
-    def RefreshSubtree(self, item):
-        if self._dirty:
-            return
-        if self._freezeCount:
-            return
-        client = self.GetClientSize()
-        rect = wx.Rect()
-        x, rect.y = self.CalcScrolledPosition(0, item.GetY())
-        rect.width = client.x
-        rect.height = client.y
-        self.Refresh(True, rect)
-        self.AdjustMyScrollbars()
-
-    def RefreshLine(self, item):
-        if self._dirty:
-            return
-        if self._freezeCount:
-            return
-        rect = wx.Rect()
-        x, rect.y = self.CalcScrolledPosition(0, item.GetY())
-        rect.width = self.GetClientSize().x
-        rect.height = self.GetLineHeight(item)
-        self.Refresh(True, rect)
-
-    def RefreshSelected(self):
-        if self._freezeCount:
-            return
-        if self._anchor:
-            self.RefreshSelectedUnder(self._anchor)
-
-    def RefreshSelectedUnder(self, item):
-        if self._freezeCount:
-            return
-        if item.IsSelected():
-            self.RefreshLine(item)
-        children = item.GetChildren()
-        for child in children:
-            self.RefreshSelectedUnder(child)
-
-    def Freeze(self):
-        self._freezeCount = self._freezeCount + 1
-
-    def Thaw(self):
-        if self._freezeCount == 0:
-            raise Exception('\nERROR: Thawing Unfrozen Tree Control?')
-        self._freezeCount = self._freezeCount - 1
-        if not self._freezeCount:
-            self.Refresh()
-
-    def SetBackgroundColour(self, colour):
-        if not wx.Window.SetBackgroundColour(self, colour):
-            return False
-        if self._freezeCount:
-            return True
-        self.Refresh()
-        return True
-
-    def SetForegroundColour(self, colour):
-        if not wx.Window.SetForegroundColour(self, colour):
-            return False
-        if self._freezeCount:
-            return True
-        self.Refresh()
-        return True
-
-    def OnGetToolTip(self, event):
-        event.Veto()
-
-    def DoGetBestSize(self):
-        return wx.Size(100, 80)
-
-    def GetClassDefaultAttributes(self):
-        attr = wx.VisualAttributes()
-        attr.colFg = wx.SystemSettings_GetColour(wx.SYS_COLOUR_WINDOWTEXT)
-        attr.colBg = wx.SystemSettings_GetColour(wx.SYS_COLOUR_LISTBOX)
-        attr.font = wx.SystemSettings_GetFont(wx.SYS_DEFAULT_GUI_FONT)
-        return attr
-
-    GetClassDefaultAttributes = classmethod(GetClassDefaultAttributes)

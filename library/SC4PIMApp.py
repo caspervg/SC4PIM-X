@@ -246,8 +246,8 @@ class MyTreeCtrl(wx.TreeCtrl):
                     xmlStr += '</CATEGORY></temp>'
                     try:
                         xmlDoc = xml.dom.minidom.parseString(xmlStr)
-                    except:
-                        print 'Problem with family %s 0x%08X' % (name, family)
+                    except Exception:
+                        print('Problem with family %s 0x%08X' % (name, family))
                         return
 
                     for subNode in xmlDoc.documentElement.childNodes:
@@ -270,8 +270,8 @@ class MyTreeCtrl(wx.TreeCtrl):
                         self.virtualDAT.categories[family].descriptors.append(descCohort)
                 try:
                     self.virtualDAT.categories[family].descriptors.append(desc)
-                except:
-                    print 'Bizarre problem with family %s 0x%08X in %s' % (name, family, desc.examplar.entry.fileName)
+                except Exception:
+                    print('Bizarre problem with family %s 0x%08X in %s' % (name, family, desc.examplar.entry.fileName))
 
         if bFinalize:
             FinalizeCategory(self.virtualDAT.rootCategory)
@@ -696,7 +696,7 @@ class NoteBookPanel(wx.Panel):
 
         dlg = EditDialog(self, editUnicodeTitle, txt)
         if dlg.ShowModal() == wx.ID_OK:
-            utxt = unicode(dlg.GetValue())
+            utxt = str(dlg.GetValue())
             newVal = utxt.encode('unicode_internal')
             buffer = struct.pack('H', len(utxt))
             buffer += struct.pack('H', 4096)
@@ -859,7 +859,7 @@ class NoteBookPanel(wx.Panel):
         return
 
     def InternalSave(self, fileName):
-        preventFilename = [ 'simcity_%d.dat' % x for x in xrange(1, 6) ]
+        preventFilename = [ 'simcity_%d.dat' % x for x in range(1, 6) ]
         preventFilename += ['ep1.dat', 'sounds.dat', 'intro.dat', 'loteditor.dat']
         preventFilename = [ x.upper() for x in preventFilename ]
         if os.path.split(fileName)[1].upper() in preventFilename:
@@ -896,7 +896,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnSaveTab(self, event):
         filename = self.examplar.entry.fileName
-        preventFilename = [ 'simcity_%d.dat' % x for x in xrange(1, 6) ]
+        preventFilename = [ 'simcity_%d.dat' % x for x in range(1, 6) ]
         preventFilename += ['ep1.dat', 'sounds.dat', 'intro.dat', 'loteditor.dat']
         preventFilename = [ x.upper() for x in preventFilename ]
         if os.path.split(filename)[1].upper() in preventFilename:
@@ -1497,7 +1497,7 @@ class NoteBookPanel(wx.Panel):
             props.append(CreateAPropFromString(self.virtualDAT.properties[32], str(fileNameBase)))
             if IsFromCategory(self.virtualDAT.categories[3434232095], self.examplar):
                 bFound = False
-                for stage in xrange(1, 16):
+                for stage in range(1, 16):
                     if IsFromCategory(self.virtualDAT.categories[3434232096 + stage], self.examplar):
                         props.append(CreateAProp(self.virtualDAT.properties[662775863], (stage,)))
                         bFound = True
@@ -1506,7 +1506,7 @@ class NoteBookPanel(wx.Panel):
                 bFound or props.append(CreateAProp(self.virtualDAT.properties[662775863], (255, )))
         if IsFromCategory(self.virtualDAT.categories[210746672], self.examplar):
             bFound = False
-            for stage in xrange(1, 16):
+            for stage in range(1, 16):
                 if IsFromCategory(self.virtualDAT.categories[210746672 + stage], self.examplar):
                     props.append(CreateAProp(self.virtualDAT.properties[662775863], (stage,)))
                     bFound = True
@@ -1578,8 +1578,8 @@ class NoteBookPanel(wx.Panel):
                 currentID += 1
                 objID += 1
                 baseTex = self.virtualDAT.baseTex[('None', 0)]
-                for h in xrange(0, lotdepth):
-                    for w in xrange(0, lotwidth):
+                for h in range(0, lotdepth):
+                    for w in range(0, lotwidth):
                         v = [
                          2, 0, 0, w * 1048576 + 524288, 0, h * 1048576 + 524288, w * 1048576, h * 1048576, (w + 1) * 1048576, (h + 1) * 1048576, 0, objID, baseTex]
                         props.append(CreateAProp(self.virtualDAT.properties[currentID], v))
@@ -1763,8 +1763,8 @@ class NoteBookPanel(wx.Panel):
             currentID += 1
             objID += 1
             baseTex = self.virtualDAT.baseTex[dlg.purpose, dlg.wealth]
-            for h in xrange(0, lotdepth):
-                for w in xrange(0, lotwidth):
+            for h in range(0, lotdepth):
+                for w in range(0, lotwidth):
                     v = [
                      2, 0, 0, w * 1048576 + 524288, 0, h * 1048576 + 524288, w * 1048576, h * 1048576, (w + 1) * 1048576, (h + 1) * 1048576, 0, objID, baseTex]
                     props.append(CreateAProp(self.virtualDAT.properties[currentID], v))
@@ -1855,7 +1855,7 @@ class NoteBookPanel(wx.Panel):
             values = [
              0, 0, 0, 0, 662775841, rkt1[0], rkt1[1], rkt1[2]]
         else:
-            print ' no rkt4 or rkt1'
+            print(' no rkt4 or rkt1')
         newPropStr = CreateAPropFromString(self.virtualDAT.properties[662775844], ','.join([ hex2str(v) for v in values ]))
         try:
             self.examplar.AddTextProp(newPropStr)
@@ -1884,7 +1884,7 @@ class NoteBookPanel(wx.Panel):
             values = [
              rkt1[0], rkt1[1], rkt1[2]]
         else:
-            print ' no rkt4 or rkt1'
+            print(' no rkt4 or rkt1')
         newPropStr = CreateAPropFromString(self.virtualDAT.properties[662775840], ','.join([ hex2str(v) for v in values ]))
         try:
             self.examplar.AddTextProp(newPropStr)
@@ -1913,7 +1913,7 @@ class NoteBookPanel(wx.Panel):
             values = [
              rkt0[0], rkt0[1], rkt0[2]]
         else:
-            print ' no rkt4 or rkt0'
+            print(' no rkt4 or rkt0')
         newPropStr = CreateAPropFromString(self.virtualDAT.properties[662775841], ','.join([ hex2str(v) for v in values ]))
         try:
             self.examplar.AddTextProp(newPropStr)
@@ -2089,11 +2089,11 @@ class NoteBookPanel(wx.Panel):
 
                         values = eval(codetxt)
                     except:
-                        print 'Error in eval',
-                        print hex2str(prop2CreatID)
-                        print initialCode
-                        print codetxt
-                        print variables
+                        print('Error in eval')
+                        print(hex2str(prop2CreatID))
+                        print(initialCode)
+                        print(codetxt)
+                        print(variables)
                         raise
 
                     prop2CreatValue = []
@@ -2187,16 +2187,16 @@ class NoteBookPanel(wx.Panel):
 
         props.sort(cmp=lambda x, y: cmp(x[2:2 + 8], y[2:2 + 8]))
         category = self.virtualDAT.categories[includedCats[0][1]]
-        props = [ p for p in props if unicode(p[2:2 + 8].upper()) not in category.removeProperties.values() ]
+        props = [ p for p in props if str(p[2:2 + 8].upper()) not in category.removeProperties.values() ]
         for prop in category.removeProperties.keys():
             self.examplar.RemoveProp(prop)
 
         UVNK = self.examplar.GetProp(2319542937)
         IDK = self.examplar.GetProp(3393284789)
         if UVNK != None:
-            props = [ p for p in props if unicode(p[2:2 + 8].upper()) != '899AFBAD' ]
+            props = [ p for p in props if str(p[2:2 + 8].upper()) != '899AFBAD' ]
         if IDK != None:
-            props = [ p for p in props if unicode(p[2:2 + 8].upper()) != '8A2602A9' ]
+            props = [ p for p in props if str(p[2:2 + 8].upper()) != '8A2602A9' ]
         for prop in props:
             self.examplar.AddTextProp(prop)
 
@@ -2286,7 +2286,7 @@ class NoteBookPanel(wx.Panel):
         idMenu = event.GetId()
         txt = self.examplar.GetPropObject(32).rawdata
         try:
-            utxt = unicode(txt)
+            utxt = str(txt)
         except:
             try:
                 utxt = txt.decode('unicode_internal')
@@ -2317,7 +2317,7 @@ class NoteBookPanel(wx.Panel):
             txt = self.examplar.GetPropObject(32).rawdata
 
         try:
-            utxt = unicode(txt)
+            utxt = str(txt)
         except:
             try:
                 utxt = txt.decode('unicode_internal')
@@ -2333,7 +2333,7 @@ class NoteBookPanel(wx.Panel):
         idMenu = event.GetId()
         txt = self.examplar.GetPropObject(32).rawdata
         try:
-            utxt = unicode(txt)
+            utxt = str(txt)
         except:
             try:
                 utxt = txt.decode('unicode_internal')
@@ -2360,7 +2360,7 @@ class NoteBookPanel(wx.Panel):
     def OnConvertToIDK(self, event):
         txt = self.examplar.GetPropObject(2317746857).rawdata
         try:
-            utxt = unicode(txt)
+            utxt = str(txt)
         except:
             try:
                 utxt = txt.decode('unicode_internal')
@@ -2571,7 +2571,7 @@ class SC4NoteBook(wx.Notebook):
         self.parent.cbStateChoice.SetValue('')
         if rkt4 != None:
             choices = []
-            for z in xrange(len(rkt4) / 8):
+            for z in range(len(rkt4) / 8):
                 choices.append(('Model #%d' % z, z))
 
             for ch in choices:
@@ -2737,7 +2737,7 @@ class ConfigureDialog(sc.SizedDialog):
                     for subNode in node.childNodes:
                         if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
                             recurse = int(subNode.getAttribute('recurse'))
-                            path = unicode(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
+                            path = str(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
                             self.pathToScan.append(path)
 
         except:
@@ -2986,8 +2986,8 @@ class MainFrame(wx.Frame):
 
                         values = eval(codetxt)
                     except:
-                        print variables
-                        print codetxt
+                        print(variables)
+                        print(codetxt)
                         raise
 
                     prop2CreatValue = []
@@ -3078,7 +3078,7 @@ class MainFrame(wx.Frame):
         try:
             whatRTK = tuple(whatRTK)
         except:
-            print 'Failed ', whatRTK
+            print('Failed ', whatRTK)
             raise
 
         if whatRTK in self.virtualDAT.standardModelsDict:
@@ -3087,7 +3087,7 @@ class MainFrame(wx.Frame):
         elif 662775840 not in propCreated:
             props.append(CreateAProp(self.virtualDAT.properties[662775840], whatRTK))
         props.sort(cmp=lambda x, y: cmp(x[2:2 + 8], y[2:2 + 8]))
-        props = [ p for p in props if unicode(p[2:2 + 8].upper()) not in initcat.removeProperties.values() ]
+        props = [ p for p in props if str(p[2:2 + 8].upper()) not in initcat.removeProperties.values() ]
         buffer = 'EQZT1###\r\n' + 'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n' + 'PropCount=0x%08x\r\n' % len(props)
         buffer += '\r\n'.join(props)
         entry.content = entry.rawContent = buffer
@@ -3196,7 +3196,7 @@ class MainFrame(wx.Frame):
                     for subNode in node.childNodes:
                         if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
                             recurse = int(subNode.getAttribute('recurse'))
-                            path = unicode(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
+                            path = str(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
                             self.pathToScan.append((path, recurse))
 
         except:
@@ -3366,7 +3366,7 @@ class MainFrame(wx.Frame):
         rkt4 = examplar.GetProp(662775844)
         if rkt4 != None:
             choices = []
-            for z in xrange(len(rkt4) / 8):
+            for z in range(len(rkt4) / 8):
                 choices.append(('Model #%d' % z, z))
 
             for ch in choices:

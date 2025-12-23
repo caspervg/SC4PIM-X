@@ -253,11 +253,8 @@ class Prop():
         if self.typeValue == 768:
             try:
                 return hex2str(v)
-            except:
-                print 'error in prop',
-                print hex2str(self.id),
-                print v,
-                print type(v)
+            except Exception:
+                print('error in prop', hex2str(self.id), v, type(v))
                 raise
 
         if self.typeValue == 3072:
@@ -341,19 +338,14 @@ class Prop():
                         raise
 
             return ret
-        except:
-            print '*' * 21,
-            print 'ERROR',
-            print '*' * 21
-            print 'in examplar',
-            print hex(self.examplar.entry.TGI['t']),
-            print hex(self.examplar.entry.TGI['g']),
-            print hex(self.examplar.entry.TGI['i'])
-            print 'located in',
-            print self.examplar.entry.fileName
-            print 'Prop ',
-            print hex(self.id)
-            print '*' * 49
+        except Exception:
+            print('*' * 21, 'ERROR', '*' * 21)
+            print('in examplar', hex(self.examplar.entry.TGI['t']),
+                  hex(self.examplar.entry.TGI['g']),
+                  hex(self.examplar.entry.TGI['i']))
+            print('located in', self.examplar.entry.fileName)
+            print('Prop', hex(self.id))
+            print('*' * 49)
             raise
 
 
@@ -377,7 +369,7 @@ class Examplar():
         lotObjects = []
         removeIds = []
         objectID = 0
-        for id in range(2297284864L, 2297286144L):
+        for id in range(2297284864, 2297286144):
             values = self.GetProp(id)
             if values != None:
                 lotObjects.append(values[:])
@@ -386,7 +378,7 @@ class Examplar():
         for id in removeIds:
             self.RemoveProp(id)
 
-        currentID = 2297284864L
+        currentID = 2297284864
         for v in lotObjects:
             if renum:
                 v[11] = objectID
@@ -510,7 +502,7 @@ class Examplar():
             self.link = self.virtualDAT.getEntry(self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
             if self.link is not None:
                 if 'examplar' not in self.link.__dict__:
-                    print 'require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
+                    print('require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
                     self.link.ReadFile(None, True, True)
                     cohort = Examplar(self.link, self.virtualDAT)
                     self.link.examplar = cohort
@@ -572,10 +564,9 @@ class Examplar():
         for p in self.props:
             z = p.TextRep()
             if z.__class__ == unicode:
-                print '*' * 10,
-                print 'ERROR'
-                print z
-                print z.__class__
+                print('*' * 10, 'ERROR')
+                print(z)
+                print(z.__class__)
             lines.append(z)
 
         return '\r\n'.join(lines) + '\r\n'
@@ -620,11 +611,8 @@ class SC4Entry():
             self.rawContent = None
             self.dateCreated = int(time.time())
             self.dateUpdated = int(time.time())
-        except:
-            print 'unexpectable error in',
-            print fileName,
-            print 'in the entry number',
-            print idx
+        except Exception:
+            print('unexpectable error in', fileName, 'in the entry number', idx)
             raise
 
         return
@@ -632,7 +620,7 @@ class SC4Entry():
     def ReadFile(self, sc4, readWhole=True, decompress=False):
         if self.rawContent != None:
             return False
-        if self.tgi[0] == 1697917002 or self.tgi[0] == 87304289 or self.tgi[0] == 2289530369L:
+        if self.tgi[0] == 1697917002 or self.tgi[0] == 87304289 or self.tgi[0] == 2289530369:
             readWhole = True
             decompress = True
         if readWhole:
@@ -782,8 +770,8 @@ def GenerateDirectory(allEntries, fileName):
 
     if nbrCompressed == 0:
         return None
-    header = struct.pack('I', 3899334383L)
-    header += struct.pack('I', 3899334383L)
+    header = struct.pack('I', 3899334383)
+    header += struct.pack('I', 3899334383)
     header += struct.pack('I', 678108931)
     header += struct.pack('I', 0)
     header += struct.pack('I', 16 * nbrCompressed)
@@ -811,7 +799,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         if dlg:
             dlg.g2.SetValue(i)
         wx.Yield()
-        if entry.tgi == (3899334383L, 3899334383L, 678108931):
+        if entry.tgi == (3899334383, 3899334383, 678108931):
             pass
         else:
             if bRecompress and not entry.compressed:
@@ -876,14 +864,12 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         entry.buffer = newbuffer
         pos += entry.filesize
         if entry.filesize == 0:
-            print '*' * 20
-            print 'In file', entry.fileName
-            print 'Warning : Entry', hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]),
+            print('*' * 20)
+            print('In file', entry.fileName)
             if entry.compressed:
-                print '(compressed)',
+                print('Warning : Entry', hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]), '(compressed)', 'has a 0 size len')
             else:
-                print '(uncompressed)',
-            print 'has a 0 size len'
+                print('Warning : Entry', hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]), '(uncompressed)', 'has a 0 size len')
         if dlg:
             dlg.LOG('write;%d;0x%08X;0x%08X;0x%08X;%s;%s' % (i, entry.tgi[0], entry.tgi[1], entry.tgi[2], entry.fileName, fileName))
 
