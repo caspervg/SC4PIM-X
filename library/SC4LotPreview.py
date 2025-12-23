@@ -1,17 +1,11 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4LotPreview.pyo
-# Compiled at: 2009-12-29 23:21:47
+"""SC4 lot preview and editor with 2D/3D rendering."""
 import wx
 import wx.lib.sized_controls as sc
 import FSHConverter
-import Image
-import ImageDraw
+from PIL import Image
+from PIL import ImageDraw
 import treeDnD
 import random
-import dircache
 import datetime
 import types
 import math
@@ -100,8 +94,8 @@ class LEDropTarget(wx.PyDropTarget):
         self.frame.SetMatForUnproj()
         h = self.frame.size[1]
         px, py, pz = gluUnProject(x, h - y, 0)
-        maxx = self.frame.examplar.GetProp(2297284496L)[0] * 8
-        maxy = self.frame.examplar.GetProp(2297284496L)[1] * 8
+        maxx = self.frame.examplar.GetProp(2297284496)[0] * 8
+        maxy = self.frame.examplar.GetProp(2297284496)[1] * 8
         minx = -maxx
         miny = -maxy
         if px >= minx and px <= maxx and py >= miny and py <= maxy:
@@ -117,11 +111,11 @@ class LEDropTarget(wx.PyDropTarget):
             posX, posY, pz = gluUnProject(x, h - y, 0)
             posX /= 16.0
             posY /= 16.0
-            posX += self.frame.examplar.GetProp(2297284496L)[0] / 2.0
-            posY += self.frame.examplar.GetProp(2297284496L)[1] / 2.0
+            posX += self.frame.examplar.GetProp(2297284496)[0] / 2.0
+            posY += self.frame.examplar.GetProp(2297284496)[1] / 2.0
             currentID = 0
-            lastIDProp = 2297284864L
-            for lcp in range(2297284864L, 2297286144L):
+            lastIDProp = 2297284864
+            for lcp in range(2297284864, 2297286144):
                 values = self.frame.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -394,14 +388,14 @@ class LotEditorWin(wx.Frame):
 
     def Rotate(self, rotOrder, rotFunc):
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
                 if values[11] == id:
                     flag = values[2]
                     rot = flag & 15
-                    flag = (flag & 4294967280L) + rotOrder[rot]
+                    flag = (flag & 4294967280) + rotOrder[rot]
                     values[2] = flag
                     if values[0] == 0 or values[0] == 1 or values[0] == 4:
                         dx = values[3]
@@ -464,7 +458,7 @@ class LotEditorWin(wx.Frame):
         xMax = None
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -490,14 +484,14 @@ class LotEditorWin(wx.Frame):
         xCenter = (xMin + xMax) / 2
         yCenter = (yMin + yMax) / 2
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
                 if values[11] == id:
                     flag = values[2]
                     rot = flag & 15
-                    flag = (flag & 4294967280L) + rotOrder[rot]
+                    flag = (flag & 4294967280) + rotOrder[rot]
                     values[2] = flag
                     if values[0] == 0 or values[0] == 1 or values[0] == 4:
                         dx = xCenter
@@ -597,17 +591,17 @@ class LotEditorWin(wx.Frame):
     def OnMirror(self, event):
         if self.modeEdit == MODE_EDIT_BASETEX or self.modeEdit == MODE_EDIT_OVERTEX:
             for id, q in zip(self.selected, self.quadSelected):
-                for lcp in range(2297284864L, 2297286144L):
+                for lcp in range(2297284864, 2297286144):
                     values = self.examplar.GetProp(lcp)
                     if values == None:
                         break
                     if values[11] == id:
                         flag = values[2]
-                        mirror = flag & 2147483648L
-                        if mirror == 2147483648L:
+                        mirror = flag & 2147483648
+                        if mirror == 2147483648:
                             flag = flag & 268435455
                         else:
-                            flag = flag + 2147483648L
+                            flag = flag + 2147483648
                         values[2] = flag
                         if values[0] == 2:
 
@@ -634,7 +628,7 @@ class LotEditorWin(wx.Frame):
             return
         prop2Remove = []
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -688,8 +682,8 @@ class LotEditorWin(wx.Frame):
             return
         currentID = 0
         selection = {}
-        lastIDProp = 2297284864L
-        for lcp in range(2297284864L, 2297286144L):
+        lastIDProp = 2297284864
+        for lcp in range(2297284864, 2297286144):
             values = self.examplar.GetProp(lcp)
             if values == None:
                 break
@@ -725,7 +719,7 @@ class LotEditorWin(wx.Frame):
         xMax = None
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -753,7 +747,7 @@ class LotEditorWin(wx.Frame):
 
     def Align(self, ids, val):
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -823,7 +817,7 @@ class LotEditorWin(wx.Frame):
         if self.examplar.GetProp(16)[0] == 16:
             desc = self.virtualDAT.FindBuildingFromLot(self.examplar)
             if desc.examplar.entry.tgi[0] == 1697917002:
-                if desc in self.virtualDAT.categories[3431971885L].descriptors:
+                if desc in self.virtualDAT.categories[3431971885].descriptors:
                     self.OnDraw()
                     self.OnDraw()
                     img = self.Save()
@@ -960,7 +954,7 @@ class LotEditorWin(wx.Frame):
     def GetTextures(self, texID):
         textures = []
         bBase = True
-        for zLevel in xrange(5):
+        for zLevel in range(5):
             texEntry = self.virtualDAT.getEntry(2058686020, 159781726, texID + zLevel)
             if texEntry is not None:
                 texEntry.ReadFile(None, True, True)
@@ -1071,7 +1065,7 @@ class LotEditorWin(wx.Frame):
             if ids.count(id - 3) == 0:
                 self.lotOverTextures.remove(id)
 
-        for lcp in range(2297284864L, 2297286144L):
+        for lcp in range(2297284864, 2297286144):
             values = self.examplar.GetProp(lcp)
             if values == None:
                 break
@@ -1290,12 +1284,12 @@ class LotEditorWin(wx.Frame):
         self.te = []
         base, roadTex = self.GetTextures(641146880)
         self.textures[641146880] = [roadTex, base]
-        base, waterLandTex = self.GetTexturesLE(3412818905L, 1802442183)
+        base, waterLandTex = self.GetTexturesLE(3412818905, 1802442183)
         self.textures[1802442183] = [waterLandTex, base]
         self.lotOverTextures = []
         self.lotBaseTextures = []
         self.Preload_TE_Tex()
-        for lcp in range(2297284864L, 2297286144L):
+        for lcp in range(2297284864, 2297286144):
             values = self.examplar.GetProp(lcp)
             if values == None:
                 break
@@ -1308,12 +1302,12 @@ class LotEditorWin(wx.Frame):
         wx.BeginBusyCursor()
         self.bBackAligned = bForIcon
         self.examplar = examplar
-        self.lotSizeX = self.examplar.GetProp(2297284496L)[0]
-        self.lotSizeY = self.examplar.GetProp(2297284496L)[1]
-        self.lotSizeXOver = self.examplar.GetProp(2297284496L)[0] * 16
-        self.lotSizeYOver = self.examplar.GetProp(2297284496L)[1] * 16
-        self.lotSizeXOffset = self.examplar.GetProp(2297284496L)[0] * 8
-        self.lotSizeYOffset = self.examplar.GetProp(2297284496L)[1] * 8
+        self.lotSizeX = self.examplar.GetProp(2297284496)[0]
+        self.lotSizeY = self.examplar.GetProp(2297284496)[1]
+        self.lotSizeXOver = self.examplar.GetProp(2297284496)[0] * 16
+        self.lotSizeYOver = self.examplar.GetProp(2297284496)[1] * 16
+        self.lotSizeXOffset = self.examplar.GetProp(2297284496)[0] * 8
+        self.lotSizeYOffset = self.examplar.GetProp(2297284496)[1] * 8
         self.virtualDAT = virtualDAT
         self.PreCache()
         self.posy = 0
@@ -1385,7 +1379,7 @@ class LotEditorWin(wx.Frame):
         glTranslate(offsetX, offsetY, 0)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
-        if flag & 2147483648L == 2147483648L:
+        if flag & 2147483648 == 2147483648:
             glScalef(-1, 1, 0)
         if flag & 15 == 0:
             glRotatef(180, 0, 0, 1)
@@ -1475,7 +1469,7 @@ class LotEditorWin(wx.Frame):
         glEnable(GL_TEXTURE_2D)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
-        if flag & 2147483648L == 2147483648L:
+        if flag & 2147483648 == 2147483648:
             glScalef(-1, 1, 0)
         if flag & 15 == 0:
             glRotatef(180, 0, 0, 1)
@@ -1632,16 +1626,16 @@ class LotEditorWin(wx.Frame):
 
         glColor3f(1, 1, 1)
         if self.examplar.GetProp(1246398704)[0] & 8:
-            for x in xrange(self.examplar.GetProp(2297284496L)[0]):
-                self.DrawQuad(x, self.examplar.GetProp(2297284496L)[1], 1, 641146880, True)
+            for x in range(self.examplar.GetProp(2297284496)[0]):
+                self.DrawQuad(x, self.examplar.GetProp(2297284496)[1], 1, 641146880, True)
 
         if self.examplar.GetProp(1246398704)[0] & 1:
-            for y in xrange(self.examplar.GetProp(2297284496L)[1]):
+            for y in range(self.examplar.GetProp(2297284496)[1]):
                 self.DrawQuad(-1, y, 0, 641146880, True)
 
         if self.examplar.GetProp(1246398704)[0] & 4:
-            for y in xrange(self.examplar.GetProp(2297284496L)[1]):
-                self.DrawQuad(self.examplar.GetProp(2297284496L)[0], y, 0, 641146880, True)
+            for y in range(self.examplar.GetProp(2297284496)[1]):
+                self.DrawQuad(self.examplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
         if self.snapSize != 0:
             glPushMatrix()
@@ -1797,7 +1791,7 @@ class LotEditorWin(wx.Frame):
         glTranslate(offsetX, 0, offsetY)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
-        if flag & 2147483648L == 2147483648L:
+        if flag & 2147483648 == 2147483648:
             glScalef(-1, 1, 0)
         if flag & 15 == 0:
             glRotatef(180, 0, 0, 1)
@@ -1913,16 +1907,16 @@ class LotEditorWin(wx.Frame):
                     self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
 
                 if self.examplar.GetProp(1246398704)[0] & 8:
-                    for x in xrange(self.examplar.GetProp(2297284496L)[0]):
-                        self.DrawQuad3D(x, self.examplar.GetProp(2297284496L)[1], 1, 641146880, True)
+                    for x in range(self.examplar.GetProp(2297284496)[0]):
+                        self.DrawQuad3D(x, self.examplar.GetProp(2297284496)[1], 1, 641146880, True)
 
                 if self.examplar.GetProp(1246398704)[0] & 1:
-                    for y in xrange(self.examplar.GetProp(2297284496L)[1]):
+                    for y in range(self.examplar.GetProp(2297284496)[1]):
                         self.DrawQuad3D(-1, y, 0, 641146880, True)
 
                 if self.examplar.GetProp(1246398704)[0] & 4:
-                    for y in xrange(self.examplar.GetProp(2297284496L)[1]):
-                        self.DrawQuad3D(self.examplar.GetProp(2297284496L)[0], y, 0, 641146880, True)
+                    for y in range(self.examplar.GetProp(2297284496)[1]):
+                        self.DrawQuad3D(self.examplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
                 glMatrixMode(GL_TEXTURE)
                 glLoadIdentity()
@@ -2019,8 +2013,8 @@ class LotEditorWin(wx.Frame):
     def Save(self):
         size = self.glCanvas2D.GetClientSize()
         glReadBuffer(GL_FRONT)
-        w = size[0] / 2 & 4294967280L
-        h = size[1] & 4294967280L
+        w = size[0] / 2 & 4294967280
+        h = size[1] & 4294967280
         data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
         decal = len(data) - w * h * 3
         if decal == h * 2:
@@ -2157,7 +2151,7 @@ class LotEditorWin(wx.Frame):
         xMax = None
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -2186,8 +2180,8 @@ class LotEditorWin(wx.Frame):
          xCenter, 0, yCenter, xMin, yMin, xMax, yMax]
 
     def MoveByAmount(self, dx, dy, dz):
-        lotSizeXOver = self.examplar.GetProp(2297284496L)[0]
-        lotSizeYOver = self.examplar.GetProp(2297284496L)[1]
+        lotSizeXOver = self.examplar.GetProp(2297284496)[0]
+        lotSizeYOver = self.examplar.GetProp(2297284496)[1]
         bbox = []
         dSx = 0
         dSy = 0
@@ -2210,7 +2204,7 @@ class LotEditorWin(wx.Frame):
                 q[2] += dx
                 q[1] += dy
                 q[3] += dy
-            for lcp in range(2297284864L, 2297286144L):
+            for lcp in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(lcp)
                 if values == None:
                     break
@@ -2411,7 +2405,7 @@ class LotEditorWin(wx.Frame):
 
         elif self.modeEdit in [MODE_EDIT_BUILDING, MODE_EDIT_FLORA, MODE_EDIT_PROP]:
             for id, q in zip(self.selected, self.quadSelected):
-                for lcp in range(2297284864L, 2297286144L):
+                for lcp in range(2297284864, 2297286144):
                     values = self.examplar.GetProp(lcp)
                     if values == None:
                         break
@@ -2448,7 +2442,7 @@ class LotEditorWin(wx.Frame):
                                 self.texBases.remove(texData)
                                 objectIds.append(texData[4])
 
-                for lcp in range(2297284864L, 2297286144L):
+                for lcp in range(2297284864, 2297286144):
                     values = self.examplar.GetProp(lcp)
                     if values == None:
                         break
@@ -2495,12 +2489,12 @@ class LotCreatorDlg(sc.SizedDialog):
             s = self.ComputeStage(w, d)
         if not bRebuild:
             wx.StaticText(pane, -1, LotCreationDlgWidth)
-            self.widthCtrl = wx.ComboBox(pane, -1, str(w), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in xrange(w, 32) ])
+            self.widthCtrl = wx.ComboBox(pane, -1, str(w), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in range(w, 32) ])
             wx.StaticText(pane, -1, LotCreationDlgHeight)
-            self.depthCtrl = wx.ComboBox(pane, -1, str(d), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in xrange(d, 32) ])
+            self.depthCtrl = wx.ComboBox(pane, -1, str(d), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in range(d, 32) ])
         if self.bGrowable:
             wx.StaticText(pane, -1, LotCreationDlgStage)
-            self.stageCtrl = wx.ComboBox(pane, -1, str(s), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in xrange(max(1, s - 1), min(s + 2, 16)) ])
+            self.stageCtrl = wx.ComboBox(pane, -1, str(s), style=wx.CB_DROPDOWN | wx.CB_READONLY, choices=[ str(v) for v in range(max(1, s - 1), min(s + 2, 16)) ])
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
         self.SetMinSize(self.GetSize())
@@ -2514,7 +2508,7 @@ class LotCreatorDlg(sc.SizedDialog):
         if self.bGrowable:
             s = self.ComputeStage(w, d)
             self.stageCtrl.Clear()
-            stageChoice = [ str(v) for v in xrange(max(1, s - 1), min(s + 2, 16)) ]
+            stageChoice = [ str(v) for v in range(max(1, s - 1), min(s + 2, 16)) ]
             for stage in stageChoice:
                 self.stageCtrl.Append(stage)
 
@@ -2531,47 +2525,47 @@ class LotCreatorDlg(sc.SizedDialog):
         minz = depth
         purpose = 'IR'
         wealth = 0
-        if self.examplar.GetProp(2854081430L) is not None:
-            if 4096 in self.examplar.GetProp(2854081430L):
+        if self.examplar.GetProp(2854081430) is not None:
+            if 4096 in self.examplar.GetProp(2854081430):
                 purpose = 'R'
-            if 69648 in self.examplar.GetProp(2854081430L):
+            if 69648 in self.examplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 0
-            if 69664 in self.examplar.GetProp(2854081430L):
+            if 69664 in self.examplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 1
-            if 69680 in self.examplar.GetProp(2854081430L):
+            if 69680 in self.examplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 2
-            if 4097 in self.examplar.GetProp(2854081430L):
+            if 4097 in self.examplar.GetProp(2854081430):
                 purpose = 'C'
-            if 78096 in self.examplar.GetProp(2854081430L):
+            if 78096 in self.examplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 0
-            if 78112 in self.examplar.GetProp(2854081430L):
+            if 78112 in self.examplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 1
-            if 78128 in self.examplar.GetProp(2854081430L):
+            if 78128 in self.examplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 2
-            if 78624 in self.examplar.GetProp(2854081430L):
+            if 78624 in self.examplar.GetProp(2854081430):
                 purpose = 'CO'
                 wealth = 1
-            if 78640 in self.examplar.GetProp(2854081430L):
+            if 78640 in self.examplar.GetProp(2854081430):
                 purpose = 'CO'
                 wealth = 2
-            if 4098 in self.examplar.GetProp(2854081430L):
+            if 4098 in self.examplar.GetProp(2854081430):
                 purpose = 'I'
-            if 82176 in self.examplar.GetProp(2854081430L):
+            if 82176 in self.examplar.GetProp(2854081430):
                 purpose = 'IR'
                 wealth = 0
-            if 82432 in self.examplar.GetProp(2854081430L):
+            if 82432 in self.examplar.GetProp(2854081430):
                 purpose = 'ID'
                 wealth = 1
-            if 82688 in self.examplar.GetProp(2854081430L):
+            if 82688 in self.examplar.GetProp(2854081430):
                 purpose = 'IM'
                 wealth = 1
-            if 82944 in self.examplar.GetProp(2854081430L):
+            if 82944 in self.examplar.GetProp(2854081430):
                 purpose = 'IHT'
                 wealth = 2
         else:
@@ -2732,4 +2726,4 @@ class ImageDBBuilder(wx.Frame):
         del size
         self.viewer.S3DMesh.FreeAll(self.viewer.s3DTexturesHolder)
         return
-# okay decompiling SC4LotPreview.pyo
+

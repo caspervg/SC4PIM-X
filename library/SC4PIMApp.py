@@ -1,9 +1,4 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4PIMApp.pyo
-# Compiled at: 2010-01-16 17:56:19
+"""Main SC4PIM application with lot editor and data browser."""
 import wx
 import sys
 import struct
@@ -13,18 +8,21 @@ import time
 import QFS
 import math
 import os
-import dircache
 import os.path
 from math import *
 import wx.lib.hyperlink as hl
 import wx.lib.mixins.listctrl as listmix
 import wx.lib.sized_controls as sc
-import Image
-import ImageOps
-import ImageDraw
-import win32api
-import win32con
-import StringIO
+from PIL import Image
+from PIL import ImageOps
+from PIL import ImageDraw
+try:
+    import win32api
+    import win32con
+    HAS_WIN32 = True
+except ImportError:
+    HAS_WIN32 = False
+import io
 import SC4IconMakerDlg
 from SC4DatTools import *
 from SC4Data import *
@@ -131,7 +129,7 @@ class MyTreeCtrl(wx.TreeCtrl):
     def OnBeginEdit(self, event):
         item = event.GetItem()
         data = self.GetPyData(item)
-        if data is not None and data.__class__ == DictWrapper and data.parentID == 4089087265L:
+        if data is not None and data.__class__ == DictWrapper and data.parentID == 4089087265:
             pass
         else:
             event.Veto()
@@ -144,7 +142,7 @@ class MyTreeCtrl(wx.TreeCtrl):
         data = self.GetPyData(item)
         fileNameBase = 'Family ' + event.GetLabel()
         family = data.ID
-        IID = family + 268435456 & 4294967295L
+        IID = family + 268435456 & 4294967295
         buffer = struct.pack('III', 87304289, 1740496652, IID)
         buffer += struct.pack('II', 0, 0)
         entry = SC4Entry(buffer, 0, os.path.join(self.parent.rootFolder, '%s-0x%08x-0x%08x-0x%08x.SC4Desc' % (fileNameBase, 87304289, 1740496652, IID)))
@@ -178,7 +176,7 @@ class MyTreeCtrl(wx.TreeCtrl):
         self.virtualDAT.categories[family].descriptors.append(descriptor)
         self.Delete(item)
         self.virtualDAT.categories[data.parentID].childs.remove(data)
-        data.parentID = 4089086497L
+        data.parentID = 4089086497
         data.parent = self.virtualDAT.categories[data.parentID]
         data.parent.childs.append(data)
         data.Name = event.GetLabel() + ' - [0x%08X]' % family
@@ -197,13 +195,13 @@ class MyTreeCtrl(wx.TreeCtrl):
             data = self.GetPyData(item)
             if data is not None:
                 if data.__class__ == DictWrapper:
-                    if data.parentID == 4089087265L:
+                    if data.parentID == 4089087265:
                         self.EditLabel(item)
         return
 
     def Recategorize(self, desc, bOld=True, bFinalize=True):
         if bOld:
-            for idCat, category in self.virtualDAT.categories.iteritems():
+            for idCat, category in self.virtualDAT.categories.items():
                 try:
                     category.descriptors.remove(desc)
                     continue
@@ -212,25 +210,25 @@ class MyTreeCtrl(wx.TreeCtrl):
 
         if not Categorize(self.virtualDAT.rootCategory, desc):
             if desc.examplar.GetProp(16)[0] == 2:
-                self.virtualDAT.categories[3540939231L].descriptors.append(desc)
-                desc.cats = [3540939231L]
+                self.virtualDAT.categories[3540939231].descriptors.append(desc)
+                desc.cats = [3540939231]
             if desc.examplar.GetProp(16)[0] == 16:
-                self.virtualDAT.categories[3379372343L].descriptors.append(desc)
-                desc.cats = [3379372343L]
+                self.virtualDAT.categories[3379372343].descriptors.append(desc)
+                desc.cats = [3379372343]
         propFamilies = desc.examplar.GetProp(662775920)
         if propFamilies:
             for family in propFamilies:
                 if family not in self.virtualDAT.categories:
-                    parentFamilyCatID = 4089087265L
+                    parentFamilyCatID = 4089087265
                     name = '0x%08X' % family
                     bNamed = False
-                    choosenCohort = self.virtualDAT.getEntry(87304289, 1740496652, family + 268435456 & 4294967295L)
+                    choosenCohort = self.virtualDAT.getEntry(87304289, 1740496652, family + 268435456 & 4294967295)
                     if choosenCohort == None:
                         potentialCohorts = []
-                        potentialCohorts = self.virtualDAT.getEntries(87304289, 0, family + 268435456 & 4294967295L, gMask=0)
+                        potentialCohorts = self.virtualDAT.getEntries(87304289, 0, family + 268435456 & 4294967295, gMask=0)
                     else:
                         choosenCohort.cats = [
-                         4089082401L]
+                         4089082401]
                         potentialCohorts = [choosenCohort]
                     for cohort in potentialCohorts:
                         if 'examplar' not in cohort.__dict__:
@@ -239,7 +237,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                             name = cohort.examplar.GetProp(32)
                             if name is not None:
                                 name = name[0] + ' - [0x%08X]' % family
-                                parentFamilyCatID = 4089086497L
+                                parentFamilyCatID = 4089086497
                                 bNamed = True
                                 choosenCohort = cohort
                                 break
@@ -291,7 +289,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                 if model.bValid:
                     virtualDAT.standardModelsDict[entry.tgi] = model
                     virtualDAT.standardModels.append(StandardModel(entry, model))
-                elif entry.tgi[1] == 3134937073L and entry.tgi[2] == 235995136:
+                elif entry.tgi[1] == 3134937073 and entry.tgi[2] == 235995136:
                     what = SC4ModelMesh(entry.tgi[1], entry.tgi[2], virtualDAT)
                     if what.bValid == False:
                         del model
@@ -489,7 +487,7 @@ class NoteBookPanel(wx.Panel):
 
     def UndoInCaseModified(self):
         IID = self.examplar.entry.tgi[2]
-        texEntry = VirtualDat.this.getEntry(2238569388L, 1782082854, IID)
+        texEntry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
         if texEntry != None:
             texEntry.content = texEntry.rawContent = None
         if self.examplar.modified:
@@ -550,13 +548,13 @@ class NoteBookPanel(wx.Panel):
                 if prop.values != [0.0] * 256:
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(200, 99, 71))
             if prop.id == 709468037:
-                if self.virtualDAT.getEntry(0, 2527069872L, prop.values[0]) == None:
+                if self.virtualDAT.getEntry(0, 2527069872, prop.values[0]) == None:
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(200, 99, 71))
-            if prop.id == 2317746872L:
-                if self.virtualDAT.getEntry(2238569388L, 1782082854, prop.values[0]) == None:
+            if prop.id == 2317746872:
+                if self.virtualDAT.getEntry(2238569388, 1782082854, prop.values[0]) == None:
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(200, 99, 71))
-            if prop.id == 3928360329L:
-                if self.virtualDAT.getEntry(1697917002, 2835075954L, prop.values[0]) == None:
+            if prop.id == 3928360329:
+                if self.virtualDAT.getEntry(1697917002, 2835075954, prop.values[0]) == None:
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(200, 99, 71))
 
         def FamilyFill(cohort):
@@ -608,8 +606,8 @@ class NoteBookPanel(wx.Panel):
             return
 
         RecurseFill(self.examplar.link)
-        UVNK = self.examplar.GetProp(2319542937L)
-        IDK = self.examplar.GetProp(3393284789L)
+        UVNK = self.examplar.GetProp(2319542937)
+        IDK = self.examplar.GetProp(3393284789)
         if UVNK or IDK:
             idx = self.listProperties.InsertStringItem(sys.maxint, propertyPageLTEXT)
             self.listProperties.SetItemBackgroundColour(idx, wx.Colour(113, 255, 139))
@@ -627,7 +625,7 @@ class NoteBookPanel(wx.Panel):
                         except UnicodeDecodeError:
                             txt = uvnk.content.decode('utf8')
 
-                        idx = self.listProperties.InsertStringItem(sys.maxint, self.virtualDAT.properties[2319542937L].Name)
+                        idx = self.listProperties.InsertStringItem(sys.maxint, self.virtualDAT.properties[2319542937].Name)
                         self.listProperties.SetStringItem(idx, 4, txt)
                         self.listProperties.SetStringItem(idx, 1, '0x%08X' % uvnk.tgi[1])
                         self.listProperties.SetStringItem(idx, 2, namedLang[i])
@@ -648,7 +646,7 @@ class NoteBookPanel(wx.Panel):
                         except UnicodeDecodeError:
                             txt = idk.content.decode('utf8')
 
-                        idx = self.listProperties.InsertStringItem(sys.maxint, self.virtualDAT.properties[3393284789L].Name)
+                        idx = self.listProperties.InsertStringItem(sys.maxint, self.virtualDAT.properties[3393284789].Name)
                         self.listProperties.SetStringItem(idx, 4, txt)
                         self.listProperties.SetStringItem(idx, 1, '0x%08X' % idk.tgi[1])
                         self.listProperties.SetStringItem(idx, 2, namedLang[i])
@@ -658,9 +656,9 @@ class NoteBookPanel(wx.Panel):
         propFamilies = self.examplar.GetProp(662775920)
         if propFamilies:
             for family in propFamilies:
-                choosenCohort = self.virtualDAT.getEntry(87304289, 1740496652, family + 268435456 & 4294967295L)
+                choosenCohort = self.virtualDAT.getEntry(87304289, 1740496652, family + 268435456 & 4294967295)
                 if choosenCohort == None:
-                    potentialCohorts = self.virtualDAT.getEntries(87304289, 0, family + 268435456 & 4294967295L, gMask=0)
+                    potentialCohorts = self.virtualDAT.getEntries(87304289, 0, family + 268435456 & 4294967295, gMask=0)
                 else:
                     potentialCohorts = [
                      choosenCohort]
@@ -777,7 +775,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnActivated(self, event):
         allowedPropEdit = [
-         32, 662775824, 2308635565L, 2317746857L, 2317746872L, 1246398704, 1771767972, 2297284498L, 3919251084L, 2297284501L, 2297284502L, 662775920, 662775825]
+         32, 662775824, 2308635565, 2317746857, 2317746872, 1246398704, 1771767972, 2297284498, 3919251084, 2297284501, 2297284502, 662775920, 662775825]
         listItems = event.GetEventObject()
         idx = event.GetIndex()
         if idx < 3:
@@ -787,14 +785,14 @@ class NoteBookPanel(wx.Panel):
         if idx - 3 >= len(self.examplar.props):
             if listItems.GetItemData(idx) & 805306368 == 805306368:
                 offset = listItems.GetItemData(idx) & 255
-                UVNK = self.examplar.GetProp(2319542937L)
+                UVNK = self.examplar.GetProp(2319542937)
                 uvnk = self.virtualDAT.getEntry(UVNK[0], UVNK[1] + offset, UVNK[2])
                 if self.OnEditLTEXT(uvnk):
                     self.listProperties.DeleteAllItems()
                     self.FillTheList()
             elif listItems.GetItemData(idx) & 1073741824 == 1073741824:
                 offset = listItems.GetItemData(idx) & 255
-                IDK = self.examplar.GetProp(3393284789L)
+                IDK = self.examplar.GetProp(3393284789)
                 idk = self.virtualDAT.getEntry(IDK[0], IDK[1] + offset, IDK[2])
                 if self.OnEditLTEXT(idk):
                     self.listProperties.DeleteAllItems()
@@ -877,7 +875,7 @@ class NoteBookPanel(wx.Panel):
         oldFileName = fileName
         for entry in entries:
             entry.ReadFile(None, True, False)
-            if entry.tgi[0] == 1697917002 and entry.tgi[1] == 2835075954L:
+            if entry.tgi[0] == 1697917002 and entry.tgi[1] == 2835075954:
                 nbrOfLots += 1
                 lotName = entry.examplar.GetProp(32)[0]
                 lotID = entry.tgi[2]
@@ -910,7 +908,7 @@ class NoteBookPanel(wx.Panel):
         self.InternalSave(self.examplar.entry.fileName)
         self.bSave.Enable(False)
         IID = self.examplar.entry.tgi[2]
-        texEntry = VirtualDat.this.getEntry(2238569388L, 1782082854, IID)
+        texEntry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
         if texEntry != None:
             texEntry.content = texEntry.rawContent = None
         self.descriptor.name = self.examplar.GetProp(32)[0]
@@ -1025,23 +1023,23 @@ class NoteBookPanel(wx.Panel):
             if self.SelectedPropForNonAdvanced():
                 menu.Append(self.popupID3, popupPropertyMenuItem3)
         bSep = False
-        if IsFromCategory(self.virtualDAT.categories[2895100787L], self.examplar) and self.examplar.GetProp(2319542937L) == None:
+        if IsFromCategory(self.virtualDAT.categories[2895100787], self.examplar) and self.examplar.GetProp(2319542937) == None:
             if not bSep:
                 bSep = True
                 menu.AppendSeparator()
             menu.Append(self.popupID6, popupPropertyMenuItem6)
-        if IsFromCategory(self.virtualDAT.categories[210746660], self.examplar) and self.examplar.GetProp(2319542937L) == None:
+        if IsFromCategory(self.virtualDAT.categories[210746660], self.examplar) and self.examplar.GetProp(2319542937) == None:
             if not bSep:
                 bSep = True
                 menu.AppendSeparator()
             menu.Append(self.popupID6, popupPropertyMenuItem6)
         if self.examplar.GetProp(16)[0] == 30:
             bUVNK = True
-            if self.examplar.GetProp(2319542937L) == None:
+            if self.examplar.GetProp(2319542937) == None:
                 bUVNK = False
-            if self.examplar.GetProp(2319542937L) == [0, 0, 0]:
+            if self.examplar.GetProp(2319542937) == [0, 0, 0]:
                 bUVNK = False
-            if self.examplar.GetProp(2308635565L) == None and not bUVNK:
+            if self.examplar.GetProp(2308635565) == None and not bUVNK:
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
@@ -1051,8 +1049,8 @@ class NoteBookPanel(wx.Panel):
                     bSep = True
                     menu.AppendSeparator()
                 menu.Append(self.popupID6, popupPropertyMenuItem6)
-        if self.examplar.GetProp(2319542937L) != None:
-            UVNK = self.examplar.GetProp(2319542937L)
+        if self.examplar.GetProp(2319542937) != None:
+            UVNK = self.examplar.GetProp(2319542937)
             if UVNK[0] == 539399691:
                 uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
                 submenu = wx.Menu()
@@ -1067,29 +1065,29 @@ class NoteBookPanel(wx.Panel):
                         bSep = True
                         menu.AppendSeparator()
                     menu.AppendMenu(self.popupID7, popupPropertyMenuItem7, submenu)
-        if IsFromCategory(self.virtualDAT.categories[3431971885L], self.examplar) and self.examplar.GetProp(3928360329L) and self.examplar.GetProp(3928360329L)[0] != 0:
-            if self.examplar.GetProp(2308635565L) == None and self.examplar.GetProp(2319542937L) == None:
+        if IsFromCategory(self.virtualDAT.categories[3431971885], self.examplar) and self.examplar.GetProp(3928360329) and self.examplar.GetProp(3928360329)[0] != 0:
+            if self.examplar.GetProp(2308635565) == None and self.examplar.GetProp(2319542937) == None:
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
                 menu.Append(self.popupID5, popupPropertyMenuItem5)
-            if self.examplar.GetProp(2308635565L) != None and self.examplar.GetProp(2319542937L) == None:
+            if self.examplar.GetProp(2308635565) != None and self.examplar.GetProp(2319542937) == None:
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
                 menu.Append(self.popupID6, popupPropertyMenuItem6)
-            if self.examplar.GetProp(2317746857L) == None and self.examplar.GetProp(3393284789L) == None:
+            if self.examplar.GetProp(2317746857) == None and self.examplar.GetProp(3393284789) == None:
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
                 menu.Append(self.popupID8, popupPropertyMenuItem8)
-            if self.examplar.GetProp(2317746857L) != None and self.examplar.GetProp(3393284789L) == None:
+            if self.examplar.GetProp(2317746857) != None and self.examplar.GetProp(3393284789) == None:
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
                 menu.Append(self.popupID9, popupPropertyMenuItem9)
-            if self.examplar.GetProp(3393284789L) != None:
-                IDK = self.examplar.GetProp(3393284789L)
+            if self.examplar.GetProp(3393284789) != None:
+                IDK = self.examplar.GetProp(3393284789)
                 if IDK[0] == 539399691:
                     idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
                     submenu = wx.Menu()
@@ -1105,7 +1103,7 @@ class NoteBookPanel(wx.Panel):
                             menu.AppendSeparator()
                         menu.AppendMenu(self.popupID10, popupPropertyMenuItem10, submenu)
         if bAdvancedUser:
-            if IsFromCategory(self.virtualDAT.categories[3431971885L], self.examplar):
+            if IsFromCategory(self.virtualDAT.categories[3431971885], self.examplar):
                 if not bSep:
                     bSep = True
                     menu.AppendSeparator()
@@ -1141,13 +1139,13 @@ class NoteBookPanel(wx.Panel):
             menu.Append(self.popupID17, popupPropertyMenuItem17)
             if IsFromCategory(self.virtualDAT.categories[749358634], self.examplar) and self.examplar.entry.tgi[0] == 1697917002:
                 menu.Append(self.popupID28, popupPropertyMenuItem28)
-            if IsFromCategory(self.virtualDAT.categories[2895100787L], self.examplar) and self.examplar.entry.tgi[0] == 1697917002:
+            if IsFromCategory(self.virtualDAT.categories[2895100787], self.examplar) and self.examplar.entry.tgi[0] == 1697917002:
                 menu.Append(self.popupID28, popupPropertyMenuItem28)
-            if IsFromCategory(self.virtualDAT.categories[3431971885L], self.examplar) and self.examplar.entry.tgi[0] == 1697917002:
+            if IsFromCategory(self.virtualDAT.categories[3431971885], self.examplar) and self.examplar.entry.tgi[0] == 1697917002:
                 menu.Append(self.popupID29, popupPropertyMenuItem29)
-        if IsFromCategory(self.virtualDAT.categories[2895100787L], self.examplar):
+        if IsFromCategory(self.virtualDAT.categories[2895100787], self.examplar):
             if not IsFromCategoryDesc(self.virtualDAT.categories[749358634], self.descriptor):
-                if not IsFromCategoryDesc(self.virtualDAT.categories[2358230027L], self.descriptor):
+                if not IsFromCategoryDesc(self.virtualDAT.categories[2358230027], self.descriptor):
                     if not bSep:
                         bSep = True
                         menu.AppendSeparator()
@@ -1197,18 +1195,18 @@ class NoteBookPanel(wx.Panel):
             desc = self.virtualDAT.FindBuildingFromLot(self.examplar)
             if desc:
                 if desc.examplar.entry.tgi[0] == 1697917002:
-                    if desc in self.virtualDAT.categories[3431971885L].descriptors:
+                    if desc in self.virtualDAT.categories[3431971885].descriptors:
                         if not bSep:
                             bSep = True
                             menu.AppendSeparator()
                         menu.Append(self.popupID30, popupPropertyMenuItem30)
                         menu.Append(self.popupID35, popupPropertyMenuItem35)
-                    if desc in self.virtualDAT.categories[3540939231L].descriptors:
+                    if desc in self.virtualDAT.categories[3540939231].descriptors:
                         if not bSep:
                             bSep = True
                             menu.AppendSeparator()
                         menu.Append(self.popupID30, popupPropertyMenuItem30)
-                    if desc in self.virtualDAT.categories[2895100787L].descriptors:
+                    if desc in self.virtualDAT.categories[2895100787].descriptors:
                         if not bSep:
                             bSep = True
                             menu.AppendSeparator()
@@ -1219,7 +1217,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnChangeIcon(self, event):
         IID = self.examplar.entry.tgi[2]
-        texEntry = VirtualDat.this.getEntry(2238569388L, 1782082854, IID)
+        texEntry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
         img = None
         if texEntry != None:
             try:
@@ -1228,7 +1226,7 @@ class NoteBookPanel(wx.Panel):
             except:
                 texEntry.ReadFile(None, True, True)
 
-            cIO = StringIO(texEntry.content)
+            cIO = io.BytesIO(texEntry.content)
             try:
                 img = Image.open(cIO).convert('RGB')
             except:
@@ -1239,11 +1237,11 @@ class NoteBookPanel(wx.Panel):
         if dlg.ShowModal() == wx.ID_OK:
             if dlg.image != None:
                 iconImage = dlg.image
-                cIO = StringIO()
+                cIO = io.BytesIO()
                 iconImage.save(cIO, 'PNG')
                 strIcon = cIO.getvalue()
                 IID = self.examplar.entry.tgi[2]
-                buffer = struct.pack('III', 2238569388L, 1782082854, IID)
+                buffer = struct.pack('III', 2238569388, 1782082854, IID)
                 buffer += struct.pack('II', 0, len(strIcon))
                 iconEntry = SC4Entry(buffer, 0, self.examplar.entry.fileName)
                 iconEntry.content = iconEntry.rawContent = strIcon[:]
@@ -1258,7 +1256,7 @@ class NoteBookPanel(wx.Panel):
          'Chicago', 'New york', 'Houston', 'Euro']
         ogs = [8192, 8193, 8194, 8195]
         dlg = wx.MultiChoiceDialog(self, 'Choose tileset', 'PIMX', lst)
-        currentOgs = self.examplar.GetProp(2854081430L)
+        currentOgs = self.examplar.GetProp(2854081430)
         selected = []
         for i, o in enumerate(ogs):
             if o in currentOgs:
@@ -1271,7 +1269,7 @@ class NoteBookPanel(wx.Panel):
             tileset = [ ogs[x] for x in selections ]
             finalOgs = nonTilesetOGs + tileset
             finalOgs.sort()
-            prop = CreateAProp(self.virtualDAT.properties[2854081430L], tuple(finalOgs))
+            prop = CreateAProp(self.virtualDAT.properties[2854081430], tuple(finalOgs))
             self.examplar.AddTextProp(prop)
             self.listProperties.DeleteAllItems()
             self.FillTheList()
@@ -1284,45 +1282,45 @@ class NoteBookPanel(wx.Panel):
     def OnCamStage(self, event):
         lots = self.virtualDAT.FindAllLotsFromBuilding(self.examplar)
         if IsFromCategory(self.virtualDAT.categories[747617173], self.examplar):
-            needed = 3049261992L
+            needed = 3049261992
             lowStage = 9
         if IsFromCategory(self.virtualDAT.categories[1821359013], self.examplar):
-            needed = 3049262000L
+            needed = 3049262000
             lowStage = 9
         if IsFromCategory(self.virtualDAT.categories[210746286], self.examplar):
-            needed = 3049262008L
+            needed = 3049262008
             lowStage = 9
-        if IsFromCategory(self.virtualDAT.categories[2358229964L], self.examplar):
-            needed = 3049261736L
+        if IsFromCategory(self.virtualDAT.categories[2358229964], self.examplar):
+            needed = 3049261736
             lowStage = 9
         if IsFromCategory(self.virtualDAT.categories[210746332], self.examplar):
-            needed = 3049261744L
+            needed = 3049261744
             lowStage = 9
-        if IsFromCategory(self.virtualDAT.categories[2895100907L], self.examplar):
-            needed = 3049261752L
+        if IsFromCategory(self.virtualDAT.categories[2895100907], self.examplar):
+            needed = 3049261752
             lowStage = 9
         if IsFromCategory(self.virtualDAT.categories[1821359093], self.examplar):
-            needed = 3049261760L
+            needed = 3049261760
             lowStage = 9
-        if IsFromCategory(self.virtualDAT.categories[3431971841L], self.examplar):
-            needed = 3049261768L
+        if IsFromCategory(self.virtualDAT.categories[3431971841], self.examplar):
+            needed = 3049261768
             lowStage = 9
         if IsFromCategory(self.virtualDAT.categories[749358378], self.examplar):
-            needed = 3049262112L
+            needed = 3049262112
             lowStage = 1
         if IsFromCategory(self.virtualDAT.categories[747617303], self.examplar):
-            needed = 3049262760L
+            needed = 3049262760
             lowStage = 4
         if IsFromCategory(self.virtualDAT.categories[1820235835], self.examplar):
-            needed = 3049262768L
+            needed = 3049262768
             lowStage = 4
         if IsFromCategory(self.virtualDAT.categories[1821359580], self.examplar):
-            needed = 3049262776L
+            needed = 3049262776
             lowStage = 4
         ogs = range(needed + 1, needed + 8)
-        lst = [ self.virtualDAT.properties[2854081430L].Options[x] for x in ogs ]
+        lst = [ self.virtualDAT.properties[2854081430].Options[x] for x in ogs ]
         dlg = wx.MultiChoiceDialog(self, 'Choose CAM Stage', 'PIMX', lst)
-        currentOgs = self.examplar.GetProp(2854081430L)
+        currentOgs = self.examplar.GetProp(2854081430)
         selected = []
         for i, o in enumerate(ogs):
             if o in currentOgs:
@@ -1340,11 +1338,11 @@ class NoteBookPanel(wx.Panel):
             nonTilesetOGs = [ x for x in currentOgs if x not in ogs ]
             selections = dlg.GetSelections()
             tileset = [ ogs[x] for x in selections ]
-            if needed != 3049262112L:
+            if needed != 3049262112:
                 tileset.append(needed)
             finalOgs = nonTilesetOGs + tileset
             finalOgs.sort()
-            prop = CreateAProp(self.virtualDAT.properties[2854081430L], tuple(finalOgs))
+            prop = CreateAProp(self.virtualDAT.properties[2854081430], tuple(finalOgs))
             self.examplar.AddTextProp(prop)
             self.listProperties.DeleteAllItems()
             self.FillTheList()
@@ -1362,15 +1360,15 @@ class NoteBookPanel(wx.Panel):
 
     def OnRecomputeStage(self, event):
         descBuilding = self.virtualDAT.FindBuildingFromLot(self.examplar)
-        dlg = LotCreatorDlg(self, descBuilding.examplar, self.virtualDAT, True, True, self.examplar.GetProp(2297284496L))
+        dlg = LotCreatorDlg(self, descBuilding.examplar, self.virtualDAT, True, True, self.examplar.GetProp(2297284496))
         if dlg.ShowModal() == wx.ID_OK:
             stage = int(dlg.stageCtrl.GetValue())
             newProp = CreateAProp(self.virtualDAT.properties[662775863], (stage,))
             self.examplar.AddTextProp(newProp)
             purposes = {1: 'R',2: 'CS',3: 'CO',7: 'IM',6: 'ID',8: 'IHT',5: 'IR'}
-            purpose = self.examplar.GetProp(2297284502L)[0]
+            purpose = self.examplar.GetProp(2297284502)[0]
             zoning = self.virtualDAT.ComputeZoning(purposes[purpose], descBuilding.examplar.GetProp(662775824)[1])
-            newProp = CreateAProp(self.virtualDAT.properties[2297284499L], tuple(zoning))
+            newProp = CreateAProp(self.virtualDAT.properties[2297284499], tuple(zoning))
             self.examplar.AddTextProp(newProp)
             self.listProperties.DeleteAllItems()
             self.FillTheList()
@@ -1382,7 +1380,7 @@ class NoteBookPanel(wx.Panel):
     def OnPlop2Grow(self, event):
         lst = [
          'R$', 'R$$', 'R$$$', 'CS$', 'CS$$', 'CS$$$', 'CO$$', 'CO$$$', 'IA', 'ID Anchor', 'ID Mech', 'ID Out', 'IM Anchor', 'IM Mech', 'IM Out', 'IHT Anchor', 'IHT Mech', 'IHT Out']
-        name2Cat = {'R$': 747617173,'R$$': 1821359013,'R$$$': 210746286,'CS$': 2358229964L,'CS$$': 210746332,'CS$$$': 2895100907L,'CO$$': 1821359093,'CO$$$': 3431971841L,'IA': 749358378,'ID Anchor': 747617304,'ID Mech': 747617305,'ID Out': 747617306,'IM Anchor': 1820235836,'IM Mech': 1820235837,'IM Out': 1820235838,'IHT Anchor': 1821359581,'IHT Mech': 1821359582,'IHT Out': 1821359583}
+        name2Cat = {'R$': 747617173,'R$$': 1821359013,'R$$$': 210746286,'CS$': 2358229964,'CS$$': 210746332,'CS$$$': 2895100907,'CO$$': 1821359093,'CO$$$': 3431971841,'IA': 749358378,'ID Anchor': 747617304,'ID Mech': 747617305,'ID Out': 747617306,'IM Anchor': 1820235836,'IM Mech': 1820235837,'IM Out': 1820235838,'IHT Anchor': 1821359581,'IHT Mech': 1821359582,'IHT Out': 1821359583}
         dlg1 = wx.SingleChoiceDialog(self, 'Choose the category you want the new lot to be based on', 'Plop lot creation', lst, wx.CHOICEDLG_STYLE)
         if dlg1.ShowModal() == wx.ID_OK:
             selected = dlg1.GetStringSelection()
@@ -1394,13 +1392,13 @@ class NoteBookPanel(wx.Panel):
             if rkt == None:
                 rkt = rkt1
             newBuildingDesc = self.parent.parent.CreateAnExamplar(oldBuildingDesc.examplar.GetProp(32)[0] + '_GROW', rkt, oldBuildingDesc.examplar.GetProp(662775824), self.virtualDAT.categories[cat], oldBuildingDesc.examplar.GetProp(662775825))
-            lotDimensions = self.examplar.GetProp(2297284496L)
+            lotDimensions = self.examplar.GetProp(2297284496)
             width = lotDimensions[0]
             depth = lotDimensions[1]
-            stage, purpose, wealth = ComputeStagePurposeWealth(newBuildingDesc.examplar.GetProp(662775860), newBuildingDesc.examplar.GetProp(2854081430L), lotDimensions[0], lotDimensions[1])
+            stage, purpose, wealth = ComputeStagePurposeWealth(newBuildingDesc.examplar.GetProp(662775860), newBuildingDesc.examplar.GetProp(2854081430), lotDimensions[0], lotDimensions[1])
             IID = newBuildingDesc.examplar.entry.tgi[2]
             fileNameBase = '%s%s%s_%sx%s_%s' % (purpose, '$' * (wealth + 1), stage, width, depth, newBuildingDesc.examplar.GetProp(32)[0])
-            buffer = struct.pack('III', 1697917002, 2835075954L, IID)
+            buffer = struct.pack('III', 1697917002, 2835075954, IID)
             buffer += struct.pack('II', 0, 0)
             entry = SC4Entry(buffer, 0, os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
             props = []
@@ -1415,19 +1413,19 @@ class NoteBookPanel(wx.Panel):
             props.append(CreateAPropFromString(self.virtualDAT.properties[32], str(fileNameBase)))
             props.append(CreateAProp(self.virtualDAT.properties[662775863], (int(stage),)))
             props.append(CreateAProp(self.virtualDAT.properties[1246398704], CopyPropOrDefault(1246398704, (8, ))))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284489L], (2, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284496L], (int(width), int(depth))))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284489], (2, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284496], (int(width), int(depth))))
             zoning = self.virtualDAT.ComputeZoning(purpose, newBuildingDesc.examplar.GetProp(662775824)[1])
-            props.append(CreateAProp(self.virtualDAT.properties[2297284499L], tuple(zoning)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284501L], (wealth + 1,)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284502L], (purposes[purpose],)))
-            props.append(CreateAProp(self.virtualDAT.properties[3420603383L], (1, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284499], tuple(zoning)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284501], (wealth + 1,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284502], (purposes[purpose],)))
+            props.append(CreateAProp(self.virtualDAT.properties[3420603383], (1, )))
             props.append(CreateAProp(self.virtualDAT.properties[1771767972], CopyPropOrDefault(1771767972, (0.0, ))))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284498L], CopyPropOrDefault(2297284498L, (90.0, ))))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284504L], CopyPropOrDefault(2297284504L, (3379372341L, ))))
-            props.append(CreateAProp(self.virtualDAT.properties[2298271863L], CopyPropOrDefault(2298271863L, (2299228948L, ))))
-            props.append(CreateAProp(self.virtualDAT.properties[3919251084L], CopyPropOrDefault(3919251084L, (90.0, ))))
-            for lcp in range(2297284864L, 2297286143L):
+            props.append(CreateAProp(self.virtualDAT.properties[2297284498], CopyPropOrDefault(2297284498, (90.0, ))))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284504], CopyPropOrDefault(2297284504, (3379372341, ))))
+            props.append(CreateAProp(self.virtualDAT.properties[2298271863], CopyPropOrDefault(2298271863, (2299228948, ))))
+            props.append(CreateAProp(self.virtualDAT.properties[3919251084], CopyPropOrDefault(3919251084, (90.0, ))))
+            for lcp in range(2297284864, 2297286143):
                 z = self.examplar.GetProp(lcp)
                 if z == None:
                     break
@@ -1469,11 +1467,11 @@ class NoteBookPanel(wx.Panel):
         iconImage.paste(image, (88, 0))
         iconImage.paste(image, (44 * 3, 0))
         iconImage = Image.composite(iconImage, template, mask)
-        cIO = StringIO()
+        cIO = io.BytesIO()
         iconImage.save(cIO, 'PNG')
         strIcon = cIO.getvalue()
         IID = self.examplar.entry.tgi[2]
-        buffer = struct.pack('III', 2238569388L, 1782082854, IID)
+        buffer = struct.pack('III', 2238569388, 1782082854, IID)
         buffer += struct.pack('II', 0, len(strIcon))
         iconEntry = SC4Entry(buffer, 0, self.examplar.entry.fileName)
         iconEntry.content = iconEntry.rawContent = strIcon[:]
@@ -1491,16 +1489,16 @@ class NoteBookPanel(wx.Panel):
             first = random.randrange(0, 15)
             IID = first * 268435456 + (dt & 268435455)
             fileNameBase = 'PLOP_%sx%s_%s' % (dlg.widthCtrl.GetValue(), dlg.depthCtrl.GetValue(), self.examplar.GetProp(32)[0])
-            buffer = struct.pack('III', 1697917002, 2835075954L, IID)
+            buffer = struct.pack('III', 1697917002, 2835075954, IID)
             buffer += struct.pack('II', 0, 0)
             entry = SC4Entry(buffer, 0, os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
             props = []
             props.append(CreateAProp(self.virtualDAT.properties[16], (16, )))
             props.append(CreateAPropFromString(self.virtualDAT.properties[32], str(fileNameBase)))
-            if IsFromCategory(self.virtualDAT.categories[3434232095L], self.examplar):
+            if IsFromCategory(self.virtualDAT.categories[3434232095], self.examplar):
                 bFound = False
                 for stage in xrange(1, 16):
-                    if IsFromCategory(self.virtualDAT.categories[3434232096L + stage], self.examplar):
+                    if IsFromCategory(self.virtualDAT.categories[3434232096 + stage], self.examplar):
                         props.append(CreateAProp(self.virtualDAT.properties[662775863], (stage,)))
                         bFound = True
                         break
@@ -1520,7 +1518,7 @@ class NoteBookPanel(wx.Panel):
             if IsFromCategory(self.virtualDAT.categories[210746652], self.examplar):
                 stages = {210746657: 1,210746658: 2,210746659: 3,210746695: 1,210746697: 2,210746700: 3}
                 bFound = False
-                for catID, stage in stages.iteritems():
+                for catID, stage in stages.items():
                     if IsFromCategory(self.virtualDAT.categories[catID], self.examplar):
                         props.append(CreateAProp(self.virtualDAT.properties[662775863], (stage,)))
                         bFound = True
@@ -1531,19 +1529,19 @@ class NoteBookPanel(wx.Panel):
             else:
                 props.append(CreateAProp(self.virtualDAT.properties[662775863], (255, )))
             props.append(CreateAProp(self.virtualDAT.properties[1246398704], (8, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284489L], (2, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284496L], (int(dlg.widthCtrl.GetValue()), int(dlg.depthCtrl.GetValue()))))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284489], (2, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284496], (int(dlg.widthCtrl.GetValue()), int(dlg.depthCtrl.GetValue()))))
             if IsFromCategory(self.virtualDAT.categories[210746652], self.examplar):
-                props.append(CreateAProp(self.virtualDAT.properties[2297284499L], (11, )))
+                props.append(CreateAProp(self.virtualDAT.properties[2297284499], (11, )))
             else:
-                if IsFromCategory(self.virtualDAT.categories[3434232095L], self.examplar):
-                    props.append(CreateAProp(self.virtualDAT.properties[2297284499L], (12, )))
+                if IsFromCategory(self.virtualDAT.categories[3434232095], self.examplar):
+                    props.append(CreateAProp(self.virtualDAT.properties[2297284499], (12, )))
                 else:
-                    props.append(CreateAProp(self.virtualDAT.properties[2297284499L], (15, )))
-                props.append(CreateAProp(self.virtualDAT.properties[2297284501L], (0, )))
-                props.append(CreateAProp(self.virtualDAT.properties[2297284502L], (0, )))
-                props.append(CreateAProp(self.virtualDAT.properties[3420603383L], (1, )))
-                currentID = 2297284864L
+                    props.append(CreateAProp(self.virtualDAT.properties[2297284499], (15, )))
+                props.append(CreateAProp(self.virtualDAT.properties[2297284501], (0, )))
+                props.append(CreateAProp(self.virtualDAT.properties[2297284502], (0, )))
+                props.append(CreateAProp(self.virtualDAT.properties[3420603383], (1, )))
+                currentID = 2297284864
                 objID = dt & 16777215
                 lotwidth = int(dlg.widthCtrl.GetValue())
                 lotdepth = int(dlg.depthCtrl.GetValue())
@@ -1595,13 +1593,13 @@ class NoteBookPanel(wx.Panel):
                 Height = self.examplar.GetProp(662775824)[1]
                 MaxSlopeBeforeLotFoundation = eval(self.virtualDAT.MaxSlopeBeforeLotFoundation)
                 MaxSlopeAllowed = eval(self.virtualDAT.MaxSlopeAllowed)
-                if IsFromCategory(self.virtualDAT.categories[3434232095L], self.examplar):
+                if IsFromCategory(self.virtualDAT.categories[3434232095], self.examplar):
                     MaxSlopeBeforeLotFoundation = 0
             props.append(CreateAProp(self.virtualDAT.properties[1771767972], (0.0, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284498L], (MaxSlopeBeforeLotFoundation,)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284504L], (3379372341L, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2298271863L], (2299228948L, )))
-            props.append(CreateAProp(self.virtualDAT.properties[3919251084L], (MaxSlopeAllowed,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284498], (MaxSlopeBeforeLotFoundation,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284504], (3379372341, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2298271863], (2299228948, )))
+            props.append(CreateAProp(self.virtualDAT.properties[3919251084], (MaxSlopeAllowed,)))
             props.sort(cmp=lambda x, y: cmp(x[2:2 + 8], y[2:2 + 8]))
             buffer = 'EQZT1###\r\n' + 'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n' + 'PropCount=0x%08x\r\n' % len(props)
             buffer += '\r\n'.join(props)
@@ -1620,8 +1618,8 @@ class NoteBookPanel(wx.Panel):
             descExamplar.entry = descEntry
             descEntry.examplar = descExamplar
             descEntry.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[1787239298], (IID,)))
-            descEntry.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[2317746872L], (IID,)))
-            descEntry.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[3928360329L], (IID,)))
+            descEntry.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[2317746872], (IID,)))
+            descEntry.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[3928360329], (IID,)))
             descEntry.examplar.Maj()
             descDescriptor = BuildingDesc(descEntry)
             self.virtualDAT.addEntries([descEntry], None, False, False)
@@ -1641,19 +1639,19 @@ class NoteBookPanel(wx.Panel):
             iconImage.paste(image, (88, 0))
             iconImage.paste(image, (44 * 3, 0))
             iconImage = Image.composite(iconImage, template, mask)
-            cIO = StringIO()
+            cIO = io.BytesIO()
             iconImage.save(cIO, 'PNG')
             strIcon = cIO.getvalue()
-            buffer = struct.pack('III', 2238569388L, 1782082854, IID)
+            buffer = struct.pack('III', 2238569388, 1782082854, IID)
             buffer += struct.pack('II', 0, len(strIcon))
             iconEntry = SC4Entry(buffer, 0, os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
             iconEntry.content = iconEntry.rawContent = strIcon[:]
             cIO.close()
             entries = [entry, descEntry, iconEntry]
-            UVNK = self.examplar.GetProp(2319542937L)
+            UVNK = self.examplar.GetProp(2319542937)
             if UVNK != None:
                 if UVNK[0] == 539399691:
-                    descExamplar.AddTextProp(CreateAProp(self.virtualDAT.properties[2319542937L], (UVNK[0], 1782082854, descExamplar.entry.tgi[2])))
+                    descExamplar.AddTextProp(CreateAProp(self.virtualDAT.properties[2319542937], (UVNK[0], 1782082854, descExamplar.entry.tgi[2])))
                     uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
                     for i, uvnk in enumerate(uvnks):
                         if uvnk != None:
@@ -1667,9 +1665,9 @@ class NoteBookPanel(wx.Panel):
                             ltextEnt = self.DuplicateLTEXTEntry(descEntry.examplar, utxt, 539399691, 1782082854 + uvnk.tgi[1] - UVNK[1], descExamplar.entry.tgi[2])
                             entries.append(ltextEnt)
 
-                IDK = self.examplar.GetProp(3393284789L)
+                IDK = self.examplar.GetProp(3393284789)
                 if IDK != None:
-                    descExamplar.AddTextProp(CreateAProp(self.virtualDAT.properties[3393284789L], (IDK[0], descExamplar.entry.tgi[1], descExamplar.entry.tgi[2])))
+                    descExamplar.AddTextProp(CreateAProp(self.virtualDAT.properties[3393284789], (IDK[0], descExamplar.entry.tgi[1], descExamplar.entry.tgi[2])))
                     idks = [ self.virtualDAT.getEntry(IDK[0], v[1] + i, IDK[2]) for i in offsetGID ]
                     for i, idk in enumerate(idks):
                         if idk != None:
@@ -1712,7 +1710,7 @@ class NoteBookPanel(wx.Panel):
             first = random.randrange(0, 15)
             IID = first * 268435456 + (dt & 268435455)
             fileNameBase = '%s%s%s_%sx%s_%s' % (dlg.purpose, '$' * (dlg.wealth + 1), dlg.stageCtrl.GetValue(), dlg.widthCtrl.GetValue(), dlg.depthCtrl.GetValue(), self.examplar.GetProp(32)[0])
-            buffer = struct.pack('III', 1697917002, 2835075954L, IID)
+            buffer = struct.pack('III', 1697917002, 2835075954, IID)
             buffer += struct.pack('II', 0, 0)
             entry = SC4Entry(buffer, 0, os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
             purposes = {'R': 1,'CS': 2,'CO': 3,'IM': 7,'ID': 6,'IHT': 8,'IR': 5}
@@ -1721,14 +1719,14 @@ class NoteBookPanel(wx.Panel):
             props.append(CreateAPropFromString(self.virtualDAT.properties[32], str(fileNameBase)))
             props.append(CreateAProp(self.virtualDAT.properties[662775863], (int(dlg.stageCtrl.GetValue()),)))
             props.append(CreateAProp(self.virtualDAT.properties[1246398704], (8, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284489L], (2, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284496L], (int(dlg.widthCtrl.GetValue()), int(dlg.depthCtrl.GetValue()))))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284489], (2, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284496], (int(dlg.widthCtrl.GetValue()), int(dlg.depthCtrl.GetValue()))))
             zoning = self.virtualDAT.ComputeZoning(dlg.purpose, self.examplar.GetProp(662775824)[1])
-            props.append(CreateAProp(self.virtualDAT.properties[2297284499L], tuple(zoning)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284501L], (dlg.wealth + 1,)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284502L], (purposes[dlg.purpose],)))
-            props.append(CreateAProp(self.virtualDAT.properties[3420603383L], (1, )))
-            currentID = 2297284864L
+            props.append(CreateAProp(self.virtualDAT.properties[2297284499], tuple(zoning)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284501], (dlg.wealth + 1,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284502], (purposes[dlg.purpose],)))
+            props.append(CreateAProp(self.virtualDAT.properties[3420603383], (1, )))
+            currentID = 2297284864
             objID = dt & 16777215
             lotwidth = int(dlg.widthCtrl.GetValue())
             lotdepth = int(dlg.depthCtrl.GetValue())
@@ -1781,10 +1779,10 @@ class NoteBookPanel(wx.Panel):
             Height = self.examplar.GetProp(662775824)[1]
             MaxSlopeBeforeLotFoundation = eval(self.virtualDAT.MaxSlopeBeforeLotFoundation)
             MaxSlopeAllowed = eval(self.virtualDAT.MaxSlopeAllowed)
-            props.append(CreateAProp(self.virtualDAT.properties[2297284498L], (MaxSlopeBeforeLotFoundation,)))
-            props.append(CreateAProp(self.virtualDAT.properties[2297284504L], (3379372341L, )))
-            props.append(CreateAProp(self.virtualDAT.properties[2298271863L], (2299228948L, )))
-            props.append(CreateAProp(self.virtualDAT.properties[3919251084L], (MaxSlopeAllowed,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284498], (MaxSlopeBeforeLotFoundation,)))
+            props.append(CreateAProp(self.virtualDAT.properties[2297284504], (3379372341, )))
+            props.append(CreateAProp(self.virtualDAT.properties[2298271863], (2299228948, )))
+            props.append(CreateAProp(self.virtualDAT.properties[3919251084], (MaxSlopeAllowed,)))
             props.sort(cmp=lambda x, y: cmp(x[2:2 + 8], y[2:2 + 8]))
             buffer = 'EQZT1###\r\n' + 'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n' + 'PropCount=0x%08x\r\n' % len(props)
             buffer += '\r\n'.join(props)
@@ -1822,17 +1820,17 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
 
     def OnConvertReward(self, event):
-        ogs = list(self.examplar.GetProp(2854081430L))
+        ogs = list(self.examplar.GetProp(2854081430))
         ogs.append(5387)
-        newOGS = CreateAPropFromString(self.virtualDAT.properties[2854081430L], ','.join([ hex2str(v) for v in ogs ]))
+        newOGS = CreateAPropFromString(self.virtualDAT.properties[2854081430], ','.join([ hex2str(v) for v in ogs ]))
         self.examplar.AddTextProp(newOGS)
-        cityEx = CreateAPropFromString(self.virtualDAT.properties[3928885131L], hex2str(self.examplar.entry.tgi[2]))
+        cityEx = CreateAPropFromString(self.virtualDAT.properties[3928885131], hex2str(self.examplar.entry.tgi[2]))
         self.examplar.AddTextProp(cityEx)
-        condBuilding = CreateAPropFromString(self.virtualDAT.properties[3929147896L], 'True')
+        condBuilding = CreateAPropFromString(self.virtualDAT.properties[3929147896], 'True')
         self.examplar.AddTextProp(condBuilding)
         h = random.randint(0, 15)
         iid = 268435455 & self.examplar.entry.tgi[2]
-        buffer = struct.pack('III', 3395543715L, 1247710966, iid)
+        buffer = struct.pack('III', 3395543715, 1247710966, iid)
         newVal = '--#-package:%s# -- package signature'
         newVal = newVal % hex2str(iid)[2:]
         buffer += struct.pack('II', 0, 4 + len(newVal))
@@ -1943,7 +1941,7 @@ class NoteBookPanel(wx.Panel):
              self.examplar.entry.tgi[2]]
 
         def UseThisIID(desc):
-            for lcp in range(2297284864L, 2297286143L):
+            for lcp in range(2297284864, 2297286143):
                 values = desc.examplar.GetProp(lcp)
                 if values == None:
                     return False
@@ -1970,7 +1968,7 @@ class NoteBookPanel(wx.Panel):
              self.examplar.entry.tgi[2]]
 
         def UseThisIID(desc):
-            for lcp in range(2297284864L, 2297286143L):
+            for lcp in range(2297284864, 2297286143):
                 values = desc.examplar.GetProp(lcp)
                 if values == None:
                     return False
@@ -1989,7 +1987,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnBuildingsFromLot(self, event):
         buildingID = None
-        for lcp in range(2297284864L, 2297286143L):
+        for lcp in range(2297284864, 2297286143):
             values = self.examplar.GetProp(lcp)
             if values == None:
                 break
@@ -2031,12 +2029,12 @@ class NoteBookPanel(wx.Panel):
         LotSizeX = 1
         LotSizeY = 1
         if IsFromCategory(self.virtualDAT.categories[210746197], self.examplar):
-            if IsFromCategory(self.virtualDAT.categories[3431971885L], self.examplar):
+            if IsFromCategory(self.virtualDAT.categories[3431971885], self.examplar):
                 lotDesc = self.virtualDAT.FindLotFromBuilding(self.examplar)
                 if lotDesc is not None:
                     try:
-                        LotSizeX = lotDesc.examplar.GetProp(2297284496L)[0]
-                        LotSizeY = lotDesc.examplar.GetProp(2297284496L)[1]
+                        LotSizeX = lotDesc.examplar.GetProp(2297284496)[0]
+                        LotSizeY = lotDesc.examplar.GetProp(2297284496)[1]
                     except:
                         pass
 
@@ -2127,9 +2125,9 @@ class NoteBookPanel(wx.Panel):
             for prop2CreatID in category.setProperties.keys():
                 if prop2CreatID in propCreated:
                     pass
-                elif prop2CreatID == 2317746857L and self.examplar.GetProp(2319542937L):
+                elif prop2CreatID == 2317746857 and self.examplar.GetProp(2319542937):
                     pass
-                elif prop2CreatID == 2308635565L and self.examplar.GetProp(3393284789L):
+                elif prop2CreatID == 2308635565 and self.examplar.GetProp(3393284789):
                     pass
                 else:
                     propCreated.append(prop2CreatID)
@@ -2193,8 +2191,8 @@ class NoteBookPanel(wx.Panel):
         for prop in category.removeProperties.keys():
             self.examplar.RemoveProp(prop)
 
-        UVNK = self.examplar.GetProp(2319542937L)
-        IDK = self.examplar.GetProp(3393284789L)
+        UVNK = self.examplar.GetProp(2319542937)
+        IDK = self.examplar.GetProp(3393284789)
         if UVNK != None:
             props = [ p for p in props if unicode(p[2:2 + 8].upper()) != '899AFBAD' ]
         if IDK != None:
@@ -2209,7 +2207,7 @@ class NoteBookPanel(wx.Panel):
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
         self.parent.parent.listItems.Refresh()
         self.OnOpenLotWithBuilding(event)
-        if IsFromCategory(self.virtualDAT.categories[2895100787L], self.examplar):
+        if IsFromCategory(self.virtualDAT.categories[2895100787], self.examplar):
             for p in self.openedLots:
                 p.OnRecomputeStage(event)
 
@@ -2295,7 +2293,7 @@ class NoteBookPanel(wx.Panel):
             except:
                 utxt = txt.decode('utf8')
 
-        UVNK = self.examplar.GetProp(2319542937L)
+        UVNK = self.examplar.GetProp(2319542937)
         if UVNK:
             uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
             for i, uvnk in enumerate(uvnks):
@@ -2314,7 +2312,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnConvertToUVNK(self, event):
         try:
-            txt = self.examplar.GetPropObject(2308635565L).rawdata
+            txt = self.examplar.GetPropObject(2308635565).rawdata
         except:
             txt = self.examplar.GetPropObject(32).rawdata
 
@@ -2329,7 +2327,7 @@ class NoteBookPanel(wx.Panel):
         if self.examplar.GetProp(1788208387) and self.examplar.GetProp(1788208387)[0] == True:
             newProp = CreateAProp(self.virtualDAT.properties[1788208387], (False,))
             self.examplar.AddTextProp(newProp)
-        self.CreateLTEXTEntry(utxt, 539399691, 1782082854, self.examplar.entry.tgi[2], 2319542937L, 2308635565L)
+        self.CreateLTEXTEntry(utxt, 539399691, 1782082854, self.examplar.entry.tgi[2], 2319542937, 2308635565)
 
     def OnAddLangIDK(self, event):
         idMenu = event.GetId()
@@ -2342,7 +2340,7 @@ class NoteBookPanel(wx.Panel):
             except:
                 utxt = txt.decode('utf8')
 
-        IDK = self.examplar.GetProp(3393284789L)
+        IDK = self.examplar.GetProp(3393284789)
         if IDK:
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
             for i, idk in enumerate(idks):
@@ -2360,7 +2358,7 @@ class NoteBookPanel(wx.Panel):
         return
 
     def OnConvertToIDK(self, event):
-        txt = self.examplar.GetPropObject(2317746857L).rawdata
+        txt = self.examplar.GetPropObject(2317746857).rawdata
         try:
             utxt = unicode(txt)
         except:
@@ -2369,10 +2367,10 @@ class NoteBookPanel(wx.Panel):
             except:
                 utxt = txt.decode('utf8')
 
-        self.CreateLTEXTEntry(utxt, 539399691, self.examplar.entry.tgi[1], self.examplar.entry.tgi[2], 3393284789L, 2317746857L)
+        self.CreateLTEXTEntry(utxt, 539399691, self.examplar.entry.tgi[1], self.examplar.entry.tgi[2], 3393284789, 2317746857)
 
     def OnAddItemName(self, event):
-        newPropStr = CreateAPropFromString(self.virtualDAT.properties[2308635565L], self.examplar.GetPropObject(32).rawdata)
+        newPropStr = CreateAPropFromString(self.virtualDAT.properties[2308635565], self.examplar.GetPropObject(32).rawdata)
         if not self.examplar.AddTextProp(newPropStr):
             return None
         if self.examplar.GetProp(1788208387) and self.examplar.GetProp(1788208387)[0] == True:
@@ -2388,11 +2386,11 @@ class NoteBookPanel(wx.Panel):
 
     def OnAddDescription(self, event):
         try:
-            txt = self.examplar.GetPropObject(2308635565L).rawdata
+            txt = self.examplar.GetPropObject(2308635565).rawdata
         except:
             txt = self.examplar.GetPropObject(32).rawdata
 
-        newPropStr = CreateAPropFromString(self.virtualDAT.properties[2317746857L], txt)
+        newPropStr = CreateAPropFromString(self.virtualDAT.properties[2317746857], txt)
         if not self.examplar.AddTextProp(newPropStr):
             return None
         self.listProperties.DeleteAllItems()
@@ -2411,7 +2409,7 @@ class NoteBookPanel(wx.Panel):
         if dlg.ShowModal() == wx.ID_OK:
             choose = dlg.GetStringSelection()
             propChoosen = None
-            for id, v in self.virtualDAT.properties.iteritems():
+            for id, v in self.virtualDAT.properties.items():
                 if v.Name == choose:
                     propChoosen = id
                     break
@@ -2447,7 +2445,7 @@ class NoteBookPanel(wx.Panel):
             i = index - 3
             if i >= 0 and i < len(self.examplar.props):
                 prop = self.examplar.props[i]
-                if prop.id >= 2297284864L and prop.id < 2297286144L:
+                if prop.id >= 2297284864 and prop.id < 2297286144:
                     if prop.values[0] == 0:
                         return False
                 else:
@@ -2469,14 +2467,14 @@ class NoteBookPanel(wx.Panel):
         prop2Add = []
         for line in self.parent.clipboard:
             id = int(line[2:2 + 8].lower(), 16)
-            if id >= 2297284864L and id < 2297286144L:
+            if id >= 2297284864 and id < 2297286144:
                 prop2Add.append(line)
             else:
                 self.examplar.AddTextProp(line)
 
         if prop2Add != []:
-            currentID = 2297284864L
-            for id in range(2297284864L, 2297286144L):
+            currentID = 2297284864
+            for id in range(2297284864, 2297286144):
                 values = self.examplar.GetProp(id)
                 if values == None:
                     currentID = id
@@ -2510,7 +2508,7 @@ class NoteBookPanel(wx.Panel):
 
         bNeedReindex = False
         for id in prop2Remove:
-            if id >= 2297284864L and id < 2297286144L:
+            if id >= 2297284864 and id < 2297286144:
                 bNeedReindex = True
             self.examplar.RemoveProp(id)
 
@@ -2540,7 +2538,7 @@ class SC4NoteBook(wx.Notebook):
 
     def LoadPics(self, virtualDAT):
         il = wx.ImageList(47, 37)
-        for i, cat in virtualDAT.categories.iteritems():
+        for i, cat in virtualDAT.categories.items():
             cat.imgIdx = il.Add(wx.Image(cat.imgName).ConvertToBitmap())
 
         self.AssignImageList(il)
@@ -2661,7 +2659,7 @@ class SC4NoteBook(wx.Notebook):
         try:
             img = virtualDAT.categories[descriptor.cats[0]].imgIdx
         except:
-            img = virtualDAT.categories[4089082401L].imgIdx
+            img = virtualDAT.categories[4089082401].imgIdx
 
         if bAdd and len(self.descriptors):
             panel = self.GetCurrentPage()
@@ -2768,28 +2766,36 @@ class MainFrame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, None, title='SC4 PIM Extended 2009 RC8', size=(800,
                                                                                800))
+        # Initialize GID (Group ID) from Windows registry or generate new one
         try:
+            if not HAS_WIN32:
+                raise ImportError("win32api not available")
             maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools')
             self.GID = win32api.RegQueryValueEx(maxisKey, 'User Group ID')[0]
             x = struct.pack('L', self.GID)
             self.GID = struct.unpack('L', x)[0]
-        except:
+        except Exception:
+            # Generate new GID if registry access fails or on non-Windows platforms
             init = datetime.datetime(2005, 5, 5, 21, 24, 15)
             today = datetime.datetime.today()
             dt = today - init
             dt = dt.days * 24 * 3600 + dt.seconds
             first = random.randrange(1, 15, 2)
-            self.GID = first * 268435456L + (dt & 268435455)
+            self.GID = first * 268435456 + (dt & 268435455)
             x = struct.pack('L', self.GID)
             self.GID = struct.unpack('L', x)[0]
-            keypath = 'SOFTWARE\\Maxis\\SimCity 4\\Tools'.split('\\')
-            keyhandle = win32con.HKEY_LOCAL_MACHINE
-            for subkey in keypath:
-                keyhandle = win32api.RegCreateKey(keyhandle, subkey)
-
-            maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools', 0, win32con.KEY_SET_VALUE)
-            iid = struct.unpack('i', struct.pack('I', self.GID))[0]
-            win32api.RegSetValueEx(maxisKey, 'User Group ID', 0, win32con.REG_DWORD, iid)
+            # Try to save to registry on Windows
+            if HAS_WIN32:
+                try:
+                    keypath = 'SOFTWARE\\Maxis\\SimCity 4\\Tools'.split('\\')
+                    keyhandle = win32con.HKEY_LOCAL_MACHINE
+                    for subkey in keypath:
+                        keyhandle = win32api.RegCreateKey(keyhandle, subkey)
+                    maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools', 0, win32con.KEY_SET_VALUE)
+                    iid = struct.unpack('i', struct.pack('I', self.GID))[0]
+                    win32api.RegSetValueEx(maxisKey, 'User Group ID', 0, win32con.REG_DWORD, iid)
+                except Exception:
+                    pass  # Ignore registry write failures
 
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()
@@ -2927,7 +2933,7 @@ class MainFrame(wx.Frame):
         IID = first * 268435456 + (dt & 268435455)
         buffer = struct.pack('III', 1697917002, self.GID, IID)
         buffer += struct.pack('II', 0, 0)
-        if IsAChild(category, 3431971885L):
+        if IsAChild(category, 3431971885):
             descFileName = '%s-0x%08x-0x%08x-0x%08x._LooseDesc' % (fileNameBase, 1697917002, self.GID, IID)
         else:
             descFileName = '%s-0x%08x-0x%08x-0x%08x.SC4Desc' % (fileNameBase, 1697917002, self.GID, IID)
@@ -3091,8 +3097,8 @@ class MainFrame(wx.Frame):
         data = descriptor = BuildingDesc(entry)
         self.FillPropList(data, False)
         entries = [entry]
-        if examplar.GetProp(2319542937L) is not None:
-            tgi = examplar.GetProp(2319542937L)
+        if examplar.GetProp(2319542937) is not None:
+            tgi = examplar.GetProp(2319542937)
             if tgi != [0, 0, 0]:
                 txt = u'Name of the building' + examplarName
                 txt = txt.encode('unicode_internal')
@@ -3104,8 +3110,8 @@ class MainFrame(wx.Frame):
                 buffer += txt
                 entry2.content = entry2.rawContent = buffer
                 entries.append(entry2)
-        if examplar.GetProp(3393284789L) is not None:
-            tgi = examplar.GetProp(3393284789L)
+        if examplar.GetProp(3393284789) is not None:
+            tgi = examplar.GetProp(3393284789)
             if tgi != [0, 0, 0]:
                 txt = u'Description of the building' + v
                 txt = txt.encode('unicode_internal')
@@ -3150,8 +3156,10 @@ class MainFrame(wx.Frame):
     def PreLoadDatas(self):
         self.pathToScan = []
         try:
+            if not HAS_WIN32:
+                raise ImportError("win32api not available")
             maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4')
-            self.maxisFolder = unicode(win32api.RegQueryValueEx(maxisKey, 'Install Dir')[0])
+            self.maxisFolder = str(win32api.RegQueryValueEx(maxisKey, 'Install Dir')[0])
         except:
             self.maxisFolder = ''
             self.maxisPluginsFolder = ''
@@ -3209,8 +3217,14 @@ class MainFrame(wx.Frame):
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_4.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_5.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'ep1.dat'))
-                maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\1.0')
-                language = win32api.RegQueryValueEx(maxisKey, 'Language')[0]
+                try:
+                    if HAS_WIN32:
+                        maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\1.0')
+                        language = win32api.RegQueryValueEx(maxisKey, 'Language')[0]
+                    else:
+                        language = 1  # Default to English
+                except Exception:
+                    language = 1  # Default to English if registry read fails
                 paths = {1: 'English',2: 'French',3: 'German',4: 'Italian',5: 'Spanish',6: 'Swedish',7: 'Finnish',8: 'Dutch',9: 'Danish',10: 'Portgese',11: 'Czech',12: 'Hebrew',13: 'Greek',14: 'Japanese',15: 'Korean',16: 'Russian',17: 'SChinese',18: 'TChinese',19: 'UKEnglsh',20: 'Polish',21: 'Thai',22: 'Norwgian'}
                 localeFolder = ''
                 try:
@@ -3473,4 +3487,4 @@ if 1:
     blank.save('ImageDBLarge/0x00000000-0x00000000.jpg')
     prog = App()
     prog.MainLoop()
-# okay decompiling SC4PIMApp.pyo
+

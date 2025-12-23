@@ -1,18 +1,12 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4LETools.pyo
-# Compiled at: 2009-11-05 21:00:28
+"""SC4 Lot Editor (LE) tools for editing building lots."""
 import wx
 import wx.lib.sized_controls as sc
 import FSHConverter
-import Image
-import ImageDraw
+from PIL import Image
+from PIL import ImageDraw
 import treeDnD
-import StringIO
+import io
 import random
-import dircache
 import datetime
 import types
 import BalloonTip as BT
@@ -231,7 +225,7 @@ def BuildImageForProp(examplar):
     def BitmapFromTGI(tgi):
         pilz = BuildImageForTGI(tgi)
         image = wx.EmptyImage(pilz.size[0], pilz.size[1])
-        image.SetData(pilz.tostring())
+        image.SetData(pilz.tobytes())
         return image.ConvertToBitmap()
 
     rkt0 = examplar.GetProp(662775840)
@@ -255,7 +249,7 @@ def BuildImageForProp(examplar):
     elif rkt4:
         nbChoices = len(rkt4) / 8
         fullImage = Image.new('RGB', (128 * nbChoices, 128))
-        for cb in xrange(nbChoices):
+        for cb in range(nbChoices):
             rkt = rkt4[cb * 8:cb * 8 + 8]
             rkt = rkt[4:]
             tgi = (0, 0, 0)
@@ -271,7 +265,7 @@ def BuildImageForProp(examplar):
             draw.rectangle((128 * cb, 0, 128 * cb + 127, 127), outline=(255, 255, 255))
 
         image = wx.EmptyImage(128 * nbChoices, 128)
-        image.SetData(fullImage.tostring())
+        image.SetData(fullImage.tobytes())
         return (
          image.ConvertToBitmap(), nbChoices > 1)
     elif rkt5 and rkt5[0] == 1523640343:
@@ -360,11 +354,11 @@ class ImageListCtrl(wx.ListCtrl):
                 texEntry.content = None
                 texEntry.rawContent = None
                 fullImage = Image.new('RGB', (128 * nbrLayers, 128))
-                for layerIdx in xrange(nbrLayers):
-                    imBmp = Image.fromstring('RGB', size, img[nbOfBytes * 3 * layerIdx:nbOfBytes * 3 * (layerIdx + 1)])
+                for layerIdx in range(nbrLayers):
+                    imBmp = Image.frombytes('RGB', size, img[nbOfBytes * 3 * layerIdx:nbOfBytes * 3 * (layerIdx + 1)])
                     if trueAlpha:
                         blank = Image.new('RGB', size, 16777215)
-                        alphaLayer = Image.fromstring('L', size, alpha[nbOfBytes * layerIdx:nbOfBytes * (layerIdx + 1)])
+                        alphaLayer = Image.frombytes('L', size, alpha[nbOfBytes * layerIdx:nbOfBytes * (layerIdx + 1)])
                         imBmp = Image.composite(imBmp, blank, alphaLayer)
                     imBmp = imBmp.resize((128, 128), Image.BICUBIC)
                     fullImage.paste(imBmp.convert('RGB'), (128 * layerIdx, 0))
@@ -383,7 +377,7 @@ class ImageListCtrl(wx.ListCtrl):
                 maxWidth = 0
                 nbValid = 0
                 for iid in [0, 4096, 8192, 12288]:
-                    img, nb, fName = LoadTexForTGI((tgi & 4294905855L) + iid)
+                    img, nb, fName = LoadTexForTGI((tgi & 4294905855) + iid)
                     if nb > 0:
                         nbValid += 1
                     imgs.append(img)
@@ -395,7 +389,7 @@ class ImageListCtrl(wx.ListCtrl):
                         fullImage.paste(img.convert('RGB'), (0, 128 * i))
 
             image = wx.EmptyImage(fullImage.size[0], fullImage.size[1])
-            image.SetData(fullImage.convert('RGB').tostring())
+            image.SetData(fullImage.convert('RGB').tobytes())
             tipballoon.SetBalloonIcon(image.ConvertToBitmap())
             strMsg = os.path.split(fileName)[1]
             tipballoon.SetBalloonMessage(strMsg)
@@ -531,7 +525,7 @@ def GetTGIForProp(desc):
     else:
         if rkt4:
             nbChoices = len(rkt4) / 4
-            for cb in xrange(nbChoices):
+            for cb in range(nbChoices):
                 rkt = rkt4[cb * 4:cb * 4 + 4]
                 if rkt[0] == 662775841:
                     tgi = tuple(rkt[1:])
@@ -580,11 +574,11 @@ def FillListForIcon(self, entries, fnPrint):
             except:
                 texEntry.ReadFile(None, True, True)
 
-            cIO = StringIO(texEntry.content)
+            cIO = io.BytesIO(texEntry.content)
             pilz = Image.open(cIO).convert('RGB')
             cIO.close()
             image = wx.EmptyImage(44 * 4, 44)
-            image.SetData(pilz.convert('RGB').tostring())
+            image.SetData(pilz.convert('RGB').tobytes())
             VirtualDat.this.ilIcon.Replace(0, image.ConvertToBitmap())
             index = self.InsertImageStringItem(self.GetItemCount(), fnPrint(texEntry), 0)
             self.SetItemImage(index, 0, 0)
@@ -644,14 +638,14 @@ class LETreeCtrl(wx.TreeCtrl):
 
             return False
 
-        listSub = self.virtualDAT.categories[4089086497L].childs[:]
+        listSub = self.virtualDAT.categories[4089086497].childs[:]
         listSub.sort(cmp=lambda n1, n2: cmp(n1.ID, n2.ID))
         for sub in listSub:
             if IsItAPropFamilies(sub.descriptors):
                 idx = self.AppendItem(self.familiesPropsItem, sub.Name)
                 self.SetPyData(idx, sub.ID)
 
-        listSub = self.virtualDAT.categories[4089087265L].childs[:]
+        listSub = self.virtualDAT.categories[4089087265].childs[:]
         listSub.sort(cmp=lambda n1, n2: cmp(n1.ID, n2.ID))
         for sub in listSub:
             if IsItAPropFamilies(sub.descriptors):
@@ -885,7 +879,7 @@ class TextureDlg(wx.Frame):
             self.propList.Reset(VirtualDat.this.ilStandardModels, self.parent.lotFloraDescs, FillListForPropsAsSingle, DisplayNameForPropsName)
         elif item == tree.lotIcon:
             IID = self.parent.examplar.entry.tgi[2]
-            entry = VirtualDat.this.getEntry(2238569388L, 1782082854, IID)
+            entry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
             self.propList.Reset(VirtualDat.this.ilIcon, [entry], FillListForIcon, DisplayNameForIcon)
         else:
             catID = tree.GetPyData(item)
@@ -915,4 +909,4 @@ class TextureDlg(wx.Frame):
         self.parent.LETools = None
         event.Skip()
         return True
-# okay decompiling SC4LETools.pyo
+

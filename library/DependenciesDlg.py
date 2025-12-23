@@ -1,9 +1,4 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: DependenciesDlg.pyo
-# Compiled at: 2009-11-04 08:28:54
+"""Dependencies dialog for SC4 building lots."""
 import wx
 import wx.lib.sized_controls as sc
 import customtreectrl as CT
@@ -11,7 +6,8 @@ import os.path
 from translation import *
 from SC4DatTools import *
 from SC4Data import *
-import Image
+from PIL import Image
+import io
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
 
 class MyHtmlListBox(wx.HtmlListBox):
@@ -82,7 +78,7 @@ class DependenciesDlg(sc.SizedDialog):
         def isValidRTK(rtk):
             if rtk is None:
                 return False
-            if rtk[0] == 1523640343 and rtk[1] == 3134937073L and rtk[2] == 0:
+            if rtk[0] == 1523640343 and rtk[1] == 3134937073 and rtk[2] == 0:
                 return False
             if rtk[0] == 698733036 and rtk[1] == 707025145 and rtk[2] == 0:
                 return False
@@ -116,10 +112,10 @@ class DependenciesDlg(sc.SizedDialog):
         rtk = desc.examplar.GetProp(662775844)
         if rtk:
             rktData = tuple(rtk)
-            for line in xrange(len(rktData) / 8):
+            for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
                 entry = self.virtualDAT.getEntry(data[5], data[6], data[7])
-                if data[5] == 1523640343 and data[6] == 3134937073L and data[7] == 0:
+                if data[5] == 1523640343 and data[6] == 3134937073 and data[7] == 0:
                     pass
                 elif data[5] == 698733036 and data[6] == 707025145 and data[7] == 0:
                     pass
@@ -135,38 +131,38 @@ class DependenciesDlg(sc.SizedDialog):
 
         propQuery = desc.examplar.GetProp(709468037)
         if propQuery:
-            entry = self.virtualDAT.getEntry(0, 2527069872L, propQuery[0])
+            entry = self.virtualDAT.getEntry(0, 2527069872, propQuery[0])
             if entry:
-                item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872L, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
+                item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
                 self.lb.Append(entry.fileName)
                 self.tree.CheckItem(item, True)
             else:
-                item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872L, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
+                item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
-        propIcon = desc.examplar.GetProp(2317746872L)
+        propIcon = desc.examplar.GetProp(2317746872)
         if propIcon:
-            entry = self.virtualDAT.getEntry(2238569388L, 1782082854, propIcon[0])
+            entry = self.virtualDAT.getEntry(2238569388, 1782082854, propIcon[0])
             if entry:
-                item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388L, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
+                item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
                 self.lb.Append(entry.fileName)
                 self.tree.CheckItem(item, True)
             else:
-                item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388L, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
+                item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
-        for propId in [2854081431L, 1246499630, 172757963, 3384359510L, 3390691274L]:
+        for propId in [2854081431, 1246499630, 172757963, 3384359510, 3390691274]:
             propSound = desc.examplar.GetProp(propId)
             if propSound:
-                entry = self.virtualDAT.getEntry(193823258, 3394050371L, propSound[0])
+                entry = self.virtualDAT.getEntry(193823258, 3394050371, propSound[0])
                 if entry:
-                    item = self.tree.AppendItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371L, propSound[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
+                    item = self.tree.AppendItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371, propSound[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(entry.fileName)[1]))
                     self.lb.Append(entry.fileName)
                     self.tree.CheckItem(item, True)
                 else:
-                    item = self.tree.AppendItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371L, propSound[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
+                    item = self.tree.AppendItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371, propSound[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                     self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
                     self.lb.Missing(DepDlgMissing)
 
-        UVNK = desc.examplar.GetProp(2319542937L)
+        UVNK = desc.examplar.GetProp(2319542937)
         if UVNK:
             uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
             bFound = False
@@ -181,7 +177,7 @@ class DependenciesDlg(sc.SizedDialog):
                 item = self.tree.AppendItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (UVNK[0], UVNK[1], UVNK[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
                 self.lb.Missing(DepDlgMissing)
-        IDK = self.examplar.GetProp(3393284789L)
+        IDK = self.examplar.GetProp(3393284789)
         if IDK:
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
             bFound = False
@@ -206,7 +202,7 @@ class DependenciesDlg(sc.SizedDialog):
         texIDs = []
         propIDs = []
         floraIDs = []
-        buildingFoundation = self.examplar.GetProp(2298271863L)
+        buildingFoundation = self.examplar.GetProp(2298271863)
         if buildingFoundation:
             self.buildFound = self.tree.AppendItem(self.root, DepDlgBuildingFoundation)
             self.tree.SetItemBold(self.buildFound)
@@ -220,7 +216,7 @@ class DependenciesDlg(sc.SizedDialog):
                 item = self.tree.AppendItem(self.buildFound, hex2str(buildingFoundation[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
             self.tree.Expand(self.buildFound)
-        for lcp in range(2297284864L, 2297286144L):
+        for lcp in range(2297284864, 2297286144):
             values = self.examplar.GetProp(lcp)
             if values == None:
                 break
@@ -319,17 +315,17 @@ class ImageListCtrl(wx.ListCtrl):
         self.InsertColumn(0, 'Image')
         self.SetColumnWidth(0, 500)
         self.il = wx.ImageList(88, 88, False)
-        allIcons = VirtualDat.this.getEntries(2238569388L, 1782082854, 0, iMask=0)
+        allIcons = VirtualDat.this.getEntries(2238569388, 1782082854, 0, iMask=0)
         for iconEntry in allIcons:
             iconEntry.ReadFile(None, True, True)
-            c = StringIO(iconEntry.content)
+            c = io.BytesIO(iconEntry.content)
             pil = Image.open(c)
             pilz = pil.crop((3 * 44, 0, 4 * 44, 44)).copy()
             image = wx.EmptyImage(88, 88)
             try:
                 pilz = pilz.resize((88, 88), Image.BICUBIC)
-                image.SetData(pilz.convert('RGB').tostring())
-            except:
+                image.SetData(pilz.convert('RGB').tobytes())
+            except Exception:
                 raise
 
             idx = self.il.Add(image.ConvertToBitmap())
@@ -354,4 +350,3 @@ class IconsDlg(sc.SizedDialog):
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
         self.SetMinSize(self.GetSize())
-# okay decompiling DependenciesDlg.pyo
