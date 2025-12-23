@@ -1,23 +1,7 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: customtreectrl.pyo
-# Compiled at: 2007-05-21 22:47:46
-Instruction context:
-   
-4970     125  LOAD_FAST             5  'child'
-            128  STORE_FAST            1  'item'
-            131  JUMP_BACK            77  'to 77'
-            134  POP_TOP          
-            135  POP_BLOCK        
-->          136  JUMP_FORWARD         78  'to 217'
-          139_0  COME_FROM                '64'
-          139_1  COME_FROM                '47'
-            139  POP_TOP          
+"""Custom tree control for SC4PIM with checkbox and icon support."""
 import wx
 import zlib
-import cStringIO
+import io
 _NO_IMAGE = -1
 _PIXELS_PER_UNIT = 10
 _DELAY = 500
@@ -132,7 +116,7 @@ def GetFlaggedBitmap():
 
 
 def GetFlaggedImage():
-    stream = cStringIO.StringIO(GetFlaggedData())
+    stream = io.BytesIO(GetFlaggedData())
     return wx.ImageFromStream(stream)
 
 
@@ -145,7 +129,7 @@ def GetNotFlaggedBitmap():
 
 
 def GetNotFlaggedImage():
-    stream = cStringIO.StringIO(GetNotFlaggedData())
+    stream = io.BytesIO(GetNotFlaggedData())
     return wx.ImageFromStream(stream)
 
 
@@ -158,7 +142,7 @@ def GetCheckedBitmap():
 
 
 def GetCheckedImage():
-    stream = cStringIO.StringIO(GetCheckedData())
+    stream = io.BytesIO(GetCheckedData())
     return wx.ImageFromStream(stream)
 
 
@@ -171,7 +155,7 @@ def GetNotCheckedBitmap():
 
 
 def GetNotCheckedImage():
-    stream = cStringIO.StringIO(GetNotCheckedData())
+    stream = io.BytesIO(GetNotCheckedData())
     return wx.ImageFromStream(stream)
 
 

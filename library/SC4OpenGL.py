@@ -1,9 +1,4 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4OpenGL.pyo
-# Compiled at: 2008-05-13 08:48:33
+"""OpenGL canvas wrapper for SC4 3D rendering."""
 import wx
 import math
 try:
@@ -21,9 +16,9 @@ except ImportError:
     haveOpenGL = False
 
 if haveOpenGL:
-    print 'haveOpenGL'
+    print('haveOpenGL')
 else:
-    print 'Download the GLU32.dll and GLUT32.dll from http://www.dll-files.com/ and put them in SC4PIM folder'
+    print('Download the GLU32.dll and GLUT32.dll from http://www.dll-files.com/ and put them in SC4PIM folder')
 
 class MyCanvasBase(glcanvas.GLCanvas):
 
@@ -91,7 +86,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
     def OnMouseUp(self, evt):
         try:
             self.ReleaseMouse()
-        except:
+        except Exception:
             pass
 
     def OnMouseMotion(self, evt):
@@ -121,4 +116,3 @@ def RotateAroundY(angle, v):
 def Translation(dir, v):
     return (
      v[0] + dir[0], v[1] + dir[1], v[2] + dir[2])
-# okay decompiling SC4OpenGL.pyo

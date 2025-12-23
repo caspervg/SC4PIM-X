@@ -1,22 +1,26 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4Data.pyo
-# Compiled at: 2010-01-15 23:55:13
+
+
+
+
+
+
+"""SC4 data structures and virtual DAT file management.
+
+This module provides classes for managing SC4 building descriptions, textures,
+lots, and virtual DAT file collections.
+"""
 from SC4DatTools import *
 from S3DReader import *
 import xml.dom.minidom
 from translation import *
 import time
 import itertools
-import thread
+import _thread as thread
 import FSHConverter
-import Image
-import ImageDraw
-import ImageFont
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
 import wx
-import dircache
 
 def ToUnsigned(val):
     try:
@@ -163,7 +167,7 @@ def readCategoryDef(node):
                     if pairedFactor:
                         paired = pairedFactor.split(',')
                         cat.pairedFactorProperties[id] = []
-                        for i in xrange(len(paired) / 2):
+                        for i in range(len(paired) / 2):
                             cat.pairedFactorProperties[id].append((paired[i * 2], float(paired[i * 2 + 1])))
 
                     setVal = subsubNode.getAttribute('Set')
@@ -470,7 +474,7 @@ def Clamp(prop, v):
 
 def ConvertAPropToReadable(prop, propFormat):
     resultat = u''
-    if prop.id >= 2297284864L and prop.id <= 2297286143L:
+    if prop.id >= 2297284864 and prop.id <= 2297286143:
         mapFirstVal = [
          'Building', 'Prop', 'Texture', 'Fence', 'Flora', 'Water', 'Land', 'Network']
         mapSecondVal = ['all', 'med only', 'high only']
@@ -577,7 +581,7 @@ class ImageListLoaderProps():
     def LoadJPGToBitmap(self, fileName):
         pil = Image.open(fileName)
         image = wx.EmptyImage(pil.size[0], pil.size[1])
-        image.SetData(pil.convert('RGB').tostring())
+        image.SetData(pil.convert('RGB').tobytes())
         return image.ConvertToBitmap()
 
     def Run(self, dlg=None):
@@ -645,10 +649,10 @@ class ImageListLoaderTexture():
             nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
             texEntry.content = None
             texEntry.rawContent = None
-            pilz = Image.fromstring('RGB', size, img)
+            pilz = Image.frombytes('RGB', size, img)
             if trueAlpha:
                 blank = Image.new('RGB', size, 16777215)
-                alpha = Image.fromstring('L', size, alpha)
+                alpha = Image.frombytes('L', size, alpha)
                 pilz = Image.composite(pilz, blank, alpha)
             image = wx.EmptyImage(64, 64)
             pilz = pilz.resize((64, 64), Image.BICUBIC)
@@ -676,7 +680,7 @@ class ImageListLoaderTexture():
                 draw.text((5, 64 - self.offset[1] - 2), signs[IID], font=self.font, fill=(0,
                                                                                           0,
                                                                                           0))
-            image.SetData(pilz.convert('RGB').tostring())
+            image.SetData(pilz.convert('RGB').tobytes())
             if trueAlpha:
                 idx = self.virtualDAT.ilOver.Add(image.ConvertToBitmap())
                 if idx == -1:
@@ -817,13 +821,13 @@ def readPropertyDef(node):
             minVal = int(minVal)
         if maxVal is None or maxVal == '':
             if prop.Type == 'Uint32':
-                maxVal = 4294967295L
+                maxVal = 4294967295
             if prop.Type == 'Uint8':
                 maxVal = 255
             if prop.Type == 'Sint32':
                 maxVal = 2147483647
             if prop.Type == 'Sint64':
-                maxVal = 9223372036854775807L
+                maxVal = 9223372036854775807
             if prop.Type == 'Float32':
                 maxVal = 100000000.0
         elif len(maxVal) > 1 and maxVal[1] == 'x':
@@ -903,7 +907,7 @@ class ResourceViewer():
                 virtualDAT.otherModelsDict[rktData[0:3]] = what
                 self.viewingData.append(what)
         if self.rkType == 662775844:
-            for line in xrange(len(rktData) / 8):
+            for line in range(len(rktData) / 8):
                 data = rktData[line * 8:line * 8 + 8]
                 if data[4] == 662775840:
                     if data[5] == 698733036:
@@ -1017,7 +1021,7 @@ class SC4ModelMesh():
         self.descName = self.name
         if self.mainMesh.entry == None:
             self.bValid = False
-        xmlEntry = virtualDAT.getEntry(2289530369L, GID, IID)
+        xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
             xmlEntry.ReadFile(None, True, True)
             try:
@@ -1090,7 +1094,7 @@ class SC4Model():
             self.bValid = False
             return
         self.bValid = True
-        xmlEntry = virtualDAT.getEntry(2289530369L, GID, IID)
+        xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
             xmlEntry.ReadFile(None, True, True)
             try:
@@ -1118,7 +1122,7 @@ class SC4Model():
             self.name = self.name + xmlNotFound
             self.descName = self.name
         wx.Yield()
-        for zoom in xrange(0, 5):
+        for zoom in range(0, 5):
             self.s3dMeshes[zoom] = [ S3D(entry) for entry in self.s3dMeshes[zoom] ]
 
         self.mainMesh = self.s3dMeshes[0][0]
@@ -1136,8 +1140,8 @@ class SC4Model():
             self.s3dMeshes[nZoom][nRot].Initialize(self.virtualDAT, viewer)
 
     def PreLoad(self, virtualDAT, s3DTexturesHolder):
-        for zoom in xrange(5):
-            for rotation in xrange(4):
+        for zoom in range(5):
+            for rotation in range(4):
                 self.s3dMeshes[zoom][rotation].LEInit(virtualDAT, s3DTexturesHolder)
 
 
@@ -1211,7 +1215,7 @@ class VirtualDat():
 
     def FindBuildingFromLot(self, lotExamplar):
         buildingID = None
-        for lcp in range(2297284864L, 2297286144L):
+        for lcp in range(2297284864, 2297286144):
             values = lotExamplar.GetProp(lcp)
             if values == None:
                 return
@@ -1231,7 +1235,7 @@ class VirtualDat():
              buildingExamplar.entry.tgi[2]]
 
         def UseThisIID(desc):
-            for lcp in range(2297284864L, 2297286143L):
+            for lcp in range(2297284864, 2297286143):
                 values = desc.examplar.GetProp(lcp)
                 if values == None:
                     return False
@@ -1253,7 +1257,7 @@ class VirtualDat():
              buildingExamplar.entry.tgi[2]]
 
         def UseThisIID(desc):
-            for lcp in range(2297284864L, 2297286143L):
+            for lcp in range(2297284864, 2297286143):
                 values = desc.examplar.GetProp(lcp)
                 if values == None:
                     return False
@@ -1320,8 +1324,8 @@ class VirtualDat():
                             self.zoning[purpose, height] = [
                              value]
 
-        fProp = self.properties[2297284864L]
-        for lcp in range(2297284865L, 2297286144L):
+        fProp = self.properties[2297284864]
+        for lcp in range(2297284865, 2297286144):
             self.properties[lcp] = DuplicateProp(fProp, lcp)
 
         return
@@ -1349,8 +1353,8 @@ class VirtualDat():
             if bForceUpdate:
                 self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
 
-    def getEntries(self, t, g, i, tMask=4294967295L, gMask=4294967295L, iMask=4294967295L):
-        if t == 87304289 and tMask == 4294967295L:
+    def getEntries(self, t, g, i, tMask=4294967295, gMask=4294967295, iMask=4294967295):
+        if t == 87304289 and tMask == 4294967295:
             return filter(lambda entry: entry.tgi[1] & gMask == g and entry.tgi[2] & iMask == i, self.cohorts)
         return filter(lambda entry: entry.tgi[0] & tMask == t and entry.tgi[1] & gMask == g and entry.tgi[2] & iMask == i, self.allEntries)
 
@@ -1377,4 +1381,4 @@ class VirtualDat():
             fileName = 'ImageDB/%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))
             if not os.path.exists(fileName):
                 self.missingPics.append((fileName, s3d))
-# okay decompiling SC4Data.pyo
+
