@@ -1,9 +1,4 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: translation.pyo
-# Compiled at: 2009-11-04 08:33:23
+"""Translation strings for SC4PIM UI."""
 chooseParentCohortMsg = 'Choose parent cohort'
 resetParentCohortMsg = 'Reset Parent Cohort'
 quitMsg = 'Are you sure you want to quit ?'
@@ -59,5 +54,8 @@ DepDlgTextures = 'Textures'
 DepDlgFlora = 'Flora'
 IconDlgTitle = 'Icon maker'
 IconDlgPicture = 'Icon picture'
-execfile('current.lang')
-# okay decompiling translation.pyo
+try:
+    with open('current.lang') as f:
+        exec(f.read())
+except IOError:
+    pass
