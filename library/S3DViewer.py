@@ -1,7 +1,7 @@
 """S3D 3D model viewer with OpenGL rendering."""
 from SC4OpenGL import *
 from S3DTexturesHolder import *
-from numpy import *
+import numpy as np
 
 class S3DViewer(object):
     __module__ = __name__
