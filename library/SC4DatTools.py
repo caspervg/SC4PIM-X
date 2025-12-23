@@ -1,9 +1,8 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4DatTools.pyo
-# Compiled at: 2010-01-16 17:56:14
+"""SC4 DAT file parsing and manipulation tools.
+
+This module provides classes and functions for reading, parsing, and writing
+SimCity 4 .dat files, including compressed entries and property handling.
+"""
 import wx
 import time
 import struct
@@ -11,7 +10,7 @@ import QFS
 import os
 import os.path
 import re
-import cStringIO
+import io
 binEx = 0
 textEx = 0
 binProp = 0
@@ -47,7 +46,7 @@ def CreateAProp(prop, values):
 propRegex = re.compile('0[xX]([\\dA-Fa-f]+):{"([a-zA-Z0-9_ \\.,/:\\(\\)]+)"}=([a-zA-Z0-9]+):([0-9]+):{(.*)}')
 generic_saveValue = 3
 COMPRESSED_SIG = 64272
-translationTable = '#' * 32 + ''.join([ chr(x) for x in xrange(32, 128) ]) + '#' * 128
+translationTable = '#' * 32 + ''.join([ chr(x) for x in range(32, 128) ]) + '#' * 128
 
 def InfoEx():
     pass
@@ -66,7 +65,7 @@ def hex2str(v, size=32):
     elif size == 8:
         return '0x%02x' % int(255 - ~v)
     else:
-        return '0x%016x' % int(18446744073709551615L - ~v)
+        return '0x%016x' % int(18446744073709551615 - ~v)
 
 
 class Prop():
@@ -107,16 +106,12 @@ class Prop():
                 if nbr == 0 and self.sizeOfCounter == 0:
                     nbr = 1
                 if self.typeValue not in Prop.validFormat.keys():
-                    print '*' * 21,
-                    print 'ERROR',
-                    print '*' * 21
-                    print 'in examplar',
-                    print hex(self.examplar.entry.TGI['t']),
-                    print hex(self.examplar.entry.TGI['g']),
-                    print hex(self.examplar.entry.TGI['i'])
-                    print 'located in',
-                    print self.examplar.entry.fileName
-                    print 'Unknown prop type'
+                    print('*' * 21, 'ERROR', '*' * 21)
+                    print('in examplar', hex(self.examplar.entry.TGI['t']), 
+                          hex(self.examplar.entry.TGI['g']), 
+                          hex(self.examplar.entry.TGI['i']))
+                    print('located in', self.examplar.entry.fileName)
+                    print('Unknown prop type')
                 s = struct.calcsize(Prop.validFormat[self.typeValue] * nbr)
                 self.values = list(struct.unpack(Prop.validFormat[self.typeValue] * nbr, line.read(s)))
                 count += 1 + s + offset
@@ -177,27 +172,27 @@ class Prop():
                                 else:
                                     try:
                                         v = int(s)
-                                    except:
+                                    except ValueError:
                                         v = int(s, 16)
 
                             else:
                                 try:
                                     v = int(s)
-                                except:
+                                except ValueError:
                                     v = int(s, 16)
 
                                 v *= mul
                                 if self.typeValue == 768:
                                     if v < 0:
                                         return 0
-                                    if v > 4294967295L:
-                                        return 4294967295L
+                                    if v > 4294967295:
+                                        return 4294967295
                                 if self.typeValue == 1792:
                                     v = struct.unpack('l', struct.pack('L', v))[0]
                                     if v > 2147483647:
                                         return 2147483647
-                                    if v < -2147483648L:
-                                        return -2147483648L
+                                    if v < -2147483648:
+                                        return -2147483648
                                 if self.typeValue == 2816:
                                     v = struct.unpack('b', struct.pack('B', v))[0]
                                     if v > 127:
@@ -212,18 +207,14 @@ class Prop():
                             return v
 
                         self.values = [ convH(x) for x in fields[3][1:-1].split(',') ]
-            except:
-                print '*' * 21,
-                print 'ERROR',
-                print '*' * 21
-                print 'in examplar',
-                print hex(self.examplar.entry.TGI['t']),
-                print hex(self.examplar.entry.TGI['g']),
-                print hex(self.examplar.entry.TGI['i'])
-                print 'located in',
-                print self.examplar.entry.fileName
-                print initialLine
-                print '*' * 49
+            except Exception as e:
+                print('*' * 21, 'ERROR', '*' * 21)
+                print('in examplar', hex(self.examplar.entry.TGI['t']),
+                      hex(self.examplar.entry.TGI['g']),
+                      hex(self.examplar.entry.TGI['i']))
+                print('located in', self.examplar.entry.fileName)
+                print(initialLine)
+                print('*' * 49)
                 raise
 
         return
@@ -448,13 +439,13 @@ class Examplar():
     def DecodeBinary(self, bLazy=True):
         global binEx
         binEx += 1
-        buf = cStringIO.StringIO(self.buffer)
+        buf = io.BytesIO(self.buffer)
         self.sig = buf.read(8)
         self.parentCohort = tuple(struct.unpack('III', buf.read(12)))
         self.LinkToParent()
         self.nbrProp = struct.unpack('I', buf.read(4))[0]
         try:
-            self.props = map(lambda x: Prop(buf, True, self), xrange(self.nbrProp))
+            self.props = list(map(lambda x: Prop(buf, True, self), range(self.nbrProp)))
         except:
             raise
 
@@ -706,7 +697,7 @@ class DatFile():
                 dlg.LogError('Not a valid SC4 file : %s' % self.fileName)
             raise IOError
         self.header = self.header[0:48] + '\x00' * 12 + self.header[48 + 12:96]
-        header = cStringIO.StringIO(self.header)
+        header = io.BytesIO(self.header)
         header.read(4)
         try:
             self.fileVersionMajor = struct.unpack('l', header.read(4))[0]
@@ -732,16 +723,16 @@ class DatFile():
     def ReadEntries(self, bOnlyCohort, dlg, lowerRam):
         wx.Yield()
         self.sc4.seek(self.indexRecordPosition)
-        header = cStringIO.StringIO(self.sc4.read(self.indexRecordLength))
+        header = io.BytesIO(self.sc4.read(self.indexRecordLength))
         dirEntry = None
         dictEntries = {}
         compressedIncluded = False
         try:
-            entries = map(lambda idx: SC4Entry(header.read(20), idx, self.fileName), range(self.indexRecordEntryCount))
+            entries = list(map(lambda idx: SC4Entry(header.read(20), idx, self.fileName), range(self.indexRecordEntryCount)))
         except:
             raise
 
-        dirEntries = filter(lambda ent: ent.IsItThisTGI((3899334383L, 3899334383L, 678108931)), entries)
+        dirEntries = list(filter(lambda ent: ent.IsItThisTGI((3899334383, 3899334383, 678108931)), entries))
         if dirEntries != []:
             dirEntry = dirEntries[-1]
         for entry in entries:
@@ -763,7 +754,7 @@ class DatFile():
         if dirEntry is not None:
             dirEntry.ReadFile(self.sc4, True, True)
             nbrCompressedEntries = dirEntry.filesize / 16
-            for idx in xrange(nbrCompressedEntries):
+            for idx in range(nbrCompressedEntries):
                 subBuf = dirEntry.rawContent[idx * 16:idx * 16 + 16]
                 t, g, i, lenUncompressed = struct.unpack('LLLL', subBuf[0:0 + 16])
                 try:
@@ -773,8 +764,8 @@ class DatFile():
                 except KeyError:
                     pass
 
-        toBeRead = filter(lambda entry: entry.tgi[0] == 1697917002 or entry.tgi[0] == 87304289 or entry.tgi[0] == 2289530369L, self.entries)
-        temp = map(lambda entry: entry.ReadFile(self.sc4, True, True), toBeRead)
+        toBeRead = list(filter(lambda entry: entry.tgi[0] == 1697917002 or entry.tgi[0] == 87304289 or entry.tgi[0] == 2289530369, self.entries))
+        temp = list(map(lambda entry: entry.ReadFile(self.sc4, True, True), toBeRead))
         del temp
         del toBeRead
         del entries

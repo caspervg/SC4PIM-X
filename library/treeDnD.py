@@ -1,10 +1,5 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: treeDnD.pyo
-# Compiled at: 2008-04-01 08:42:54
-import cPickle as pickle
+"""Drag and drop support for tree controls in SC4PIM."""
+import pickle
 import wx
 
 class DropData(wx.CustomDataObject):
@@ -69,7 +64,7 @@ class DropTarget(wx.PyDropTarget):
             self.tree.EnsureVisible(item)
             try:
                 data = self.tree.GetPyData(item)
-            except:
+            except Exception:
                 data = None
 
             if data:
@@ -88,4 +83,3 @@ class DropTarget(wx.PyDropTarget):
                 self.callbackItem(data, self.item)
             self._makeObjects()
         return d
-# okay decompiling treeDnD.pyo
