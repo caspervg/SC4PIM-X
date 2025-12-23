@@ -5,7 +5,7 @@ import wx
 from PIL import Image
 from PIL import ImageChops
 import FSHConverter
-import numpy
+import numpy as np
 
 class S3D(object):
 
@@ -127,7 +127,7 @@ class S3D(object):
                 vertexSize = 3 * 4 * coordsNb + 4 * colorsNb + 2 * 4 * texsNb
             buffer = buffer[8:]
             vertices = Numeric.zeros((count, 3), 'f')
-            uvs = numpy.zeros((count, 2), 'f')
+            uvs = np.zeros((count, 2), 'f')
             for vert in range(count):
                 vertexData = buffer[:vertexSize]
                 coordx = struct.unpack('f', vertexData[0:4])[0]
@@ -172,7 +172,7 @@ class S3D(object):
             count = struct.unpack('H', buffer[4:6])[0]
             buffer = buffer[6:]
             indices = struct.unpack('H' * count, buffer[:count * 2])
-            idxs = numpy.asarray(indices)
+            idxs = np.asarray(indices)
             self.IndexBlocks.append((idxs.tostring(), count))
             buffer = buffer[count * 2:]
 

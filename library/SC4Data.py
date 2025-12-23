@@ -15,7 +15,7 @@ import xml.dom.minidom
 from translation import *
 import time
 import itertools
-import _thread as thread
+import threading
 import FSHConverter
 from PIL import Image
 from PIL import ImageDraw
@@ -563,7 +563,7 @@ class ImageListLoaderProps():
 
     def Start(self):
         self.keepGoing = self.running = True
-        thread.start_new_thread(self.Run, ())
+        threading.Thread(target=self.Run).start()
 
     def Stop(self):
         self.keepGoing = False
@@ -615,7 +615,7 @@ class ImageListLoaderTexture():
 
     def Start(self):
         self.keepGoing = self.running = True
-        thread.start_new_thread(self.Run, ())
+        threading.Thread(target=self.Run).start()
 
     def Stop(self):
         self.keepGoing = False
