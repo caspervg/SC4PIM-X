@@ -1,16 +1,11 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: S3DReader.pyo
-# Compiled at: 2010-01-13 23:13:52
+"""S3D (SimCity 4 3D model) file reader."""
 from S3DViewer import *
 import struct
 import wx
-import Image
-import ImageChops
+from PIL import Image
+from PIL import ImageChops
 import FSHConverter
-import Numeric
+import numpy
 
 class S3D(object):
 
@@ -29,9 +24,9 @@ class S3D(object):
         entry = self.entry
         entry.ReadFile(None, True, True)
         buffer = entry.content
-        if buffer[:4] != '3DMD':
-            print 'not 3DMD'
-            print buffer[:4]
+        if buffer[:4] != b'3DMD':
+            print('not 3DMD')
+            print(buffer[:4])
             buffer = None
             del buffer
             entry.content = None
@@ -57,8 +52,8 @@ class S3D(object):
         return
 
     def ReadHead(self, buffer):
-        if buffer[:4] != 'HEAD':
-            print 'not head'
+        if buffer[:4] != b'HEAD':
+            print('not head')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         self.majorRevision = struct.unpack('H', buffer[8:10])[0]
@@ -66,20 +61,20 @@ class S3D(object):
         return buffer[12:]
 
     def ReadVert(self, buffer):
-        if buffer[:4] != 'VERT':
-            print 'not vert'
+        if buffer[:4] != b'VERT':
+            print('not vert')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.vertexBuffers = []
-        for x in xrange(nbrBlock):
+        for x in range(nbrBlock):
             vb = []
             flag = struct.unpack('H', buffer[0:2])[0]
             count = struct.unpack('H', buffer[2:4])[0]
             if self.minorRevision >= 4:
                 format = struct.unpack('I', buffer[4:8])[0]
-                if format & 2147483648L == 2147483648L:
+                if format & 2147483648 == 2147483648:
                     coordsNb = format & 3
                     colorsNb = (format & 384) >> 8
                     texsNb = (format & 49152) >> 14
@@ -132,8 +127,8 @@ class S3D(object):
                 vertexSize = 3 * 4 * coordsNb + 4 * colorsNb + 2 * 4 * texsNb
             buffer = buffer[8:]
             vertices = Numeric.zeros((count, 3), 'f')
-            uvs = Numeric.zeros((count, 2), 'f')
-            for vert in xrange(count):
+            uvs = numpy.zeros((count, 2), 'f')
+            for vert in range(count):
                 vertexData = buffer[:vertexSize]
                 coordx = struct.unpack('f', vertexData[0:4])[0]
                 coordy = struct.unpack('f', vertexData[4:8])[0]
@@ -164,38 +159,38 @@ class S3D(object):
         return buffer
 
     def ReadIndx(self, buffer):
-        if buffer[:4] != 'INDX':
-            print 'not indx'
+        if buffer[:4] != b'INDX':
+            print('not indx')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.IndexBlocks = []
-        for i in xrange(nbrBlock):
+        for i in range(nbrBlock):
             flag = struct.unpack('H', buffer[0:2])[0]
             stride = struct.unpack('H', buffer[2:4])[0]
             count = struct.unpack('H', buffer[4:6])[0]
             buffer = buffer[6:]
             indices = struct.unpack('H' * count, buffer[:count * 2])
-            idxs = Numeric.asarray(indices)
+            idxs = numpy.asarray(indices)
             self.IndexBlocks.append((idxs.tostring(), count))
             buffer = buffer[count * 2:]
 
         return buffer
 
     def ReadPrim(self, buffer):
-        if buffer[:4] != 'PRIM':
-            print 'not PRIM'
+        if buffer[:4] != b'PRIM':
+            print('not PRIM')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.primBlocks = []
-        for bloc in xrange(nbrBlock):
+        for bloc in range(nbrBlock):
             nbrPrims = struct.unpack('H', buffer[0:2])[0]
             buffer = buffer[2:]
             subprims = []
-            for prim in xrange(nbrPrims):
+            for prim in range(nbrPrims):
                 typePrim = struct.unpack('I', buffer[0:4])[0]
                 first = struct.unpack('I', buffer[4:8])[0]
                 length = struct.unpack('I', buffer[8:12])[0]
@@ -207,14 +202,14 @@ class S3D(object):
         return buffer
 
     def ReadMats(self, buffer):
-        if buffer[:4] != 'MATS':
-            print 'not MATS'
+        if buffer[:4] != b'MATS':
+            print('not MATS')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.matBlocks = []
-        for matNb in xrange(nbrBlock):
+        for matNb in range(nbrBlock):
             flags = struct.unpack('I', buffer[0:4])[0]
             alphaFunc = struct.unpack('B', buffer[4:5])[0]
             depthFunc = struct.unpack('B', buffer[5:6])[0]
@@ -226,7 +221,7 @@ class S3D(object):
             textureCount = struct.unpack('B', buffer[15:16])[0]
             buffer = buffer[16:]
             textures = []
-            for tex in xrange(textureCount):
+            for tex in range(textureCount):
                 magFilter = 0
                 minFilter = 0
                 textureID = struct.unpack('I', buffer[:4])[0]
@@ -251,8 +246,8 @@ class S3D(object):
         return buffer
 
     def ReadAnim(self, buffer):
-        if buffer[:4] != 'ANIM':
-            print 'not ANIM'
+        if buffer[:4] != b'ANIM':
+            print('not ANIM')
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
@@ -266,13 +261,13 @@ class S3D(object):
         self.anims = {}
         self.anims['frameCount'] = frameCount
         self.anims['animatedMeshes'] = []
-        for nMesh in xrange(nbrMeshes):
+        for nMesh in range(nbrMeshes):
             nameLen = struct.unpack('B', buffer[0:1])[0]
             flags = struct.unpack('B', buffer[1:2])[0]
             name = buffer[2:2 + nameLen - 1]
             buffer = buffer[2 + nameLen:]
             frames = []
-            for frame in xrange(frameCount):
+            for frame in range(frameCount):
                 vertBlock = struct.unpack('H', buffer[0:2])[0]
                 indexBlock = struct.unpack('H', buffer[2:4])[0]
                 primBlock = struct.unpack('H', buffer[4:6])[0]
@@ -336,11 +331,9 @@ class S3D(object):
                 glEnable(GL_BLEND)
                 try:
                     glBlendFunc(blendTable[material['srcBlend']], blendTable[material['dstBlend']])
-                except:
-                    print 'srcBlend = ',
-                    print material['srcBlend']
-                    print 'dstBlend = ',
-                    print material['dstBlend']
+                except Exception:
+                    print('srcBlend =', material['srcBlend'])
+                    print('dstBlend =', material['dstBlend'])
                     raise
 
             else:
@@ -404,7 +397,7 @@ class S3D(object):
             except IndexError:
                 continue
 
-            if self.tgi[1] == 3134937073L:
+            if self.tgi[1] == 3134937073:
                 self.tgi2search = (
                  2058686020, 448690301, textureID)
             else:
@@ -414,4 +407,3 @@ class S3D(object):
             s3DTexturesHolder.PrecacheTex((self.tgi2search[1], textureID), entry)
 
         return
-# okay decompiling S3DReader.pyo

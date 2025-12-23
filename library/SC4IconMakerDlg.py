@@ -1,16 +1,11 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: SC4IconMakerDlg.pyo
-# Compiled at: 2009-11-04 08:33:06
+"""Icon maker dialog for creating SC4 building icons."""
 import wx
 import wx.lib.sized_controls as sc
 import wx.lib.filebrowsebutton as filebrowse
 from translation import *
 from SC4DatTools import *
 from SC4Data import *
-import Image
+from PIL import Image
 
 class IconDlg(wx.Dialog):
 
@@ -46,7 +41,7 @@ class IconDlg(wx.Dialog):
         fileName = event.GetString()
         try:
             image = Image.open(fileName)
-        except:
+        except Exception:
             return
 
         image = image.resize((44, 44), Image.BICUBIC)
@@ -60,4 +55,3 @@ class IconDlg(wx.Dialog):
         iconImage = Image.composite(iconImage, template, mask)
         self.image = iconImage
         self.ReplaceImg(iconImage)
-# okay decompiling SC4IconMakerDlg.pyo

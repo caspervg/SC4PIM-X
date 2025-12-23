@@ -1,9 +1,4 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: ATCViewer.pyo
-# Compiled at: 2008-03-18 00:19:48
+"""ATC (Animated Texture Catalog) OpenGL viewer for SC4."""
 from SC4OpenGL import *
 from S3DTexturesHolder import *
 
@@ -63,4 +58,3 @@ class ATCViewer(object):
         self.S3DMesh.DrawGL(self.s3DTexturesHolder)
         self.openGLCanvas.SwapBuffers()
         return
-# okay decompiling ATCViewer.pyo
