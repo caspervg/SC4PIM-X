@@ -1,7 +1,7 @@
 """Dependencies dialog for SC4 building lots."""
 import wx
 import wx.lib.sized_controls as sc
-import customtreectrl as CT
+import CustomTreeCtrl as CT
 import os.path
 from translation import *
 from SC4DatTools import *
@@ -45,7 +45,7 @@ class DependenciesDlg(sc.SizedDialog):
         pane = self.GetContentsPane()
         pane.SetSizerType('vertical')
         self.examplar = examplar
-        self.virtualDAT = parent.virtualDAT
+        self.virtualDAT = parent.virtual_dat
         self.tree = CT.CustomTreeCtrl(pane, -1, style=wx.SUNKEN_BORDER | CT.TR_HAS_VARIABLE_ROW_HEIGHT | CT.TR_FULL_ROW_HIGHLIGHT | CT.TR_SINGLE, size=(300,
                                                                                                                                                         300))
         self.root = self.tree.AddRoot(examplar.GetProp(32)[0])
@@ -317,7 +317,7 @@ class ImageListCtrl(wx.ListCtrl):
         self.il = wx.ImageList(88, 88, False)
         allIcons = VirtualDat.this.getEntries(2238569388, 1782082854, 0, iMask=0)
         for iconEntry in allIcons:
-            iconEntry.ReadFile(None, True, True)
+            iconEntry.read_file(None, True, True)
             c = io.BytesIO(iconEntry.content)
             pil = Image.open(c)
             pilz = pil.crop((3 * 44, 0, 4 * 44, 44)).copy()

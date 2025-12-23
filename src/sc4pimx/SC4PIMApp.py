@@ -304,7 +304,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                 virtualDAT.atcs.append(ATCProxy(entry, atc))
             if entry.tgi[0] == 87304289:
                 if 'examplar' not in entry.__dict__:
-                    entry.ReadFile(None, True, True)
+                    entry.read_file(None, True, True)
                     examplar = Examplar(entry, virtualDAT)
                     entry.examplar = examplar
                     entry.rawContent = None
@@ -315,7 +315,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                     examplar = entry.examplar
             if not bStandard and entry.tgi[0] == 1697917002:
                 if 'examplar' not in entry.__dict__:
-                    entry.ReadFile(None, True, True)
+                    entry.read_file(None, True, True)
                     examplar = Examplar(entry, virtualDAT)
                     entry.examplar = examplar
                     entry.rawContent = None
@@ -495,7 +495,7 @@ class NoteBookPanel(wx.Panel):
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.parent.tree.Recategorize(self.descriptor)
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
             self.listProperties.DeleteAllItems()
             self.FillTheList()
             item = self.parent.parent.tree.GetSelection()
@@ -619,7 +619,7 @@ class NoteBookPanel(wx.Panel):
 
                 for i, uvnk in enumerate(uvnks):
                     if uvnk:
-                        uvnk.ReadFile(None, True, True)
+                        uvnk.read_file(None, True, True)
                         try:
                             txt = uvnk.content[4:].decode('unicode_internal')
                         except UnicodeDecodeError:
@@ -640,7 +640,7 @@ class NoteBookPanel(wx.Panel):
 
                 for i, idk in enumerate(idks):
                     if idk:
-                        idk.ReadFile(None, True, True)
+                        idk.read_file(None, True, True)
                         try:
                             txt = idk.content[4:].decode('unicode_internal')
                         except UnicodeDecodeError:
@@ -688,7 +688,7 @@ class NoteBookPanel(wx.Panel):
         return
 
     def OnEditLTEXT(self, ltextEntry):
-        ltextEntry.ReadFile(None, True, True)
+        ltextEntry.read_file(None, True, True)
         try:
             txt = ltextEntry.content[4:].decode('unicode_internal')
         except UnicodeDecodeError:
@@ -730,7 +730,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
             self.parent.parent.tree.Recategorize(self.descriptor)
             self.FillTheList()
         dlg.Destroy()
@@ -841,7 +841,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
             self.listProperties.DeleteAllItems()
             self.FillTheList()
             item = self.parent.parent.tree.GetSelection()
@@ -874,7 +874,7 @@ class NoteBookPanel(wx.Panel):
         b2Remove = False
         oldFileName = fileName
         for entry in entries:
-            entry.ReadFile(None, True, False)
+            entry.read_file(None, True, False)
             if entry.tgi[0] == 1697917002 and entry.tgi[1] == 2835075954:
                 nbrOfLots += 1
                 lotName = entry.examplar.GetProp(32)[0]
@@ -913,7 +913,7 @@ class NoteBookPanel(wx.Panel):
             texEntry.content = texEntry.rawContent = None
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         self.listProperties.DeleteAllItems()
         self.FillTheList()
         item = self.parent.parent.tree.GetSelection()
@@ -1222,9 +1222,9 @@ class NoteBookPanel(wx.Panel):
         if texEntry != None:
             try:
                 if texEntry.content == None:
-                    texEntry.ReadFile(None, True, True)
+                    texEntry.read_file(None, True, True)
             except:
-                texEntry.ReadFile(None, True, True)
+                texEntry.read_file(None, True, True)
 
             cIO = io.BytesIO(texEntry.content)
             try:
@@ -1276,7 +1276,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
         dlg.Destroy()
 
     def OnCamStage(self, event):
@@ -1349,7 +1349,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
         dlg.Destroy()
 
     def OnRemoveUVNK(self, event):
@@ -1375,7 +1375,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
 
     def OnPlop2Grow(self, event):
         lst = [
@@ -1655,7 +1655,7 @@ class NoteBookPanel(wx.Panel):
                     uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
                     for i, uvnk in enumerate(uvnks):
                         if uvnk != None:
-                            uvnk.ReadFile(None, True, True)
+                            uvnk.read_file(None, True, True)
                             try:
                                 utxt = uvnk.content[4:].decode('unicode_internal')
                             except UnicodeDecodeError:
@@ -1671,7 +1671,7 @@ class NoteBookPanel(wx.Panel):
                     idks = [ self.virtualDAT.getEntry(IDK[0], v[1] + i, IDK[2]) for i in offsetGID ]
                     for i, idk in enumerate(idks):
                         if idk != None:
-                            idk.ReadFile(None, True, True)
+                            idk.read_file(None, True, True)
                             try:
                                 utxt = idk.content[4:].decode('unicode_internal')
                             except UnicodeDecodeError:
@@ -1870,7 +1870,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return
 
     def OnConvertToRKT0(self, event):
@@ -1899,7 +1899,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return
 
     def OnConvertToRKT1(self, event):
@@ -1928,7 +1928,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return
 
     def OnOpenLotWithBuilding(self, event):
@@ -2205,7 +2205,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         self.OnOpenLotWithBuilding(event)
         if IsFromCategory(self.virtualDAT.categories[2895100787], self.examplar):
             for p in self.openedLots:
@@ -2217,7 +2217,7 @@ class NoteBookPanel(wx.Panel):
         if self.view:
             try:
                 data = self.view.viewingData[0].mainMesh
-                data.ReadFile()
+                data.read_file()
                 Height = height = oldRound(data.bboxY, 4)
                 Width = width = oldRound(clamp2Tile(data.bboxX), 4)
                 Depth = depth = oldRound(clamp2Tile(data.bboxZ), 4)
@@ -2234,7 +2234,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
         return None
 
     def OnOpenFamily(self, event):
@@ -2279,7 +2279,7 @@ class NoteBookPanel(wx.Panel):
             self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return
 
     def OnAddLangUVNK(self, event):
@@ -2298,7 +2298,7 @@ class NoteBookPanel(wx.Panel):
             uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
             for i, uvnk in enumerate(uvnks):
                 if uvnk:
-                    uvnk.ReadFile(None, True, True)
+                    uvnk.read_file(None, True, True)
                     try:
                         utxt = uvnk.content[4:].decode('unicode_internal')
                     except UnicodeDecodeError:
@@ -2345,7 +2345,7 @@ class NoteBookPanel(wx.Panel):
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
             for i, idk in enumerate(idks):
                 if idk:
-                    idk.ReadFile(None, True, True)
+                    idk.read_file(None, True, True)
                     try:
                         utxt = idk.content[4:].decode('unicode_internal')
                     except UnicodeDecodeError:
@@ -2381,7 +2381,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return None
 
     def OnAddDescription(self, event):
@@ -2398,7 +2398,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave.Enable(True)
         self.descriptor.name = self.examplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-        self.parent.parent.listItems.Refresh()
+        self.parent.parent.listItems.refresh()
         return None
 
     def OnAddProperty(self, event):
@@ -2432,7 +2432,7 @@ class NoteBookPanel(wx.Panel):
                     self.descriptor.name = self.examplar.GetProp(32)[0]
                     self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
                     self.parent.parent.tree.Recategorize(self.descriptor)
-                    self.parent.parent.listItems.Refresh()
+                    self.parent.parent.listItems.refresh()
                 dlgVal.Destroy()
         dlg.Destroy()
         return
@@ -2493,7 +2493,7 @@ class NoteBookPanel(wx.Panel):
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
             self.parent.parent.tree.Recategorize(self.descriptor)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
         return
 
     def OnDelete(self, event):
@@ -2521,7 +2521,7 @@ class NoteBookPanel(wx.Panel):
             self.descriptor.name = self.examplar.GetProp(32)[0]
             self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
             self.parent.parent.tree.Recategorize(self.descriptor)
-            self.parent.parent.listItems.Refresh()
+            self.parent.parent.listItems.refresh()
 
 
 class SC4NoteBook(wx.Notebook):
@@ -2560,10 +2560,10 @@ class SC4NoteBook(wx.Notebook):
         self.Freeze()
         self.parent.staticFileName.SetLabel(unknownRK)
         self.currentPage = newPage
-        if self.parent.viewer.S3DMesh != None:
-            self.parent.viewer.S3DMesh.Free3D(self.parent.viewer.s3DTexturesHolder)
-            self.parent.viewer.S3DMesh = None
-            self.parent.viewer.Refresh(False)
+        if self.parent.viewer.s3d_mesh != None:
+            self.parent.viewer.s3d_mesh.free_3d(self.parent.viewer.s3d_textures_holder)
+            self.parent.viewer.s3d_mesh = None
+            self.parent.viewer.refresh(False)
         descriptor = self.descriptors[newPage]
         examplar = descriptor.examplar
         rkt4 = examplar.GetProp(662775844)
@@ -2637,10 +2637,10 @@ class SC4NoteBook(wx.Notebook):
         return
 
     def ReplaceCurrentPage(self, descriptor, virtualDAT):
-        if self.parent.viewer.S3DMesh != None:
-            self.parent.viewer.S3DMesh.Free3D(self.parent.viewer.s3DTexturesHolder)
-            self.parent.viewer.S3DMesh = None
-            self.parent.viewer.Refresh(False)
+        if self.parent.viewer.s3d_mesh != None:
+            self.parent.viewer.s3d_mesh.free_3d(self.parent.viewer.s3d_textures_holder)
+            self.parent.viewer.s3d_mesh = None
+            self.parent.viewer.refresh(False)
         for i, desc in enumerate(self.descriptors):
             if descriptor.examplar.entry.tgi == desc.examplar.entry.tgi:
                 self.ChangeSelection(i)
@@ -2667,10 +2667,10 @@ class SC4NoteBook(wx.Notebook):
                 self.ReplaceCurrentPage(descriptor, virtualDAT)
                 self.SetPageImage(self.currentPage, img)
                 return self.currentPage
-        if self.parent.viewer.S3DMesh != None:
-            self.parent.viewer.S3DMesh.Free3D(self.parent.viewer.s3DTexturesHolder)
-            self.parent.viewer.S3DMesh = None
-            self.parent.viewer.Refresh(False)
+        if self.parent.viewer.s3d_mesh != None:
+            self.parent.viewer.s3d_mesh.free_3d(self.parent.viewer.s3d_textures_holder)
+            self.parent.viewer.s3d_mesh = None
+            self.parent.viewer.refresh(False)
         for i, desc in enumerate(self.descriptors):
             if descriptor.examplar.entry.tgi == desc.examplar.entry.tgi:
                 self.ChangeSelection(i)
@@ -2909,7 +2909,7 @@ class MainFrame(wx.Frame):
         bbox = (8, 1, 8)
         try:
             mesh = what.sc4Model.s3dMeshes[4][0]
-            mesh.ReadFile()
+            mesh.read_file()
             bbox = (mesh.bboxX, mesh.bboxY, mesh.bboxZ)
         except:
             pass
@@ -3266,14 +3266,14 @@ class MainFrame(wx.Frame):
             else:
                 nZoom = zoom
             if self.currentModel.__class__ == ATC:
-                self.currentModel.Draw(self.viewer, self.staticFileName, zoom, rot)
+                self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot)
             else:
                 try:
                     state = self.cbStateChoice.GetClientData(self.cbStateChoice.GetSelection())
                 except:
                     state = 0
 
-                self.currentModel.Draw(self.viewer, self.staticFileName, zoom, rot, state)
+                self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
             self.t2.Restart(100)
             return
         self.t2.Restart(500)
@@ -3292,7 +3292,7 @@ class MainFrame(wx.Frame):
         else:
             nZoom = zoom
         if self.currentModel:
-            self.currentModel.Draw(self.viewer, self.staticFileName, zoom, rot, state)
+            self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
 
     def EvtComboBoxRotation(self, evt):
         zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
@@ -3307,7 +3307,7 @@ class MainFrame(wx.Frame):
         else:
             nZoom = zoom
         if self.currentModel:
-            self.currentModel.Draw(self.viewer, self.staticFileName, zoom, rot, state)
+            self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
 
     def EvtComboBoxZoom(self, evt):
         zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
@@ -3322,7 +3322,7 @@ class MainFrame(wx.Frame):
         else:
             nZoom = zoom
         if self.currentModel:
-            self.currentModel.Draw(self.viewer, self.staticFileName, zoom, rot, state)
+            self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
 
     def RefreshItemsList(self):
         if self.backupCat != None:
@@ -3380,9 +3380,9 @@ class MainFrame(wx.Frame):
         item = event.GetItem()
         idx = event.m_itemIndex
         if self.viewer.S3DMesh != None:
-            self.viewer.S3DMesh.Free3D(self.viewer.s3DTexturesHolder)
+            self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
             self.viewer.S3DMesh = None
-            self.viewer.Refresh(False)
+            self.viewer.refresh(False)
         if self.listItemsCat != None:
             if self.listItemsCat.__class__.__name__ == 'list':
                 self.cbStateChoice.Clear()
@@ -3397,9 +3397,9 @@ class MainFrame(wx.Frame):
                 self.viewer = data.__class__.viewer
                 self.viewer.InitGL()
                 self.viewer.S3DMesh = None
-                self.viewer.Refresh(False)
+                self.viewer.refresh(False)
                 self.staticFileName.SetLabel(self.listItemsCat[idx].fileName)
-                data.Draw(self.viewer, self.staticFileName, zoom, rot)
+                data.draw(self.viewer, self.staticFileName, zoom, rot)
                 self.currentModel = data
             elif self.listItemsCat.__class__.__name__ == 'DictWrapper':
                 data = self.listItemsCat.descriptors[idx]
@@ -3418,23 +3418,23 @@ class MainFrame(wx.Frame):
             if data.__class__.__name__ == 'list':
                 self.FillItemsListModel(data)
                 if self.viewer.S3DMesh != None:
-                    self.viewer.S3DMesh.Free3D(self.viewer.s3DTexturesHolder)
+                    self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
                     self.viewer.S3DMesh = None
-                    self.viewer.Refresh(False)
+                    self.viewer.refresh(False)
             if data.__class__.__name__ == 'DictWrapper':
                 self.FillItemsList(data)
                 if self.viewer.S3DMesh != None:
-                    self.viewer.S3DMesh.Free3D(self.viewer.s3DTexturesHolder)
+                    self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
                     self.viewer.S3DMesh = None
-                    self.viewer.Refresh(False)
+                    self.viewer.refresh(False)
         else:
             self.listItemsCat = None
             self.listItems.DeleteAllItems()
             self.listItems.SetItemCount(0)
             if self.viewer.S3DMesh != None:
-                self.viewer.S3DMesh.Free3D(self.viewer.s3DTexturesHolder)
+                self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
                 self.viewer.S3DMesh = None
-                self.viewer.Refresh(False)
+                self.viewer.refresh(False)
             self.currentModel = None
         return
 

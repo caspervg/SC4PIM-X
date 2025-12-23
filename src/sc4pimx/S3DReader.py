@@ -22,7 +22,7 @@ class S3D(object):
         if self.entry == None:
             return
         entry = self.entry
-        entry.ReadFile(None, True, True)
+        entry.read_file(None, True, True)
         buffer = entry.content
         if buffer[:4] != b'3DMD':
             print('not 3DMD')
@@ -366,18 +366,18 @@ class S3D(object):
         s3DTexturesHolder.Free()
 
     def Initialize(self, virtualDAT, viewer):
-        if viewer.S3DMesh == self:
+        if viewer.s3d_mesh == self:
             return
-        if viewer.S3DMesh != None:
-            viewer.S3DMesh.Free3D(viewer.s3DTexturesHolder)
+        if viewer.s3d_mesh != None:
+            viewer.s3d_mesh.Free3D(viewer.s3d_textures_holder)
         if self.entry == None:
-            viewer.Reinit()
-            viewer.Refresh(False)
+            viewer.reinitialize()
+            viewer.refresh(False)
             return
-        self.LEInit(virtualDAT, viewer.s3DTexturesHolder)
-        viewer.S3DMesh = self
-        viewer.Reinit()
-        viewer.Refresh(False)
+        self.LEInit(virtualDAT, viewer.s3d_textures_holder)
+        viewer.s3d_mesh = self
+        viewer.reinitialize()
+        viewer.refresh(False)
         return
 
     def LEInit(self, virtualDAT, s3DTexturesHolder):

@@ -1,7 +1,7 @@
 """S3D 3D model viewer with OpenGL rendering."""
-from SC4OpenGL import *
 from S3DTexturesHolder import *
-import numpy as np
+from SC4OpenGL import *
+
 
 class S3DViewer(object):
     __module__ = __name__
@@ -11,7 +11,7 @@ class S3DViewer(object):
         self.openGLCanvas = openGLCanvas
         self.openGLCanvas.displayer = self
         self.S3DMesh = S3DMesh
-        self.s3DTexturesHolder = S3DTexturesHolder(self.openGLCanvas)
+        self.s3d_textures_holder = S3DTexturesHolder(self.openGLCanvas)
         self.useBestFit = True
         self.zoom = 4
         self.angleMul = 1
@@ -20,7 +20,7 @@ class S3DViewer(object):
 
     def Refresh(self, b):
         self.openGLCanvas.displayer = self
-        self.openGLCanvas.Refresh(b)
+        self.openGLCanvas.refresh(b)
 
     def InitGL(self):
         self.openGLCanvas.displayer = self
@@ -81,7 +81,7 @@ class S3DViewer(object):
                             return v
 
                         for i in range(8):
-                            r = RotateAroundX(-self.angleMul * angleX, RotateAroundY(22.5 - self.preAngle, Corner(self.S3DMesh, i)))
+                            r = rotate_around_x(-self.angleMul * angleX, rotate_around_y(22.5 - self.preAngle, Corner(self.S3DMesh, i)))
                             p.append(r)
 
                         xs = [ c[0] for c in p ]
@@ -184,6 +184,6 @@ class S3DViewer(object):
                 glEnd()
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glEnable(GL_TEXTURE_2D)
-        self.S3DMesh.Draw(self.s3DTexturesHolder)
+        self.S3DMesh.draw(self.s3d_textures_holder)
         self.openGLCanvas.SwapBuffers()
         return
