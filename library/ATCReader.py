@@ -1,15 +1,10 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: ATCReader.pyo
-# Compiled at: 2008-04-07 22:32:26
+"""ATC (Animated Texture Catalog) file reader for SC4."""
 from SC4Data import *
 from SC4OpenGL import *
 import struct
 import wx
-import Image
-import ImageChops
+from PIL import Image
+from PIL import ImageChops
 import FSHConverter
 
 class ATC(object):
@@ -100,7 +95,7 @@ class ATC(object):
         size = (256, 256)
         self.quaduvsFrame0 = [avpData[1][0], avpData[1][1], avpData[1][0] + avpData[2][0], avpData[1][1] + avpData[2][1]]
         self.quaduvs = self.quaduvsFrame0
-        for frame in xrange(self.currentFrame):
+        for frame in range(self.currentFrame):
             self.quaduvs[0] += avpData[2][0]
             self.quaduvs[2] += avpData[2][0]
             if self.quaduvs[2] > size[0]:
@@ -159,7 +154,7 @@ class AVP(object):
         self.count = struct.unpack('I', buffer[32:36])[0]
         self.chunks = []
         buffer = buffer[36:]
-        for x in xrange(self.count):
+        for x in range(self.count):
             plane = struct.unpack('B', buffer[0:1])[0]
             storageType = struct.unpack('B', buffer[1:2])[0]
             offset = struct.unpack('H', buffer[2:4])[0]
@@ -177,4 +172,3 @@ class AVP(object):
         entry.content = None
         entry.rawContent = None
         return
-# okay decompiling ATCReader.pyo

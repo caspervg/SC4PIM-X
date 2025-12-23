@@ -1,12 +1,7 @@
-# uncompyle6 version 2.11.5
-# Python bytecode 2.4 (62061)
-# Decompiled from: Python 2.7.18 (default, Oct 15 2023, 16:43:11) 
-# [GCC 11.4.0]
-# Embedded file name: S3DViewer.pyo
-# Compiled at: 2008-03-28 00:26:36
+"""S3D 3D model viewer with OpenGL rendering."""
 from SC4OpenGL import *
 from S3DTexturesHolder import *
-from Numeric import *
+from numpy import *
 
 class S3DViewer(object):
     __module__ = __name__
@@ -85,7 +80,7 @@ class S3DViewer(object):
                                 v[2] = mesh.minz
                             return v
 
-                        for i in xrange(8):
+                        for i in range(8):
                             r = RotateAroundX(-self.angleMul * angleX, RotateAroundY(22.5 - self.preAngle, Corner(self.S3DMesh, i)))
                             p.append(r)
 
@@ -192,4 +187,3 @@ class S3DViewer(object):
         self.S3DMesh.Draw(self.s3DTexturesHolder)
         self.openGLCanvas.SwapBuffers()
         return
-# okay decompiling S3DViewer.pyo
