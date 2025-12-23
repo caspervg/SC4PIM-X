@@ -1,24 +1,23 @@
 """OpenGL canvas wrapper for SC4 3D rendering."""
-import wx
 import math
-try:
-    from wx import glcanvas
-    haveGLCanvas = True
-except ImportError:
-    haveGLCanvas = False
 
-try:
-    from OpenGL.GL import *
-    from OpenGL.GLU import *
-    from OpenGL.GLUT import *
-    haveOpenGL = True
-except ImportError:
-    haveOpenGL = False
+import wx
+from OpenGL.GL import (
+    GL_MODELVIEW,
+    GL_PROJECTION,
+    glLoadIdentity,
+    glMatrixMode,
+    glPopMatrix,
+    glPushMatrix,
+    glRotatef,
+    glScalef,
+    glTranslatef,
+    glViewport,
+)
+from OpenGL.GLUT import glutStrokeCharacter
+from OpenGL.GLUT.fonts import GLUT_STROKE_ROMAN
+from wx import glcanvas
 
-if haveOpenGL:
-    print('haveOpenGL')
-else:
-    print('Download the GLU32.dll and GLUT32.dll from http://www.dll-files.com/ and put them in SC4PIM folder')
 
 class MyCanvasBase(glcanvas.GLCanvas):
 
@@ -27,36 +26,36 @@ class MyCanvasBase(glcanvas.GLCanvas):
         self.displayer = None
         self.init = False
         self.mouseX = self.mouseY = 30
-        self.lastx = self.x = 30
-        self.lasty = self.y = 30
+        self.last_x = self.x = 30
+        self.last_y = self.y = 30
         self.dx = self.dy = 0
-        self.clicX = self.clicY = 0
+        self.click_x = self.click_y = 0
         self.size = None
-        self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
-        self.Bind(wx.EVT_SIZE, self.OnSize)
-        self.Bind(wx.EVT_PAINT, self.OnPaint)
-        self.Bind(wx.EVT_LEFT_DOWN, self.OnMouseDown)
-        self.Bind(wx.EVT_LEFT_UP, self.OnMouseUp)
-        self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
+        self.Bind(wx.EVT_ERASE_BACKGROUND, self.on_erase_background)
+        self.Bind(wx.EVT_SIZE, self.on_size)
+        self.Bind(wx.EVT_PAINT, self.on_paint)
+        self.Bind(wx.EVT_LEFT_DOWN, self.on_mouse_down)
+        self.Bind(wx.EVT_LEFT_UP, self.on_mouse_up)
+        self.Bind(wx.EVT_MOTION, self.on_mouse_motion)
         return
 
-    def OnEraseBackground(self, event):
+    def on_erase_background(self, event):
         pass
 
-    def Text2D(self, x, y, text, rot2D, scaling):
+    def text_2d(self, x, y, text, rot_2d, scaling):
         glPushMatrix()
         glTranslatef(x, y, 0)
-        glRotatef(-rot2D, 0, 0, 1)
+        glRotatef(-rot_2d, 0, 0, 1)
         glScalef(0.02, -0.02, 0.02)
         for c in text:
             glutStrokeCharacter(GLUT_STROKE_ROMAN, ord(c))
 
         glPopMatrix()
 
-    def OnSize(self, event):
-        size = self.size = self.GetClientSize()
+    def on_size(self, event):
+        self.size = self.GetClientSize()
         if self.GetContext():
-            self.SetCurrent()
+            self.SetCurrent(self.GetContext())
             w = self.size[0]
             h = self.size[1]
             if w > h:
@@ -69,50 +68,50 @@ class MyCanvasBase(glcanvas.GLCanvas):
             glMatrixMode(GL_MODELVIEW)
         event.Skip()
 
-    def OnPaint(self, event):
+    def on_paint(self, event):
         dc = wx.PaintDC(self)
-        self.SetCurrent()
+        self.SetCurrent(self.GetContext())
         if not self.init:
             if self.displayer:
                 self.displayer.InitGL()
                 self.init = True
         if self.init and self.displayer:
-            self.displayer.OnDraw()
+            self.displayer.on_draw()
 
-    def OnMouseDown(self, evt):
+    def on_mouse_down(self, evt):
         self.CaptureMouse()
-        self.clicX, self.clicY = self.x, self.y = self.lastx, self.lasty = evt.GetPosition()
+        self.click_x, self.click_y = self.x, self.y = self.last_x, self.last_y = evt.GetPosition()
 
-    def OnMouseUp(self, evt):
+    def on_mouse_up(self, _):
         try:
             self.ReleaseMouse()
         except Exception:
             pass
 
-    def OnMouseMotion(self, evt):
+    def on_mouse_motion(self, evt):
         self.mouseX, self.mouseY = evt.GetPosition()
         if evt.Dragging() and evt.LeftIsDown():
-            self.lastx, self.lasty = self.x, self.y
+            self.last_x, self.last_y = self.x, self.y
             self.x, self.y = evt.GetPosition()
-            self.dx = self.x - self.lastx
-            self.dy = self.y - self.lasty
+            self.dx = self.x - self.last_x
+            self.dy = self.y - self.last_y
             self.Refresh(False)
 
 
-def RotateAroundX(angle, v):
+def rotate_around_x(angle, v):
     cosa = math.cos(math.radians(angle))
     sina = math.sin(math.radians(angle))
     return (
      v[0], v[1] * cosa + v[2] * sina, -v[1] * sina + v[2] * cosa)
 
 
-def RotateAroundY(angle, v):
+def rotate_around_y(angle, v):
     cosa = math.cos(math.radians(angle))
     sina = math.sin(math.radians(angle))
     return (
      v[0] * cosa - v[2] * sina, v[1], v[0] * sina + v[2] * cosa)
 
 
-def Translation(dir, v):
+def translation(direction, v):
     return (
-     v[0] + dir[0], v[1] + dir[1], v[2] + dir[2])
+        v[0] + direction[0], v[1] + direction[1], v[2] + direction[2])

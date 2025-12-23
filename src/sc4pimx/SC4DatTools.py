@@ -288,7 +288,7 @@ class Prop():
         if hasattr(self, 'named'):
             ret += ':{"%s"}=' % self.named
         else:
-            ret += ':{"%s"}=' % self.examplar.entry.virtualDAT.properties[self.id].Name
+            ret += ':{"%s"}=' % self.examplar.entry.virtual_dat.properties[self.id].Name
         namedType = {768: 'Uint32',3072: 'String',2304: 'Float32',2816: 'Bool',256: 'Uint8',2048: 'Sint64',1792: 'Sint32'}
         ret += namedType[self.typeValue]
         ret += ':'
@@ -309,7 +309,7 @@ class Prop():
         try:
             ret = struct.pack('I', self.id)
             ret += struct.pack('H', self.typeValue)
-            if self.examplar.entry.virtualDAT.properties[self.id].Count == 1:
+            if self.examplar.entry.virtual_dat.properties[self.id].Count == 1:
                 self.sizeOfCounter = 0
             else:
                 self.sizeOfCounter = 128
@@ -356,7 +356,7 @@ class Examplar():
         self.entry = entry
         self.virtualDAT = virtualDAT
         if entry:
-            self.entry.virtualDAT = virtualDAT
+            self.entry.virtual_dat = virtualDAT
             self.buffer = entry.content
         self.props = []
         self.parentCohort = (0, 0, 0)
@@ -503,7 +503,7 @@ class Examplar():
             if self.link is not None:
                 if 'examplar' not in self.link.__dict__:
                     print('require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
-                    self.link.ReadFile(None, True, True)
+                    self.link.read_file(None, True, True)
                     cohort = Examplar(self.link, self.virtualDAT)
                     self.link.examplar = cohort
                     self.link.rawContent = None
@@ -539,7 +539,7 @@ class Examplar():
     def Reread(self):
         self.modified = False
         if self.entry:
-            self.entry.ReadFile(None, True, True)
+            self.entry.read_file(None, True, True)
             self.buffer = self.entry.content
         self.props = []
         self.parentCohort = (0, 0, 0)
@@ -617,7 +617,7 @@ class SC4Entry():
 
         return
 
-    def ReadFile(self, sc4, readWhole=True, decompress=False):
+    def read_file(self, sc4, readWhole=True, decompress=False):
         if self.rawContent != None:
             return False
         if self.tgi[0] == 1697917002 or self.tgi[0] == 87304289 or self.tgi[0] == 2289530369:
@@ -753,7 +753,7 @@ class DatFile():
                     pass
 
         toBeRead = list(filter(lambda entry: entry.tgi[0] == 1697917002 or entry.tgi[0] == 87304289 or entry.tgi[0] == 2289530369, self.entries))
-        temp = list(map(lambda entry: entry.ReadFile(self.sc4, True, True), toBeRead))
+        temp = list(map(lambda entry: entry.read_file(self.sc4, True, True), toBeRead))
         del temp
         del toBeRead
         del entries
@@ -805,7 +805,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
             if bRecompress and not entry.compressed:
                 if entry.rawContent == None:
                     sc4In = open(entry.fileName, 'rb')
-                    entry.ReadFile(sc4In)
+                    entry.read_file(sc4In)
                     sc4In.close()
             if bRecompress and not entry.compressed and len(entry.rawContent) > 600:
                 compression = QFS.encode(entry.rawContent)
@@ -887,7 +887,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         wx.Yield()
         if entry.rawContent == None:
             sc4In = open(entry.fileName, 'rb')
-            entry.ReadFile(sc4In)
+            entry.read_file(sc4In)
             sc4In.close()
         sc4.write(entry.rawContent)
 

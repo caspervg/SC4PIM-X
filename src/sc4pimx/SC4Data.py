@@ -1,26 +1,17 @@
-
-
-
-
-
-
 """SC4 data structures and virtual DAT file management.
 
 This module provides classes for managing SC4 building descriptions, textures,
 lots, and virtual DAT file collections.
 """
-from SC4DatTools import *
-from S3DReader import *
-import xml.dom.minidom
-from translation import *
-import time
 import itertools
 import threading
-import FSHConverter
-from PIL import Image
-from PIL import ImageDraw
-from PIL import ImageFont
-import wx
+import xml.dom.minidom
+
+from PIL import ImageDraw, ImageFont
+
+from S3DReader import *
+from SC4DatTools import *
+
 
 def ToUnsigned(val):
     try:
@@ -233,7 +224,7 @@ def DuplicateProp(dup, newID):
     return prop
 
 
-class Family():
+class Family:
 
     def __init__(self, familyID, virtualDAT, tree):
         self.familyID = familyID
@@ -246,7 +237,7 @@ class Family():
                     if cohort.examplar.entry == cohort:
                         pass
                 except:
-                    cohort.ReadFile(None, True, True)
+                    cohort.read_file(None, True, True)
                     examplar = Examplar(cohort)
                     cohort.examplar = examplar
                     cohort.rawContent = None
@@ -645,7 +636,7 @@ class ImageListLoaderTexture():
         for texEntry in allTex:
             if self.keepGoing == False:
                 break
-            texEntry.ReadFile(None, True, True)
+            texEntry.read_file(None, True, True)
             nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
             texEntry.content = None
             texEntry.rawContent = None
@@ -942,7 +933,7 @@ class ResourceViewer():
         except IndexError:
             return None
 
-        what.PreLoad(virtualDAT, s3DTexturesHolder)
+        what._pre_load(virtualDAT, s3DTexturesHolder)
         return None
 
     def Draw(self, viewer, fileNameStatic, zoom, rot, state):
@@ -951,10 +942,10 @@ class ResourceViewer():
         try:
             what = self.viewingData[state]
         except IndexError:
-            if viewer.S3DMesh != None:
-                viewer.S3DMesh.Free3D(viewer.s3DTexturesHolder)
-                viewer.S3DMesh = None
-            viewer.Refresh(False)
+            if viewer.s3d_mesh != None:
+                viewer.s3d_mesh.free_3d(viewer.s3d_textures_holder)
+                viewer.s3d_mesh = None
+            viewer.refresh(False)
             return
         except:
             print(state)
@@ -963,16 +954,16 @@ class ResourceViewer():
         viewer = what.__class__.viewer
         self.mainFrame.viewer = viewer
         viewer.InitGL()
-        viewer.Refresh(False)
+        viewer.refresh(False)
         if what.__class__ == SC4Model:
-            what.Draw(viewer, fileNameStatic, zoom, rot)
+            what.draw(viewer, fileNameStatic, zoom, rot)
             if what.mainMesh.entry == None:
                 fileNameStatic.SetLabel(invisibleModel)
             else:
                 fileNameStatic.SetLabel(what.mainMesh.entry.fileName)
-            fileNameStatic.Refresh(False)
+            fileNameStatic.refresh(False)
         else:
-            what.Draw(viewer, fileNameStatic, zoom, rot)
+            what.draw(viewer, fileNameStatic, zoom, rot)
         return
 
 
@@ -998,12 +989,12 @@ class SC4Model1MeshPerZoom():
             mesh.LEInit(virtualDAT, s3DTexturesHolder)
 
     def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
-        viewer.angleMul = 1
+        viewer.angle_mul = 1
         if nZoom == -1:
-            viewer.useBestFit = True
+            viewer.use_best_fit = True
             self.s3dMeshes[4].Initialize(self.virtualDAT, viewer)
         else:
-            viewer.useBestFit = False
+            viewer.use_best_fit = False
             viewer.zoom = nZoom
             self.s3dMeshes[nZoom].Initialize(self.virtualDAT, viewer)
 
@@ -1022,7 +1013,7 @@ class SC4ModelMesh():
             self.bValid = False
         xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
-            xmlEntry.ReadFile(None, True, True)
+            xmlEntry.read_file(None, True, True)
             try:
                 xmlDoc = xml.dom.minidom.parseString(xmlEntry.content)
                 for node in xmlDoc.childNodes:
@@ -1054,13 +1045,13 @@ class SC4ModelMesh():
 
     def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
         preAngle = [0, 90, 180, 270]
-        viewer.preAngle = preAngle[nRot]
-        viewer.angleMul = 1
+        viewer.pre_angle = preAngle[nRot]
+        viewer.angle_mul = 1
         if nZoom == -1:
-            viewer.useBestFit = True
+            viewer.use_best_fit = True
             self.mainMesh.Initialize(self.virtualDAT, viewer)
         else:
-            viewer.useBestFit = False
+            viewer.use_best_fit = False
             viewer.zoom = nZoom
             self.mainMesh.Initialize(self.virtualDAT, viewer)
 
@@ -1095,7 +1086,7 @@ class SC4Model():
         self.bValid = True
         xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
-            xmlEntry.ReadFile(None, True, True)
+            xmlEntry.read_file(None, True, True)
             try:
                 xmlDoc = xml.dom.minidom.parseString(xmlEntry.content)
                 for node in xmlDoc.childNodes:
@@ -1128,15 +1119,15 @@ class SC4Model():
         return
 
     def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
-        viewer.preAngle = 0
-        viewer.angleMul = 1
+        viewer.pre_angle = 0
+        viewer.angle_mul = 1
         if nZoom == -1:
-            viewer.useBestFit = True
-            self.s3dMeshes[4][nRot].Initialize(self.virtualDAT, viewer)
+            viewer.use_best_fit = True
+            self.s3dMeshes[4][nRot].initialize(self.virtualDAT, viewer)
         else:
-            viewer.useBestFit = False
+            viewer.use_best_fit = False
             viewer.zoom = nZoom
-            self.s3dMeshes[nZoom][nRot].Initialize(self.virtualDAT, viewer)
+            self.s3dMeshes[nZoom][nRot].initialize(self.virtualDAT, viewer)
 
     def PreLoad(self, virtualDAT, s3DTexturesHolder):
         for zoom in range(5):
@@ -1341,7 +1332,7 @@ class VirtualDat():
     def addEntries(self, entries, dlg, bStandard, bForceUpdate):
         for entry in entries:
             entry.bStandard = bStandard
-            entry.virtualDAT = self
+            entry.virtual_dat = self
             try:
                 idx = self.TGIIndex[entry.tgi]
                 self.allEntries[idx] = entry

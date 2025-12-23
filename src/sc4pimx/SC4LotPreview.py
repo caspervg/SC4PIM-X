@@ -190,7 +190,7 @@ class LEDropTarget(wx.PyDropTarget):
                 xmax = ToUnsigned(xmax * 1048576)
                 ymax = ToUnsigned(ymax * 1048576)
                 v = [vType, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, currentID, v12]
-                self.frame.examplar.AddTextProp(CreateAProp(self.frame.virtualDAT.properties[lastIDProp], v[:]))
+                self.frame.examplar.AddTextProp(CreateAProp(self.frame.virtual_dat.properties[lastIDProp], v[:]))
                 self.frame.PreCacheObject(v)
                 self.frame.UpdatePIM()
                 self.frame.RebuildVars()
@@ -957,7 +957,7 @@ class LotEditorWin(wx.Frame):
         for zLevel in range(5):
             texEntry = self.virtualDAT.getEntry(2058686020, 159781726, texID + zLevel)
             if texEntry is not None:
-                texEntry.ReadFile(None, True, True)
+                texEntry.read_file(None, True, True)
                 nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
                 texEntry.content = None
                 texEntry.rawContent = None
@@ -986,7 +986,7 @@ class LotEditorWin(wx.Frame):
         textures = []
         texEntry = self.virtualDAT.getEntry(2058686020, texGID, texIID)
         if texEntry is not None:
-            texEntry.ReadFile(None, True, True)
+            texEntry.read_file(None, True, True)
             nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
             texEntry.content = None
             texEntry.rawContent = None
@@ -1039,7 +1039,7 @@ class LotEditorWin(wx.Frame):
                 buildingViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
             self.buildingViewer.append(buildingViewer)
             try:
-                self.buildingViewer[-1].PreLoad(self.virtualDAT, self.s3DTexturesHolder)
+                self.buildingViewer[-1]._pre_load(self.virtualDAT, self.s3DTexturesHolder)
                 continue
             except:
                 if buildingViewer == None:
@@ -1336,7 +1336,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetCurrent()
         if self.modeEdit == MODE_EDIT_PAN:
             if self.panel == 3:
-                if self.glCanvas2D.clicX > self.glCanvas2D.GetClientSize()[0] / 2:
+                if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:
                     self.posx -= self.glCanvas2D.dx * 0.25
                     self.posy -= self.glCanvas2D.dy * 0.25
                 else:
@@ -1666,7 +1666,7 @@ class LotEditorWin(wx.Frame):
                     alphaValue = 0.9
                 self.DrawQuadColor(self.building[2], minx, miny, maxx, maxy, (0, 0, 1, alphaValue), self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] == None)
                 if self.building[4] != 0 and self.building[11] in self.selected:
-                    self.glCanvas2D.Text2D(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly, '%.02f' % ToCoord(self.building[4]), rot2D, scaling)
+                    self.glCanvas2D.text_2d(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly, '%.02f' % ToCoord(self.building[4]), rot2D, scaling)
         if self.modeDisplay & MODE_PROP_ONLY:
             for prop, propViewer in zip(self.props, self.propViewers):
                 minx = ToCoord(prop[6])
@@ -1687,7 +1687,7 @@ class LotEditorWin(wx.Frame):
                     alphaValue = 0.5
                 self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (1, 1, 0, alphaValue), propViewer == None)
                 if prop[4] != 0 and prop[11] in self.selected:
-                    self.glCanvas2D.Text2D(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
+                    self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
 
         if self.modeDisplay & MODE_FLORA_ONLY:
             for prop in self.floras:
@@ -1706,7 +1706,7 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [prop[11]]
                 self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (0, 1.0, 0, 0.9), False)
                 if prop[4] != 0 and prop[11] in self.selected:
-                    self.glCanvas2D.Text2D(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
+                    self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
 
         self.DrawQuadsHighLight(self.quadHighs)
         self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
@@ -1825,14 +1825,14 @@ class LotEditorWin(wx.Frame):
             glTranslate(rtk[0], rtk[1], rtk[2])
             glRotatef(rotMapping[rotFlag], 0, 1, 0)
             glRotatef(-rot2D, 0, 1, 0)
-            what.s3dMeshes[zoom][rot].Draw(self.s3DTexturesHolder)
+            what.s3dMeshes[zoom][rot].draw(self.s3DTexturesHolder)
         elif what.__class__ == SC4Model1MeshPerZoom:
-            what.s3dMeshes[zoom].Draw(self.s3DTexturesHolder)
+            what.s3dMeshes[zoom].draw(self.s3DTexturesHolder)
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [
              180, -90, 0, 90]
             glRotatef(rotMapping[rotFlag], 0, 1, 0)
-            what.mainMesh.Draw(self.s3DTexturesHolder)
+            what.mainMesh.draw(self.s3DTexturesHolder)
         elif what.__class__ == ATC:
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
@@ -1850,7 +1850,7 @@ class LotEditorWin(wx.Frame):
             glLoadMatrixf(modelview)
             glScalef(1 / 7.0, 1 / 7.0, 1 / 7.0)
             glScalef(0.5, 0.5, 0.5)
-            if what.DrawLE(zoom, rotMapping[rot]):
+            if what.draw_le(zoom, rotMapping[rot]):
                 what.DrawGL(self.s3DTexturesHolder)
             glEnable(GL_DEPTH_TEST)
         return
@@ -2315,13 +2315,13 @@ class LotEditorWin(wx.Frame):
         return
 
     def OnMouseMotion(self, evt):
-        self.glCanvas2D.OnMouseMotion(evt)
+        self.glCanvas2D.on_mouse_motion(evt)
         if evt.ControlDown() and self.dragSelect == False:
             return
         if evt.Dragging() and evt.LeftIsDown():
             if evt.ShiftDown():
                 if self.panel == 3:
-                    if self.glCanvas2D.clicX > self.glCanvas2D.GetClientSize()[0] / 2:
+                    if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:
                         pass
                     else:
                         self.bBackAligned = True
@@ -2339,7 +2339,7 @@ class LotEditorWin(wx.Frame):
                 return
             self.SetMatForUnproj()
             h = self.size[1]
-            lx, ly = self.glCanvas2D.lastx, self.glCanvas2D.lasty
+            lx, ly = self.glCanvas2D.last_x, self.glCanvas2D.last_y
             cx, cy = self.glCanvas2D.x, self.glCanvas2D.y
             lx, ly, dz = gluUnProject(lx, h - ly, 0)
             cx, cy, dz = gluUnProject(cx, h - cy, 0)
@@ -2353,7 +2353,7 @@ class LotEditorWin(wx.Frame):
         self.OnDraw()
 
     def OnMouseDown(self, evt):
-        self.glCanvas2D.OnMouseDown(evt)
+        self.glCanvas2D.on_mouse_down(evt)
         Xclic, Yclick = self.glCanvas2D.mouseX, self.glCanvas2D.mouseY
         self.SetMatForUnproj()
         h = self.size[1]
@@ -2391,7 +2391,7 @@ class LotEditorWin(wx.Frame):
 
     def OnMouseUp(self, evt):
         self.newIds = []
-        self.glCanvas2D.OnMouseUp(evt)
+        self.glCanvas2D.on_mouse_up(evt)
         if self.dragSelect:
             self.dragSelect = False
             self.dragQuad = None
@@ -2708,10 +2708,10 @@ class ImageDBBuilder(wx.Frame):
         self.viewer.Refresh(False)
         self.viewer.useBestFit = True
         self.viewer.drawAxis = False
-        sc4data[1].sc4Model.Draw(self.viewer, None, -1, 0)
+        sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
         wx.Yield()
         self.viewer.drawAxis = False
-        sc4data[1].sc4Model.Draw(self.viewer, None, -1, 0)
+        sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
         wx.Yield()
         size = self.viewer.openGLCanvas.GetClientSize()
         glReadBuffer(GL_FRONT)
@@ -2724,6 +2724,6 @@ class ImageDBBuilder(wx.Frame):
         del image
         del data
         del size
-        self.viewer.S3DMesh.FreeAll(self.viewer.s3DTexturesHolder)
+        self.viewer.S3DMesh.FreeAll(self.viewer.s3d_textures_holder)
         return
 

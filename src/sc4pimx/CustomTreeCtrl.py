@@ -1,7 +1,12 @@
 """Custom tree control for SC4PIM with checkbox and icon support."""
+from typing import Tuple, Any
+
 import wx
 import zlib
 import io
+
+from wx import Size, Image
+
 _NO_IMAGE = -1
 _PIXELS_PER_UNIT = 10
 _DELAY = 500
@@ -107,117 +112,122 @@ EVT_TREE_ITEM_CHECKING = wx.PyEventBinder(wxEVT_TREE_ITEM_CHECKING, 1)
 EVT_TREE_ITEM_CHECKED = wx.PyEventBinder(wxEVT_TREE_ITEM_CHECKED, 1)
 EVT_TREE_ITEM_HYPERLINK = wx.PyEventBinder(wxEVT_TREE_ITEM_HYPERLINK, 1)
 
-def GetFlaggedData():
-    return zlib.decompress('x\xda\x012\x02\xcd\xfd\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01\xe9IDAT(\x91u\x92\xd1K\xd3a\x14\x86\x9f\xef|J2J\xc3%\x85\x8e\x1cb\x93Hl\xd9,\x06F]4\x10\tD3\x83\x88\xc8\xbf\xc0\xb4\xaeBP1\xe9\xa2(\xec\xaan\xc3\x82pD\xa1\x84\xb0\x88@3\x8c\xc9\xa2bT\xa2^\x8c\x81V3\xb6\xb5\x9f\xce9\xbe.j\xb20\xdf\xeb\xf7\xe19\x07^\xa5D\x93\x9f\x9ea\xbf\t\x04\xbf\x12\x8b[\xd8Kl\xf8<.\xeet\xb5\xab\xfc\x8e\xca\x87*ZzM\xf3\xb1j|G\xab\xf0\xd4\x94\x13\x9a_&0\xbb\xc8\xd8\xf4g\xa2\xcfo\xa8-P\xc7\xf5\x07\xa6\xedD\r\x8d\xb5\xfb\x11\x11\xb4\xd6\x88h\xb4\xd6}\x8a\xf0\xe4\xd5G\x1e\rt*\x00\xc9\x19\xb6\x03D4\xa7\xdcU\\8\xed\xa6\xa2\xa5\xd7\x00\xe8\xab\xf7\x9e\x9a\xca\xb2\x9d\\\xf2\xd5!"dT\x86\xc9\xe4\x14\x83s\x83HF\xe3\xdc\xe5\xa4\xa8\xb0\x88\xaa\xf2=D\x7f$il>\xdf\xafSe\xf5\xfd\x9dM\x87\xa9\xdc\xb7\x1b\xad5\x93\xc9)\xfc\xe9Q\x12\xe9\x04\x13\x0b\x13\x94\xaaR\xdc{\x8f "\xec(,\xe0\xfe\xb3\xb7H,a\xe1\xa9)\xdf<e$2Ble\x85\x94e\xb1\x96\xcep\xfb\xdd-D\x04\xa5\x14\xdeZ\'\xb1\x84\x85\xd8\x8bm\x84\xe6\x977\x7f8kog)\xba\xc4\xb7\xe5\xef$\xe2?\xe9\xa9\xbf\x86R\n\x11a&\x1c\xc1^lC|\r.\x02\xb3\x8b\x9b\xa6&G\x13W\xaa\xbb\x91_\x05\x0c\x1d\xbfI\xc7\xa1\x8e\xbf&a|:\x8c\xaf\xc1\x05J4\x8e\xd6>36\x192\xc9d\xdc\xa4RI\xb3\xbaj\x99tz\xcd\xac\xaf\xa7\xcd\xc6F\xc6d\xb3Y\xf32\xf8\xc58Z\xfb\x8c\x12\xfd\x07R\xa2\xb98\xf0\xd0\xbcx\xf3a[\xe0\xf2\xd0c\x93\xebnYD\xdb\xc9:\xcex\x0f\xe2\xadu2\x13\x8e0>\x1d\xc6\xff\xfa\xfd\xff\x17\x91K\xf7\xf0\xa8\t\x04\xe7X\x89[\x94\x96\xd8\xf0y\x0ep\xb7\xeb\xdc?\xdb\xfb\r|\xd0\xd1]\x98\xbdm\xdc\x00\x00\x00\x00IEND\xaeB`\x82\x91\xe2\x08\x8f')
+
+def get_flagged_data():
+    return zlib.decompress(
+        b'x\xda\x012\x02\xcd\xfd\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01\xe9IDAT(\x91u\x92\xd1K\xd3a\x14\x86\x9f\xef|J2J\xc3%\x85\x8e\x1cb\x93Hl\xd9,\x06F]4\x10\tD3\x83\x88\xc8\xbf\xc0\xb4\xaeBP1\xe9\xa2(\xec\xaan\xc3\x82pD\xa1\x84\xb0\x88@3\x8c\xc9\xa2bT\xa2^\x8c\x81V3\xb6\xb5\x9f\xce9\xbe.j\xb20\xdf\xeb\xf7\xe19\x07^\xa5D\x93\x9f\x9ea\xbf\t\x04\xbf\x12\x8b[\xd8Kl\xf8<.\xeet\xb5\xab\xfc\x8e\xca\x87*ZzM\xf3\xb1j|G\xab\xf0\xd4\x94\x13\x9a_&0\xbb\xc8\xd8\xf4g\xa2\xcfo\xa8-P\xc7\xf5\x07\xa6\xedD\r\x8d\xb5\xfb\x11\x11\xb4\xd6\x88h\xb4\xd6}\x8a\xf0\xe4\xd5G\x1e\rt*\x00\xc9\x19\xb6\x03D4\xa7\xdcU\\8\xed\xa6\xa2\xa5\xd7\x00\xe8\xab\xf7\x9e\x9a\xca\xb2\x9d\\\xf2\xd5!"dT\x86\xc9\xe4\x14\x83s\x83HF\xe3\xdc\xe5\xa4\xa8\xb0\x88\xaa\xf2=D\x7f$il>\xdf\xafSe\xf5\xfd\x9dM\x87\xa9\xdc\xb7\x1b\xad5\x93\xc9)\xfc\xe9Q\x12\xe9\x04\x13\x0b\x13\x94\xaaR\xdc{\x8f "\xec(,\xe0\xfe\xb3\xb7H,a\xe1\xa9)\xdf<e$2Ble\x85\x94e\xb1\x96\xcep\xfb\xdd-D\x04\xa5\x14\xdeZ\'\xb1\x84\x85\xd8\x8bm\x84\xe6\x977\x7f8kog)\xba\xc4\xb7\xe5\xef$\xe2?\xe9\xa9\xbf\x86R\n\x11a&\x1c\xc1^lC|\r.\x02\xb3\x8b\x9b\xa6&G\x13W\xaa\xbb\x91_\x05\x0c\x1d\xbfI\xc7\xa1\x8e\xbf&a|:\x8c\xaf\xc1\x05J4\x8e\xd6>36\x192\xc9d\xdc\xa4RI\xb3\xbaj\x99tz\xcd\xac\xaf\xa7\xcd\xc6F\xc6d\xb3Y\xf32\xf8\xc58Z\xfb\x8c\x12\xfd\x07R\xa2\xb98\xf0\xd0\xbcx\xf3a[\xe0\xf2\xd0c\x93\xebnYD\xdb\xc9:\xcex\x0f\xe2\xadu2\x13\x8e0>\x1d\xc6\xff\xfa\xfd\xff\x17\x91K\xf7\xf0\xa8\t\x04\xe7X\x89[\x94\x96\xd8\xf0y\x0ep\xb7\xeb\xdc?\xdb\xfb\r|\xd0\xd1]\x98\xbdm\xdc\x00\x00\x00\x00IEND\xaeB`\x82\x91\xe2\x08\x8f')
 
 
-def GetFlaggedBitmap():
-    return wx.BitmapFromImage(GetFlaggedImage())
+def get_flagged_bitmap():
+    return wx.BitmapFromImage(get_flagged_image())
 
 
-def GetFlaggedImage():
-    stream = io.BytesIO(GetFlaggedData())
+def get_flagged_image():
+    stream = io.BytesIO(get_flagged_data())
     return wx.ImageFromStream(stream)
 
 
-def GetNotFlaggedData():
-    return zlib.decompress('x\xda\x01\xad\x01R\xfe\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01dIDAT(\x91\x95\xd21K\x82a\x14\x86\xe1\xe7=\xef798\xb8\x89\x0e"|Cd\x94\x88\x83\x065\x88\x108\x88Q\x8b-\xd1\x1f\x88\x9a\n\x04\x11j\x8eh\x08\xdaZ\x84(\x82\xc2 0\xc1 $\xb4P\xa1\x10\x11D\xb061\xd4\xd4\xcc\xe44\x84 \xa8Hg~.\xcer\x0bA\x12\x83\xb7ux\xce\xd1T\x01\xd5z\x0b:\xad\x06n\xbb\x8a\x83\xcdU1\xb8\x11\x83\xc8\xe0\r\xf0\x92\xdd\x0c\x97\xd5\x04\x9b\xaaG\xb6XA,]B\xe41\x8f\xf7\xab=1\x84Vv\x8e\xd97\xaf\xc29m\x04\x91\x84\x94\n\xa4\x94P\x14\x05\x89\xd77\x9c\xc5_\x10\x0em\x08\x00\xa0\xfe\x87q@J\x89\xc593\xfc\xaeY\x18\xbc\x01\x06\x00\xb1}t\xc9\xf5F\x03\x01\xbfs$ \x92 "\x10I\xec\x9e\xdcBQ\x08\x14M\x15\xe0\xb2\x9a&\x02"\x82\xc71\x85h\xaa\x00\xaa\xd6[\xb0\xa9\xfa\x89\x80\x88\xe0\xb0\x98P\xad\xb7@:\xad\x06\xd9be" "$se\xe8\xb4\x1a\x90\xdb\xae"\x96.M\x04D\x84H"\x07\xb7]\x05\x04I\x18}A\xbe\xbe\x7f\xe6Z\xed\x83\x1b\x8d\x1a7\x9b\x9f\xdcn\xb7\xb8\xd3\xf9\xe2n\xf7\x9b{\xbd\x1f\xbe{\xca\xb3\xd1\x17dA\xf2\x0f\t\x92X\x0b\x9d\xf2\xcdCf,X\xdf\x0fs\x7f;T\xc4\xf2\xc2\x0c<\x8e)8,&$seD\x129\\\xc43\xa3\x8b\xf8O{\xbf\xf1\xb5\xa5\x990\x0co\xd6\x00\x00\x00\x00IEND\xaeB`\x82&\x11\xab!')
+def get_not_flagged_data():
+    return zlib.decompress(
+        b'x\xda\x01\xad\x01R\xfe\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\r\x00\x00\x00\r\x08\x06\x00\x00\x00r\xeb\xe4|\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\x00\x01dIDAT(\x91\x95\xd21K\x82a\x14\x86\xe1\xe7=\xef798\xb8\x89\x0e"|Cd\x94\x88\x83\x065\x88\x108\x88Q\x8b-\xd1\x1f\x88\x9a\n\x04\x11j\x8eh\x08\xdaZ\x84(\x82\xc2 0\xc1 $\xb4P\xa1\x10\x11D\xb061\xd4\xd4\xcc\xe44\x84 \xa8Hg~.\xcer\x0bA\x12\x83\xb7ux\xce\xd1T\x01\xd5z\x0b:\xad\x06n\xbb\x8a\x83\xcdU1\xb8\x11\x83\xc8\xe0\r\xf0\x92\xdd\x0c\x97\xd5\x04\x9b\xaaG\xb6XA,]B\xe41\x8f\xf7\xab=1\x84Vv\x8e\xd97\xaf\xc29m\x04\x91\x84\x94\n\xa4\x94P\x14\x05\x89\xd77\x9c\xc5_\x10\x0em\x08\x00\xa0\xfe\x87q@J\x89\xc593\xfc\xaeY\x18\xbc\x01\x06\x00\xb1}t\xc9\xf5F\x03\x01\xbfs$ \x92 "\x10I\xec\x9e\xdcBQ\x08\x14M\x15\xe0\xb2\x9a&\x02"\x82\xc71\x85h\xaa\x00\xaa\xd6[\xb0\xa9\xfa\x89\x80\x88\xe0\xb0\x98P\xad\xb7@:\xad\x06\xd9be" "$se\xe8\xb4\x1a\x90\xdb\xae"\x96.M\x04D\x84H"\x07\xb7]\x05\x04I\x18}A\xbe\xbe\x7f\xe6Z\xed\x83\x1b\x8d\x1a7\x9b\x9f\xdcn\xb7\xb8\xd3\xf9\xe2n\xf7\x9b{\xbd\x1f\xbe{\xca\xb3\xd1\x17dA\xf2\x0f\t\x92X\x0b\x9d\xf2\xcdCf,X\xdf\x0fs\x7f;T\xc4\xf2\xc2\x0c<\x8e)8,&$seD\x129\\\xc43\xa3\x8b\xf8O{\xbf\xf1\xb5\xa5\x990\x0co\xd6\x00\x00\x00\x00IEND\xaeB`\x82&\x11\xab!')
 
 
-def GetNotFlaggedBitmap():
-    return wx.BitmapFromImage(GetNotFlaggedImage())
+def get_not_flagged_bitmap():
+    return wx.BitmapFromImage(get_not_flagged_image())
 
 
-def GetNotFlaggedImage():
-    stream = io.BytesIO(GetNotFlaggedData())
+def get_not_flagged_image():
+    stream = io.BytesIO(get_not_flagged_data())
     return wx.ImageFromStream(stream)
 
 
-def GetCheckedData():
-    return zlib.decompress("x\xda\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd1 \xcc\xc1\x06$\x8b^?\xa9\x01R,\xc5N\x9e!\x1c@P\xc3\x91\xd2\x01\xe4\xaf\xf4tq\x0c\xd1\x98\x98<\x853\xe7\xc7y\x07\xa5\x84\xc4\x84\x84\x04\x0b3C1\xbd\x03'N\x1c9p\x84\xe5\xe0\x993gx||\xce\x14\xcc\xea\xec\xect4^7\xbf\x91\xf3&\x8b\x93\xd4\x8c\x19\n\xa7fv\\L\xd8p\x90C\xebx\xcf\x05\x17\x0ff \xb8c\xb6Cm\x06\xdb\xea\xd8\xb2\x08\xd3\x03W\x0c\x8c\x8c\x16e%\xa5\xb5E\xe4\xee\xba\xca\xe4|\xb8\xb7\xe35OOO\xcf\n\xb3\x83>m\x8c1R\x12\x92\x81s\xd8\x0b/\xb56\x14k|l\\\xc7x\xb4\xf2\xc4\xc1*\xd5'B~\xbc\x19uNG\x98\x85\x85\x8d\xe3x%\x16\xb2_\xee\xf1\x07\x99\xcb\xacl\x99\xc9\xcf\xb0\xc0_.\x87+\xff\x99\x05\xd0\xd1\x0c\x9e\xae~.\xeb\x9c\x12\x9a\x00\x92\xccS\x9f")
+def get_checked_data():
+    return zlib.decompress(
+        b"x\xda\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd1 \xcc\xc1\x06$\x8b^?\xa9\x01R,\xc5N\x9e!\x1c@P\xc3\x91\xd2\x01\xe4\xaf\xf4tq\x0c\xd1\x98\x98<\x853\xe7\xc7y\x07\xa5\x84\xc4\x84\x84\x04\x0b3C1\xbd\x03'N\x1c9p\x84\xe5\xe0\x993gx||\xce\x14\xcc\xea\xec\xect4^7\xbf\x91\xf3&\x8b\x93\xd4\x8c\x19\n\xa7fv\\L\xd8p\x90C\xebx\xcf\x05\x17\x0ff \xb8c\xb6Cm\x06\xdb\xea\xd8\xb2\x08\xd3\x03W\x0c\x8c\x8c\x16e%\xa5\xb5E\xe4\xee\xba\xca\xe4|\xb8\xb7\xe35OOO\xcf\n\xb3\x83>m\x8c1R\x12\x92\x81s\xd8\x0b/\xb56\x14k|l\\\xc7x\xb4\xf2\xc4\xc1*\xd5'B~\xbc\x19uNG\x98\x85\x85\x8d\xe3x%\x16\xb2_\xee\xf1\x07\x99\xcb\xacl\x99\xc9\xcf\xb0\xc0_.\x87+\xff\x99\x05\xd0\xd1\x0c\x9e\xae~.\xeb\x9c\x12\x9a\x00\x92\xccS\x9f")
 
 
-def GetCheckedBitmap():
-    return wx.BitmapFromImage(GetCheckedImage())
+def get_checked_bitmap():
+    return wx.BitmapFromImage(get_checked_image())
 
 
-def GetCheckedImage():
-    stream = io.BytesIO(GetCheckedData())
+def get_checked_image():
+    stream = io.BytesIO(get_checked_data())
     return wx.ImageFromStream(stream)
 
 
-def GetNotCheckedData():
-    return zlib.decompress("x\xda\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd1 \xcc\xc1\x06$\x8b^?\xa9\x01R,\xc5N\x9e!\x1c@P\xc3\x91\xd2\x01\xe4\xe7z\xba8\x86hL\x9c{\xe9 o\x83\x01\x07\xeb\x85\xf3\xed\x86w\x0ed\xdaT\x96\x8a\xbc\x9fw\xe7\xc4\xd9/\x01\x8b\x97\x8a\xd7\xab*\xfar\xf0Ob\x93^\xf6\xd5%\x9d\x85A\xe6\xf6\x1f\x11\x8f{/\x0b\xf8wX+\x9d\xf2\xb6:\x96\xca\xfe\x9a3\xbeA\xe7\xed\x1b\xc6%\xfb=X3'sI-il\t\xb9\xa0\xc0;#\xd4\x835m\x9a\xf9J\x85\xda\x16.\x86\x03\xff\xee\xdcc\xdd\xc0\xce\xf9\xc8\xcc(\xbe\x1bh1\x83\xa7\xab\x9f\xcb:\xa7\x84&\x00\x87S=\xbe")
+def get_not_checked_data():
+    return zlib.decompress(
+        b"x\xda\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd1 \xcc\xc1\x06$\x8b^?\xa9\x01R,\xc5N\x9e!\x1c@P\xc3\x91\xd2\x01\xe4\xe7z\xba8\x86hL\x9c{\xe9 o\x83\x01\x07\xeb\x85\xf3\xed\x86w\x0ed\xdaT\x96\x8a\xbc\x9fw\xe7\xc4\xd9/\x01\x8b\x97\x8a\xd7\xab*\xfar\xf0Ob\x93^\xf6\xd5%\x9d\x85A\xe6\xf6\x1f\x11\x8f{/\x0b\xf8wX+\x9d\xf2\xb6:\x96\xca\xfe\x9a3\xbeA\xe7\xed\x1b\xc6%\xfb=X3'sI-il\t\xb9\xa0\xc0;#\xd4\x835m\x9a\xf9J\x85\xda\x16.\x86\x03\xff\xee\xdcc\xdd\xc0\xce\xf9\xc8\xcc(\xbe\x1bh1\x83\xa7\xab\x9f\xcb:\xa7\x84&\x00\x87S=\xbe")
 
 
-def GetNotCheckedBitmap():
-    return wx.BitmapFromImage(GetNotCheckedImage())
+def get_not_checked_bitmap():
+    return wx.BitmapFromImage(get_not_checked_image())
 
 
-def GetNotCheckedImage():
-    stream = io.BytesIO(GetNotCheckedData())
+def get_not_checked_image():
+    stream = io.BytesIO(get_not_checked_data())
     return wx.ImageFromStream(stream)
 
 
-def GrayOut(anImage):
+def gray_out(img: Image):
     factor = 0.7
-    if anImage.HasMask():
-        maskColor = (
-         anImage.GetMaskRed(), anImage.GetMaskGreen(), anImage.GetMaskBlue())
+    if img.HasMask():
+        mask_colour = (
+            img.GetMaskRed(), img.GetMaskGreen(), img.GetMaskBlue())
     else:
-        maskColor = None
-    data = map(ord, list(anImage.GetData()))
+        mask_colour = None
+    data = list(map(ord, list(img.GetData())))
     for i in range(0, len(data), 3):
         pixel = (
-         data[i], data[i + 1], data[i + 2])
-        pixel = MakeGray(pixel, factor, maskColor)
+            data[i], data[i + 1], data[i + 2])
+        pixel = make_gray(pixel, factor, mask_colour)
         for x in range(3):
             data[i + x] = pixel[x]
 
-    anImage.SetData(''.join(map(chr, data)))
-    return anImage
+    img.SetData(''.join(map(chr, data)))
+    return img
 
 
-def MakeGray(rgb, factor, maskColor):
+def make_gray(rgb: Tuple[int, int, int], factor: float, mask_color: Tuple[int, int, int] = None):
     r, g, b = rgb
-    if (r, g, b) != maskColor:
-        return list(map(lambda x: int((230 - x) * factor) + x, (r, g, b)))
+    if (r, g, b) != mask_color:
+        return tuple(map(lambda x: int((230 - x) * factor) + x, (r, g, b)))
     else:
-        return (r, g, b)
+        return r, g, b
 
 
-def DrawTreeItemButton(win, dc, rect, flags):
+def draw_tree_item_button(win, dc, rect, flags):
     dc.SetPen(wx.GREY_PEN)
     dc.SetBrush(wx.WHITE_BRUSH)
     dc.DrawRectangleRect(rect)
-    xMiddle = rect.x + rect.width / 2
-    yMiddle = rect.y + rect.height / 2
-    halfWidth = rect.width / 2 - 2
+    x_mid = rect.x + rect.width / 2
+    y_mid = rect.y + rect.height / 2
+    half_width = rect.width / 2 - 2
     dc.SetPen(wx.BLACK_PEN)
-    dc.DrawLine(xMiddle - halfWidth, yMiddle, xMiddle + halfWidth + 1, yMiddle)
+    dc.DrawLine(x_mid - half_width, y_mid, x_mid + half_width + 1, y_mid)
     if not flags & _CONTROL_EXPANDED:
-        halfHeight = rect.height / 2 - 2
-        dc.DrawLine(xMiddle, yMiddle - halfHeight, xMiddle, yMiddle + halfHeight + 1)
+        half_height = rect.height / 2 - 2
+        dc.DrawLine(x_mid, y_mid - half_height, x_mid, y_mid + half_height + 1)
 
 
 class DragImage(wx.DragImage):
 
-    def __init__(self, treeCtrl, item):
+    def __init__(self, tree_ctrl, item):
         text = item.GetText()
         font = item.Attr().GetFont()
         colour = item.Attr().GetTextColour()
         if not colour:
             colour = wx.BLACK
         if not font:
-            font = treeCtrl._normalFont
-        backcolour = treeCtrl.GetBackgroundColour()
-        r, g, b = int(backcolour.Red()), int(backcolour.Green()), int(backcolour.Blue())
-        backcolour = ((r >> 1) + 20, (g >> 1) + 20, (b >> 1) + 20)
-        backcolour = wx.Colour(backcolour[0], backcolour[1], backcolour[2])
-        self._backgroundColour = backcolour
-        tempdc = wx.ClientDC(treeCtrl)
-        tempdc.SetFont(font)
-        width, height, dummy = tempdc.GetMultiLineTextExtent(text + 'M')
+            font = tree_ctrl._normal_font
+        background_colour = tree_ctrl.GetBackgroundColour()
+        r, g, b = int(background_colour.Red()), int(background_colour.Green()), int(background_colour.Blue())
+        background_colour = ((r >> 1) + 20, (g >> 1) + 20, (b >> 1) + 20)
+        background_colour = wx.Colour(background_colour[0], background_colour[1], background_colour[2])
+        self._background_colour = background_colour
+        temp_dc = wx.ClientDC(tree_ctrl)
+        temp_dc.SetFont(font)
+        width, height, dummy = temp_dc.GetMultiLineTextExtent(text + 'M')
         image = item.GetCurrentImage()
         image_w, image_h = (0, 0)
         wcheck, hcheck = (0, 0)
@@ -228,16 +238,16 @@ class DragImage(wx.DragImage):
         xcheckpos = 0
         ycheckpos = 0
         if image != _NO_IMAGE:
-            if treeCtrl._imageListNormal:
-                image_w, image_h = treeCtrl._imageListNormal.GetSize(image)
+            if tree_ctrl._image_list_normal:
+                image_w, image_h = tree_ctrl._image_list_normal.GetSize(image)
                 image_w += 4
-                itemimage = treeCtrl._imageListNormal.GetBitmap(image)
+                itemimage = tree_ctrl._image_list_normal.GetBitmap(image)
         checkimage = item.GetCurrentCheckedImage()
         if checkimage is not None:
-            if treeCtrl._imageListCheck:
-                wcheck, hcheck = treeCtrl._imageListCheck.GetSize(checkimage)
+            if tree_ctrl._image_list_check:
+                wcheck, hcheck = tree_ctrl._image_list_check.GetSize(checkimage)
                 wcheck += 4
-                itemcheck = treeCtrl._imageListCheck.GetBitmap(checkimage)
+                itemcheck = tree_ctrl._image_list_check.GetBitmap(checkimage)
         total_h = max(hcheck, height)
         total_h = max(image_h, total_h)
         if image_w:
@@ -280,8 +290,8 @@ class DragImage(wx.DragImage):
         memory = wx.MemoryDC()
         bitmap = wx.EmptyBitmap(self._total_w, self._total_h)
         memory.SelectObject(bitmap)
-        memory.SetTextBackground(self._backgroundColour)
-        memory.SetBackground(wx.Brush(self._backgroundColour))
+        memory.SetTextBackground(self._background_colour)
+        memory.SetBackground(wx.Brush(self._background_colour))
         memory.SetFont(self._font)
         memory.SetTextForeground(self._colour)
         memory.Clear()
@@ -297,34 +307,34 @@ class DragImage(wx.DragImage):
 
 class TreeItemAttr():
 
-    def __init__(self, colText=wx.NullColour, colBack=wx.NullColour, font=wx.NullFont):
-        self._colText = colText
-        self._colBack = colBack
+    def __init__(self, text_colour=wx.NullColour, background_colour=wx.NullColour, font=wx.NullFont):
+        self._text_colour = text_colour
+        self._background_colour = background_colour
         self._font = font
 
-    def SetTextColour(self, colText):
-        self._colText = colText
+    def SetTextColour(self, text_colour):
+        self._text_colour = text_colour
 
-    def SetBackgroundColour(self, colBack):
-        self._colBack = colBack
+    def SetBackgroundColour(self, background_colour):
+        self._background_colour = background_colour
 
     def SetFont(self, font):
         self._font = font
 
     def HasTextColour(self):
-        return self._colText != wx.NullColour
+        return self._text_colour != wx.NullColour
 
     def HasBackgroundColour(self):
-        return self._colBack != wx.NullColour
+        return self._background_colour != wx.NullColour
 
     def HasFont(self):
         return self._font != wx.NullFont
 
     def GetTextColour(self):
-        return self._colText
+        return self._text_colour
 
     def GetBackgroundColour(self):
-        return self._colBack
+        return self._background_colour
 
     def GetFont(self):
         return self._font
@@ -332,11 +342,13 @@ class TreeItemAttr():
 
 class CommandTreeEvent(wx.PyCommandEvent):
 
-    def __init__(self, type, id, item=None, evtKey=None, point=None, label=None, **kwargs):
-        wx.PyCommandEvent.__init__(self, type, id, **kwargs)
+    def __init__(self, event_type, event_id, item=None, event_key=None, point=None, label=None, **kwargs):
+        wx.PyCommandEvent.__init__(self, event_type, event_id)
+        self._edit_cancelled = None
+        self._item_old = None
         self._item = item
-        self._evtKey = evtKey
-        self._pointDrag = point
+        self._event_key = event_key
+        self._point_drag = point
         self._label = label
 
     def GetItem(self):
@@ -346,25 +358,25 @@ class CommandTreeEvent(wx.PyCommandEvent):
         self._item = item
 
     def GetOldItem(self):
-        return self._itemOld
+        return self._item_old
 
     def SetOldItem(self, item):
-        self._itemOld = item
+        self._item_old = item
 
     def GetPoint(self):
-        return self._pointDrag
+        return self._point_drag
 
     def SetPoint(self, pt):
-        self._pointDrag = pt
+        self._point_drag = pt
 
     def GetKeyEvent(self):
-        return self._evtKey
+        return self._event_key
 
     def GetKeyCode(self):
-        return self._evtKey.GetKeyCode()
+        return self._event_key.GetKeyCode()
 
     def SetKeyEvent(self, evt):
-        self._evtKey = evt
+        self._event_key = evt
 
     def GetLabel(self):
         return self._label
@@ -373,10 +385,10 @@ class CommandTreeEvent(wx.PyCommandEvent):
         self._label = label
 
     def IsEditCancelled(self):
-        return self._editCancelled
+        return self._edit_cancelled
 
-    def SetEditCanceled(self, editCancelled):
-        self._editCancelled = editCancelled
+    def SetEditCanceled(self, cancelled):
+        self._edit_cancelled = cancelled
 
     def SetToolTip(self, toolTip):
         self._label = toolTip
@@ -387,9 +399,9 @@ class CommandTreeEvent(wx.PyCommandEvent):
 
 class TreeEvent(CommandTreeEvent):
 
-    def __init__(self, type, id, item=None, evtKey=None, point=None, label=None, **kwargs):
-        CommandTreeEvent.__init__(self, type, id, item, evtKey, point, label, **kwargs)
-        self.notify = wx.NotifyEvent(type, id)
+    def __init__(self, event_type, event_id, item=None, event_key=None, point=None, label=None, **kwargs):
+        CommandTreeEvent.__init__(self, event_type, event_id, item, event_key, point, label, **kwargs)
+        self.notify = wx.NotifyEvent(event_type, event_id)
 
     def GetNotifyEvent(self):
         return self.notify
@@ -433,33 +445,33 @@ class TreeTextCtrl(wx.TextCtrl):
         image_w = 0
         image = item.GetCurrentImage()
         if image != _NO_IMAGE:
-            if self._owner._imageListNormal:
-                image_w, image_h = self._owner._imageListNormal.GetSize(image)
+            if self._owner._image_list_normal:
+                image_w, image_h = self._owner._image_list_normal.GetSize(image)
                 image_w += 4
             else:
                 raise Exception('\n ERROR: You Must Create An Image List To Use Images!')
-        checkimage = item.GetCurrentCheckedImage()
-        if checkimage is not None:
-            wcheck, hcheck = self._owner._imageListCheck.GetSize(checkimage)
-            wcheck += 4
+        check_image = item.GetCurrentCheckedImage()
+        if check_image is not None:
+            width_check, height_check = self._owner._image_list_check.GetSize(check_image)
+            width_check += 4
         else:
-            wcheck = 0
+            width_check = 0
+            height_check = 0
         if wnd:
-            h = max(hcheck, image_h)
+            h = max(height_check, image_h)
             dc = wx.ClientDC(self._owner)
             h = max(h, dc.GetTextExtent('Aq')[1])
             h = h + 2
-        x += image_w + wcheck
-        w -= image_w + 4 + wcheck
+        x += image_w + width_check
+        w -= image_w + 4 + width_check
         wx.TextCtrl.__init__(self, self._owner, wx.ID_ANY, self._startValue, wx.Point(x - 4, y), wx.Size(w + 15, h))
         if wx.Platform == '__WXMAC__':
             self.SetFont(owner.GetFont())
             bs = self.GetBestSize()
-            self.SetSize((-1, bs.height))
+            self.SetSize(-1, bs.height)
         self.Bind(wx.EVT_CHAR, self.OnChar)
         self.Bind(wx.EVT_KEY_UP, self.OnKeyUp)
         self.Bind(wx.EVT_KILL_FOCUS, self.OnKillFocus)
-        return
 
     def AcceptChanges(self):
         value = self.GetValue()
@@ -490,18 +502,19 @@ class TreeTextCtrl(wx.TextCtrl):
 
     def OnKeyUp(self, event):
         if not self._finished:
-            parentSize = self._owner.GetSize()
-            myPos = self.GetPosition()
-            mySize = self.GetSize()
+            parent_size = self._owner.GetSize()
+            my_pos = self.GetPosition()
+            my_size = self.GetSize()
             sx, sy = self.GetTextExtent(self.GetValue() + 'M')
-            if myPos.x + sx > parentSize.x:
-                sx = parentSize.x - myPos.x
-            if mySize.x > sx:
-                sx = mySize.x
-            self.SetSize((sx, -1))
+            if my_pos.x + sx > parent_size.x:
+                sx = parent_size.x - my_pos.x
+            if my_size.x > sx:
+                sx = my_size.x
+            self.SetSize(sx, -1)
         event.Skip()
 
-    def OnKillFocus(self, event):
+    @staticmethod
+    def OnKillFocus(event):
         event.Skip()
 
     def StopEditing(self):
@@ -519,10 +532,10 @@ class TreeFindTimer(wx.Timer):
         self._owner = owner
 
     def Notify(self):
-        self._owner._findPrefix = ''
+        self._owner._find_prefix = ''
 
 
-class GenericTreeItem():
+class GenericTreeItem(object):
 
     def __init__(self, parent, text='', ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         self._text = text
@@ -531,33 +544,33 @@ class GenericTreeItem():
         self._parent = parent
         self._attr = None
         self._images = [
-         -1, -1, -1, -1]
+            -1, -1, -1, -1]
         self._images[TreeItemIcon_Normal] = image
         self._images[TreeItemIcon_Selected] = selImage
         self._images[TreeItemIcon_Expanded] = _NO_IMAGE
         self._images[TreeItemIcon_SelectedExpanded] = _NO_IMAGE
-        self._checkedimages = [
-         None, None, None, None]
+        self._checked_images = [
+            None, None, None, None]
         self._x = 0
         self._y = 0
         self._width = 0
         self._height = 0
-        self._isCollapsed = True
-        self._hasHilight = False
-        self._hasPlus = False
-        self._isBold = False
-        self._isItalic = False
-        self._ownsAttr = False
+        self._is_collapsed = True
+        self._has_hilight = False
+        self._has_plus = False
+        self._is_bold = False
+        self._is_italic = False
+        self._owns_attr = False
         self._type = ct_type
         self._checked = False
         self._enabled = True
         self._hypertext = False
         self._visited = False
         if self._type > 0:
-            self._checkedimages[TreeItemIcon_Checked] = 0
-            self._checkedimages[TreeItemIcon_NotChecked] = 1
-            self._checkedimages[TreeItemIcon_Flagged] = 2
-            self._checkedimages[TreeItemIcon_NotFlagged] = 3
+            self._checked_images[TreeItemIcon_Checked] = 0
+            self._checked_images[TreeItemIcon_NotChecked] = 1
+            self._checked_images[TreeItemIcon_Flagged] = 2
+            self._checked_images[TreeItemIcon_NotFlagged] = 3
         if parent:
             if parent.GetType() == 2 and not parent.IsChecked():
                 self._enabled = False
@@ -570,14 +583,15 @@ class GenericTreeItem():
             self._wnd.Bind(wx.EVT_SET_FOCUS, self.OnSetFocus)
             self._height = size.GetHeight() + 2
             self._width = size.GetWidth()
-            self._windowsize = size
-            if self._isCollapsed:
+            self._window_size = size
+            if self._is_collapsed:
                 self._wnd.Show(False)
             self._wnd.Enable(self._enabled)
-            self._windowenabled = self._enabled
+            self._window_enabled = self._enabled
         return
 
-    def IsOk(self):
+    @staticmethod
+    def IsOk():
         return True
 
     def GetChildren(self):
@@ -590,7 +604,7 @@ class GenericTreeItem():
         return self._images[which]
 
     def GetCheckedImage(self, which=TreeItemIcon_Checked):
-        return self._checkedimages[which]
+        return self._checked_images[which]
 
     def GetData(self):
         return self._data
@@ -602,13 +616,13 @@ class GenericTreeItem():
         self._data = data
 
     def SetHasPlus(self, has=True):
-        self._hasPlus = has
+        self._has_plus = has
 
     def SetBold(self, bold):
-        self._isBold = bold
+        self._is_bold = bold
 
     def SetItalic(self, italic):
-        self._isItalic = italic
+        self._is_italic = italic
 
     def GetX(self):
         return self._x
@@ -643,24 +657,24 @@ class GenericTreeItem():
     def GetWindowEnabled(self):
         if not self._wnd:
             raise Exception('\nERROR: This Item Has No Window Associated')
-        return self._windowenabled
+        return self._window_enabled
 
     def SetWindowEnabled(self, enable=True):
         if not self._wnd:
             raise Exception('\nERROR: This Item Has No Window Associated')
-        self._windowenabled = enable
+        self._window_enabled = enable
         self._wnd.Enable(enable)
 
     def GetWindowSize(self):
-        return self._windowsize
+        return self._window_size
 
     def OnSetFocus(self, event):
-        treectrl = self._wnd.GetParent()
-        select = treectrl.GetSelection()
+        tree_ctrl = self._wnd.GetParent()
+        select = tree_ctrl.GetSelection()
         if select != self:
-            treectrl._hasFocus = False
+            tree_ctrl._has_focus = False
         else:
-            treectrl._hasFocus = True
+            tree_ctrl._has_focus = True
         event.Skip()
 
     def GetType(self):
@@ -685,22 +699,22 @@ class GenericTreeItem():
         self._children.insert(index, child)
 
     def Expand(self):
-        self._isCollapsed = False
+        self._is_collapsed = False
 
     def Collapse(self):
-        self._isCollapsed = True
+        self._is_collapsed = True
 
-    def SetHilight(self, set=True):
-        self._hasHilight = set
+    def SetHilight(self, hilight=True):
+        self._has_hilight = hilight
 
     def HasChildren(self):
         return len(self._children) > 0
 
     def IsSelected(self):
-        return self._hasHilight != 0
+        return self._has_hilight != 0
 
     def IsExpanded(self):
-        return not self._isCollapsed
+        return not self._is_collapsed
 
     def IsChecked(self):
         return self._checked
@@ -709,13 +723,13 @@ class GenericTreeItem():
         self._checked = checked
 
     def HasPlus(self):
-        return self._hasPlus or self.HasChildren()
+        return self._has_plus or self.HasChildren()
 
     def IsBold(self):
-        return self._isBold != 0
+        return self._is_bold != 0
 
     def IsItalic(self):
-        return self._isItalic != 0
+        return self._is_italic != 0
 
     def Enable(self, enable=True):
         self._enabled = enable
@@ -729,18 +743,18 @@ class GenericTreeItem():
     def Attr(self):
         if not self._attr:
             self._attr = TreeItemAttr()
-            self._ownsAttr = True
+            self._owns_attr = True
         return self._attr
 
     def SetAttributes(self, attr):
-        if self._ownsAttr:
+        if self._owns_attr:
             del self._attr
         self._attr = attr
-        self._ownsAttr = False
+        self._owns_attr = False
 
     def AssignAttributes(self, attr):
         self.SetAttributes(attr)
-        self._ownsAttr = True
+        self._owns_attr = True
 
     def DeleteChildren(self, tree):
         for child in self._children:
@@ -753,8 +767,8 @@ class GenericTreeItem():
             if wnd:
                 wnd.Destroy()
                 child._wnd = None
-            if child in tree._itemWithWindow:
-                tree._itemWithWindow.remove(child)
+            if child in tree._item_with_window:
+                tree._item_with_window.remove(child)
             del child
 
         self._children = []
@@ -773,69 +787,69 @@ class GenericTreeItem():
 
         return total
 
-    def GetSize(self, x, y, theButton):
-        bottomY = self._y + theButton.GetLineHeight(self)
-        if y < bottomY:
-            y = bottomY
+    def GetSize(self, x, y, button):
+        bottom_y = self._y + button.GetLineHeight(self)
+        if y < bottom_y:
+            y = bottom_y
         width = self._x + self._width
         if x < width:
             x = width
         if self.IsExpanded():
             for child in self._children:
-                x, y = child.GetSize(x, y, theButton)
+                x, y = child.GetSize(x, y, button)
 
-        return (x, y)
+        return Size(x, y)
 
-    def HitTest(self, point, theCtrl, flags=0, level=0):
-        if not (level == 0 and theCtrl.HasFlag(TR_HIDE_ROOT)):
-            h = theCtrl.GetLineHeight(self)
-            if point.y > self._y and point.y < self._y + h:
+    def HitTest(self, point, control, flags=0, level=0):
+        if not (level == 0 and control.HasFlag(TR_HIDE_ROOT)):
+            h = control.GetLineHeight(self)
+            if self._y < point.y < self._y + h:
                 y_mid = self._y + h / 2
                 if point.y < y_mid:
                     flags |= TREE_HITTEST_ONITEMUPPERPART
                 else:
                     flags |= TREE_HITTEST_ONITEMLOWERPART
-                xCross = self._x - theCtrl.GetSpacing()
+                x_cross = self._x - control.GetSpacing()
                 if wx.Platform == '__WXMAC__':
-                    if point.x > xCross - 4 and point.x < xCross + 10 and point.y > y_mid - 4 and point.y < y_mid + 10 and self.HasPlus() and theCtrl.HasButtons():
+                    if x_cross - 4 < point.x < x_cross + 10 and y_mid - 4 < point.y < y_mid + 10 and self.HasPlus() and control.HasButtons():
                         flags |= TREE_HITTEST_ONITEMBUTTON
                         return (
-                         self, flags)
-                elif point.x > xCross - 6 and point.x < xCross + 6 and point.y > y_mid - 6 and point.y < y_mid + 6 and self.HasPlus() and theCtrl.HasButtons():
+                            self, flags)
+                elif x_cross - 6 < point.x < x_cross + 6 and y_mid - 6 < point.y < y_mid + 6 and self.HasPlus() and control.HasButtons():
                     flags |= TREE_HITTEST_ONITEMBUTTON
                     return (
-                     self, flags)
-                if point.x >= self._x and point.x <= self._x + self._width:
+                        self, flags)
+                if self._x <= point.x <= self._x + self._width:
                     image_w = -1
                     wcheck = 0
-                    if self.GetImage() != _NO_IMAGE and theCtrl._imageListNormal:
-                        image_w, image_h = theCtrl._imageListNormal.GetSize(self.GetImage())
+                    if self.GetImage() != _NO_IMAGE and control._image_list_normal:
+                        image_w, image_h = control._image_list_normal.GetSize(self.GetImage())
                     if self.GetCheckedImage() is not None:
-                        wcheck, hcheck = theCtrl._imageListCheck.GetSize(self.GetCheckedImage())
+                        wcheck, hcheck = control._image_list_check.GetSize(self.GetCheckedImage())
                     if wcheck and point.x <= self._x + wcheck + 1:
                         flags |= TREE_HITTEST_ONITEMCHECKICON
                         return (
-                         self, flags)
+                            self, flags)
                     if image_w != -1 and point.x <= self._x + wcheck + image_w + 1:
                         flags |= TREE_HITTEST_ONITEMICON
                     else:
                         flags |= TREE_HITTEST_ONITEMLABEL
                     return (
-                     self, flags)
+                        self, flags)
                 if point.x < self._x:
                     flags |= TREE_HITTEST_ONITEMINDENT
                 if point.x > self._x + self._width:
                     flags |= TREE_HITTEST_ONITEMRIGHT
                 return (
-                 self, flags)
-            if self._isCollapsed:
-                return (None, 0)
+                    self, flags)
+            if self._is_collapsed:
+                return None, 0
         for child in self._children:
-            res, flags = child.HitTest(point, theCtrl, flags, level + 1)
-            if res != None:
-                return (res, flags)
+            res, flags = child.HitTest(point, control, flags, level + 1)
+            if res is not None:
+                return res, flags
 
-        return (None, 0)
+        return None, 0
 
     def GetCurrentImage(self):
         image = _NO_IMAGE
@@ -855,14 +869,13 @@ class GenericTreeItem():
             return None
         if self.IsChecked():
             if self._type == 1:
-                return self._checkedimages[TreeItemIcon_Checked]
+                return self._checked_images[TreeItemIcon_Checked]
             else:
-                return self._checkedimages[TreeItemIcon_Flagged]
+                return self._checked_images[TreeItemIcon_Flagged]
         elif self._type == 1:
-            return self._checkedimages[TreeItemIcon_NotChecked]
+            return self._checked_images[TreeItemIcon_NotChecked]
         else:
-            return self._checkedimages[TreeItemIcon_NotFlagged]
-        return None
+            return self._checked_images[TreeItemIcon_NotFlagged]
 
 
 def EventFlagsToSelType(style, shiftDown=False, ctrlDown=False):
@@ -870,67 +883,73 @@ def EventFlagsToSelType(style, shiftDown=False, ctrlDown=False):
     extended_select = shiftDown and is_multiple
     unselect_others = not (extended_select or ctrlDown and is_multiple)
     return (
-     is_multiple, extended_select, unselect_others)
+        is_multiple, extended_select, unselect_others)
 
 
+# noinspection PyPep8Naming
 class CustomTreeCtrl(wx.PyScrolledWindow):
 
-    def __init__(self, parent, id=wx.ID_ANY, pos=wx.DefaultPosition, size=wx.DefaultSize, style=TR_DEFAULT_STYLE, ctstyle=0, validator=wx.DefaultValidator, name='CustomTreeCtrl'):
-        style = style | ctstyle
+    def __init__(self, parent, id=wx.ID_ANY, pos=wx.DefaultPosition, size=wx.DefaultSize, style=TR_DEFAULT_STYLE,
+                 control_style=0, validator=wx.DefaultValidator, name='CustomTreeCtrl'):
+        style = style | control_style
         self._current = self._key_current = self._anchor = self._select_me = None
         self._hasFocus = False
         self._dirty = False
         self._lineHeight = 10
         self._indent = 15
         self._spacing = 18
-        self._hilightBrush = wx.Brush(wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHT))
-        btnshadow = wx.SystemSettings_GetColour(wx.SYS_COLOUR_BTNSHADOW)
-        self._hilightUnfocusedBrush = wx.Brush(btnshadow)
-        r, g, b = btnshadow.Red(), btnshadow.Green(), btnshadow.Blue()
-        backcolour = (max((r >> 1) - 20, 0), max((g >> 1) - 20, 0), max((b >> 1) - 20, 0))
-        backcolour = wx.Colour(backcolour[0], backcolour[1], backcolour[2])
-        self._hilightUnfocusedBrush2 = wx.Brush(backcolour)
-        self._imageListNormal = self._imageListButtons = self._imageListState = self._imageListCheck = None
-        self._ownsImageListNormal = self._ownsImageListButtons = self._ownsImageListState = False
-        self._dragCount = 0
-        self._countDrag = 0
-        self._isDragging = False
-        self._dropTarget = self._oldSelection = None
-        self._dragImage = None
-        self._underMouse = None
-        self._textCtrl = None
-        self._renameTimer = None
-        self._freezeCount = 0
-        self._findPrefix = ''
-        self._findTimer = None
-        self._dropEffectAboveItem = False
-        self._lastOnSame = False
-        self._hasFont = True
-        self._normalFont = wx.SystemSettings_GetFont(wx.SYS_DEFAULT_GUI_FONT)
-        self._boldFont = wx.Font(self._normalFont.GetPointSize(), self._normalFont.GetFamily(), self._normalFont.GetStyle(), wx.BOLD, self._normalFont.GetUnderlined(), self._normalFont.GetFaceName(), self._normalFont.GetEncoding())
-        self._hypertextfont = wx.Font(self._normalFont.GetPointSize(), self._normalFont.GetFamily(), self._normalFont.GetStyle(), wx.NORMAL, True, self._normalFont.GetFaceName(), self._normalFont.GetEncoding())
-        self._hypertextnewcolour = wx.BLUE
-        self._hypertextvisitedcolour = wx.Colour(200, 47, 200)
-        self._isonhyperlink = False
+        self._hilightBrush = wx.Brush(wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT))
+        button_shadow_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNSHADOW)
+        self._hilight_unfocused_brush = wx.Brush(button_shadow_colour)
+        r, g, b = button_shadow_colour.Red(), button_shadow_colour.Green(), button_shadow_colour.Blue()
+        background_colour = (max((r >> 1) - 20, 0), max((g >> 1) - 20, 0), max((b >> 1) - 20, 0))
+        background_colour = wx.Colour(background_colour[0], background_colour[1], background_colour[2])
+        self._hilight_unfocused_brush2 = wx.Brush(background_colour)
+        self._image_list_normal = self._image_list_buttons = self._image_list_state = self._image_list_check = self._image_list_grayed = None
+        self._owns_image_list_normal = self._owns_image_list_buttons = self._owns_image_list_state = False
+        self._drag_count = 0
+        self._count_drag = 0
+        self._is_dragging = False
+        self._drop_target = self._oldSelection = None
+        self._drag_image = None
+        self._under_mouse = None
+        self._text_ctrl = None
+        self._rename_timer = None
+        self._freeze_count = 0
+        self._find_prefix = ''
+        self._find_timer = None
+        self._drop_effect_above_item = False
+        self._last_on_same = False
+        self._has_font = True
+        self._normal_font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        self._bold_font = wx.Font(self._normal_font.GetPointSize(), self._normal_font.GetFamily(),
+                                  self._normal_font.GetStyle(), wx.BOLD, self._normal_font.GetUnderlined(),
+                                  self._normal_font.GetFaceName(), self._normal_font.GetEncoding())
+        self._hypertext_font = wx.Font(self._normal_font.GetPointSize(), self._normal_font.GetFamily(),
+                                       self._normal_font.GetStyle(), wx.NORMAL, True, self._normal_font.GetFaceName(),
+                                       self._normal_font.GetEncoding())
+        self._hypertext_new_colour = wx.BLUE
+        self._hypertext_visited_colour = wx.Colour(200, 47, 200)
+        self._is_on_hyperlink = False
         self._backgroundColour = wx.WHITE
-        self._backgroundImage = None
+        self._background_image = None
         self._imageStretchStyle = _StyleTile
         self._disabledColour = wx.Colour(180, 180, 180)
-        self._firstcolour = color = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHT)
-        self._secondcolour = wx.WHITE
-        self._usegradients = False
-        self._gradientstyle = 0
-        self._vistaselection = False
+        self._first_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        self._second_colour = wx.WHITE
+        self._use_gradients = False
+        self._gradient_style = 0
+        self._vista_selection = False
         if wx.Platform != '__WXMAC__':
-            self._dottedPen = wx.Pen('grey', 1, wx.USER_DASH)
-            self._dottedPen.SetDashes([1, 1])
-            self._dottedPen.SetCap(wx.CAP_BUTT)
+            self._dotted_pen = wx.Pen('grey', 1, wx.USER_DASH)
+            self._dotted_pen.SetDashes([1, 1])
+            self._dotted_pen.SetCap(wx.CAP_BUTT)
         else:
-            self._dottedPen = wx.Pen('grey', 1)
-        self._borderPen = wx.BLACK_PEN
+            self._dotted_pen = wx.Pen('grey', 1)
+        self._border_pen = wx.BLACK_PEN
         self._cursor = wx.StockCursor(wx.CURSOR_ARROW)
         self._hasWindows = False
-        self._itemWithWindow = []
+        self._item_with_window = []
         if wx.Platform == '__WXMAC__':
             style &= ~TR_LINES_AT_ROOT
             style |= TR_NO_LINES
@@ -940,9 +959,9 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self._windowStyle = style
         self.SetImageListCheck(13, 13)
         if wx.VERSION_STRING < '2.6.2.1':
-            self._drawingfunction = DrawTreeItemButton
+            self._drawing_function = draw_tree_item_button
         else:
-            self._drawingfunction = wx.RendererNative.Get().DrawTreeItemButton
+            self._drawing_function = wx.RendererNative.Get().DrawTreeItemButton
         wx.PyScrolledWindow.__init__(self, parent, id, pos, size, style | wx.HSCROLL | wx.VSCROLL, name)
         if not self.HasButtons() and not self.HasFlag(TR_NO_LINES):
             self._indent = 10
@@ -951,7 +970,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         attr = self.GetDefaultAttributes()
         self.SetOwnForegroundColour(attr.colFg)
         self.SetOwnBackgroundColour(wx.WHITE)
-        if not self._hasFont:
+        if not self._has_font:
             self.SetOwnFont(attr.font)
         self.SetSize(size)
         self.Bind(wx.EVT_PAINT, self.OnPaint)
@@ -965,16 +984,17 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self.SetFocus()
         return
 
-    def AcceptsFocus(self):
+    @staticmethod
+    def AcceptsFocus():
         return True
 
     def OnDestroy(self, event):
-        if self._renameTimer and self._renameTimer.IsRunning():
-            self._renameTimer.Stop()
-            del self._renameTimer
-        if self._findTimer and self._findTimer.IsRunning():
-            self._findTimer.Stop()
-            del self._findTimer
+        if self._rename_timer and self._rename_timer.IsRunning():
+            self._rename_timer.Stop()
+            del self._rename_timer
+        if self._find_timer and self._find_timer.IsRunning():
+            self._find_timer.Stop()
+            del self._find_timer
         event.Skip()
 
     def GetCount(self):
@@ -1003,19 +1023,19 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self.SelectItem(item, not self.IsSelected(item))
 
     def EnableChildren(self, item, enable=True):
-        torefresh = False
+        to_refresh = False
         if item.IsExpanded():
-            torefresh = True
+            to_refresh = True
         if item.GetType() == 2 and enable and not item.IsChecked():
             return
         child, cookie = self.GetFirstChild(item)
         while child:
-            self.EnableItem(child, enable, torefresh=torefresh)
-            if child.GetType != 2 or child.GetType() == 2 and item.IsChecked():
+            self.EnableItem(child, enable, to_refresh=to_refresh)
+            if child.GetType() != 2 or (child.GetType() == 2 and item.IsChecked()):
                 self.EnableChildren(child, enable)
             child, cookie = self.GetNextChild(item, cookie)
 
-    def EnableItem(self, item, enable=True, torefresh=True):
+    def EnableItem(self, item, enable=True, to_refresh=True):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         if item.IsEnabled() == enable:
@@ -1023,15 +1043,15 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if not enable and item.IsSelected():
             self.SelectItem(item, False)
         item.Enable(enable)
-        wnd = item.GetWindow()
-        if wnd:
-            wndenable = item.GetWindowEnabled()
+        window = item.GetWindow()
+        if window:
+            window_enabled = item.GetWindowEnabled()
             if enable:
-                if wndenable:
-                    wnd.Enable(enable)
+                if window_enabled:
+                    window.Enable(enable)
             else:
-                wnd.Enable(enable)
-        if torefresh:
+                window.Enable(enable)
+        if to_refresh:
             dc = wx.ClientDC(self)
             self.CalculateSize(item, dc)
             self.RefreshLine(item)
@@ -1053,11 +1073,11 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsChecked()
 
-    def CheckItem2(self, item, checked=True, torefresh=False):
+    def CheckItem2(self, item, checked=True, to_refresh=False):
         if item.GetType() == 0:
             return
         item.Check(checked)
-        if torefresh:
+        if to_refresh:
             dc = wx.ClientDC(self)
             self.CalculateSize(item, dc)
             self.RefreshLine(item)
@@ -1101,11 +1121,11 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         dc = wx.ClientDC(self)
         self.RefreshLine(item)
         if self._windowStyle & TR_AUTO_CHECK_CHILD:
-            ischeck = self.IsItemChecked(item)
-            self.AutoCheckChild(item, ischeck)
+            is_checked = self.IsItemChecked(item)
+            self.AutoCheckChild(item, is_checked)
         if self._windowStyle & TR_AUTO_CHECK_PARENT:
-            ischeck = self.IsItemChecked(item)
-            self.AutoCheckParent(item, ischeck)
+            is_checked = self.IsItemChecked(item)
+            self.AutoCheckParent(item, is_checked)
         elif self._windowStyle & TR_AUTO_TOGGLE_CHILD:
             self.AutoToggleChild(item)
         e = TreeEvent(wxEVT_TREE_ITEM_CHECKED, self.GetId())
@@ -1117,12 +1137,12 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         child, cookie = self.GetFirstChild(item)
-        torefresh = False
+        to_refresh = False
         if item.IsExpanded():
-            torefresh = True
+            to_refresh = True
         while child:
             if child.GetType() == 1 and child.IsEnabled():
-                self.CheckItem2(child, not child.IsChecked(), torefresh=torefresh)
+                self.CheckItem2(child, not child.IsChecked(), to_refresh=to_refresh)
             self.AutoToggleChild(child)
             child, cookie = self.GetNextChild(item, cookie)
 
@@ -1130,12 +1150,12 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         child, cookie = self.GetFirstChild(item)
-        torefresh = False
+        to_refresh = False
         if item.IsExpanded():
-            torefresh = True
+            to_refresh = True
         while child:
             if child.GetType() == 1 and child.IsEnabled():
-                self.CheckItem2(child, checked, torefresh=torefresh)
+                self.CheckItem2(child, checked, to_refresh=to_refresh)
             self.AutoCheckChild(child, checked)
             child, cookie = self.GetNextChild(item, cookie)
 
@@ -1152,13 +1172,13 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                     return
             child, cookie = self.GetNextChild(parent, cookie)
 
-        self.CheckItem2(parent, checked, torefresh=True)
+        self.CheckItem2(parent, checked, to_refresh=True)
         self.AutoCheckParent(parent, checked)
 
-    def CheckChilds(self, item, checked=True):
+    def CheckChildren(self, item, checked=True):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
-        if checked == None:
+        if checked is None:
             self.AutoToggleChild(item)
         else:
             self.AutoCheckChild(item, checked)
@@ -1168,14 +1188,14 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         parent = item.GetParent()
         if not parent:
             return
-        torefresh = False
+        to_refresh = False
         if parent.IsExpanded():
-            torefresh = True
+            to_refresh = True
         child, cookie = self.GetFirstChild(parent)
         while child:
             if child.GetType() == 2 and child != item:
-                self.CheckItem2(child, checked, torefresh=torefresh)
-                if child.GetType != 2 or child.GetType() == 2 and child.IsChecked():
+                self.CheckItem2(child, checked, to_refresh=to_refresh)
+                if child.GetType() != 2 or (child.GetType() == 2 and child.IsChecked()):
                     self.EnableChildren(child, checked)
             child, cookie = self.GetNextChild(parent, cookie)
 
@@ -1198,12 +1218,14 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
     def HasFlag(self, flag):
         return self._windowStyle & flag
 
-    def HasChildren(self, item):
+    @staticmethod
+    def HasChildren(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return len(item.GetChildren()) > 0
 
-    def GetChildrenCount(self, item, recursively=True):
+    @staticmethod
+    def GetChildrenCount(item, recursively=True):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetChildrenCount(recursively)
@@ -1227,39 +1249,46 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
     def HasButtons(self):
         return self.HasFlag(TR_HAS_BUTTONS)
 
-    def GetItemText(self, item):
+    @staticmethod
+    def GetItemText(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetText()
 
-    def GetItemImage(self, item, which=TreeItemIcon_Normal):
+    @staticmethod
+    def GetItemImage(item, which=TreeItemIcon_Normal):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetImage(which)
 
-    def GetPyData(self, item):
+    @staticmethod
+    def GetPyData(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetData()
 
     GetItemPyData = GetPyData
 
-    def GetItemTextColour(self, item):
+    @staticmethod
+    def GetItemTextColour(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.Attr().GetTextColour()
 
-    def GetItemBackgroundColour(self, item):
+    @staticmethod
+    def GetItemBackgroundColour(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.Attr().GetBackgroundColour()
 
-    def GetItemFont(self, item):
+    @staticmethod
+    def GetItemFont(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.Attr().GetFont()
 
-    def IsItemHyperText(self, item):
+    @staticmethod
+    def IsItemHyperText(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsHyperText()
@@ -1318,11 +1347,11 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         if highlight:
-            bg = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHT)
-            fg = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
-        item.Attr().SetTextColour(fg)
-        item.Attr.SetBackgroundColour(bg)
-        self.RefreshLine(item)
+            bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+            fg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
+            item.Attr().SetTextColour(fg)
+            item.Attr.SetBackgroundColour(bg)
+            self.RefreshLine(item)
 
     def SetItemTextColour(self, item, col):
         if not item:
@@ -1354,30 +1383,32 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def SetFont(self, font):
         wx.ScrolledWindow.SetFont(self, font)
-        self._normalFont = font
-        self._boldFont = wx.Font(self._normalFont.GetPointSize(), self._normalFont.GetFamily(), self._normalFont.GetStyle(), wx.BOLD, self._normalFont.GetUnderlined(), self._normalFont.GetFaceName(), self._normalFont.GetEncoding())
+        self._normal_font = font
+        self._bold_font = wx.Font(self._normal_font.GetPointSize(), self._normal_font.GetFamily(),
+                                  self._normal_font.GetStyle(), wx.BOLD, self._normal_font.GetUnderlined(),
+                                  self._normal_font.GetFaceName(), self._normal_font.GetEncoding())
         return True
 
     def GetHyperTextFont(self):
-        return self._hypertextfont
+        return self._hypertext_font
 
     def SetHyperTextFont(self, font):
-        self._hypertextfont = font
+        self._hypertext_font = font
         self._dirty = True
 
     def SetHyperTextNewColour(self, colour):
-        self._hypertextnewcolour = colour
+        self._hypertext_new_colour = colour
         self._dirty = True
 
     def GetHyperTextNewColour(self):
-        return self._hypertextnewcolour
+        return self._hypertext_new_colour
 
     def SetHyperTextVisitedColour(self, colour):
-        self._hypertextvisitedcolour = colour
+        self._hypertext_visited_colour = colour
         self._dirty = True
 
     def GetHyperTextVisitedColour(self):
-        return self._hypertextvisitedcolour
+        return self._hypertext_visited_colour
 
     def SetItemVisited(self, item, visited=True):
         if not item:
@@ -1385,7 +1416,8 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         item.SetVisited(visited)
         self.RefreshLine(item)
 
-    def GetItemVisited(self, item):
+    @staticmethod
+    def GetItemVisited(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetVisited()
@@ -1395,20 +1427,20 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self.RefreshSelected()
 
     def SetHilightNonFocusColour(self, colour):
-        self._hilightUnfocusedBrush = wx.Brush(colour)
+        self._hilight_unfocused_brush = wx.Brush(colour)
         self.RefreshSelected()
 
     def GetHilightFocusColour(self):
         return self._hilightBrush.GetColour()
 
     def GetHilightNonFocusColour(self):
-        return self._hilightUnfocusedBrush.GetColour()
+        return self._hilight_unfocused_brush.GetColour()
 
     def SetFirstGradientColour(self, colour=None):
         if colour is None:
-            colour = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHT)
-        self._firstcolour = colour
-        if self._usegradients:
+            colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        self._first_colour = colour
+        if self._use_gradients:
             self.RefreshSelected()
         return
 
@@ -1418,72 +1450,76 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             r, g, b = int(color.Red()), int(color.Green()), int(color.Blue())
             color = ((r >> 1) + 20, (g >> 1) + 20, (b >> 1) + 20)
             colour = wx.Colour(color[0], color[1], color[2])
-        self._secondcolour = colour
-        if self._usegradients:
+        self._second_colour = colour
+        if self._use_gradients:
             self.RefreshSelected()
         return
 
     def GetFirstGradientColour(self):
-        return self._firstcolour
+        return self._first_colour
 
     def GetSecondGradientColour(self):
-        return self._secondcolour
+        return self._second_colour
 
     def EnableSelectionGradient(self, enable=True):
-        self._usegradients = enable
-        self._vistaselection = False
+        self._use_gradients = enable
+        self._vista_selection = False
         self.RefreshSelected()
 
     def SetGradientStyle(self, vertical=0):
-        self._gradientstyle = vertical
-        if self._usegradients:
+        self._gradient_style = vertical
+        if self._use_gradients:
             self.RefreshSelected()
 
     def GetGradientStyle(self):
-        return self._gradientstyle
+        return self._gradient_style
 
     def EnableSelectionVista(self, enable=True):
-        self._usegradients = False
-        self._vistaselection = enable
+        self._use_gradients = False
+        self._vista_selection = enable
         self.RefreshSelected()
 
     def SetBorderPen(self, pen):
-        self._borderPen = pen
+        self._border_pen = pen
         self.RefreshSelected()
 
     def GetBorderPen(self):
-        return self._borderPen
+        return self._border_pen
 
     def SetConnectionPen(self, pen):
-        self._dottedPen = pen
+        self._dotted_pen = pen
         self._dirty = True
 
     def GetConnectionPen(self):
-        return self._dottedPen
+        return self._dotted_pen
 
     def SetBackgroundImage(self, image):
-        self._backgroundImage = image
+        self._background_image = image
         self.Refresh()
 
     def GetBackgroundImage(self):
-        return self._backgroundImage
+        return self._background_image
 
-    def GetItemWindow(self, item):
+    @staticmethod
+    def GetItemWindow(item):
         if not item:
             raise Exception('\nERROR: Invalid Item')
         return item.GetWindow()
 
-    def GetItemWindowEnabled(self, item):
+    @staticmethod
+    def GetItemWindowEnabled(item):
         if not item:
             raise Exception('\nERROR: Invalid Item')
         return item.GetWindowEnabled()
 
-    def SetItemWindowEnabled(self, item, enable=True):
+    @staticmethod
+    def SetItemWindowEnabled(item, enable=True):
         if not item:
             raise Exception('\nERROR: Invalid Item')
         item.SetWindowEnabled(enable)
 
-    def GetItemType(self, item):
+    @staticmethod
+    def GetItemType(item):
         if not item:
             raise Exception('\nERROR: Invalid Item')
         return item.GetType()
@@ -1510,32 +1546,38 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             return False
         return True
 
-    def ItemHasChildren(self, item):
+    @staticmethod
+    def ItemHasChildren(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.HasPlus()
 
-    def IsExpanded(self, item):
+    @staticmethod
+    def IsExpanded(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsExpanded()
 
-    def IsSelected(self, item):
+    @staticmethod
+    def IsSelected(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsSelected()
 
-    def IsBold(self, item):
+    @staticmethod
+    def IsBold(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsBold()
 
-    def IsItalic(self, item):
+    @staticmethod
+    def IsItalic(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.IsItalic()
 
-    def GetItemParent(self, item):
+    @staticmethod
+    def GetItemParent(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         return item.GetParent()
@@ -1546,43 +1588,47 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         cookie = 0
         return self.GetNextChild(item, cookie)
 
-    def GetNextChild(self, item, cookie):
+    @staticmethod
+    def GetNextChild(item, cookie):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         children = item.GetChildren()
         if cookie < len(children):
             return (
-             children[cookie], cookie + 1)
+                children[cookie], cookie + 1)
         else:
             return (
-             None, cookie)
+                None, cookie)
         return None
 
-    def GetLastChild(self, item):
+    @staticmethod
+    def GetLastChild(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         children = item.GetChildren()
         return (len(children) == 0 and [None] or [children[-1]])[0]
 
-    def GetNextSibling(self, item):
+    @staticmethod
+    def GetNextSibling(item) -> Any:
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         i = item
         parent = i.GetParent()
-        if parent == None:
-            return
+        if parent is None:
+            return None
         siblings = parent.GetChildren()
         index = siblings.index(i)
         n = index + 1
         return (n == len(siblings) and [None] or [siblings[n]])[0]
 
-    def GetPrevSibling(self, item):
+    @staticmethod
+    def GetPrevSibling(item) -> Any:
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         i = item
         parent = i.GetParent()
-        if parent == None:
-            return
+        if parent is None:
+            return None
         siblings = parent.GetChildren()
         index = siblings.index(i)
         return (index == 0 and [None] or [siblings[index - 1]])[0]
@@ -1602,63 +1648,64 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                 p = self.GetItemParent(p)
 
             return toFind
-        return
 
     def GetFirstVisibleItem(self):
-        id = self.GetRootItem()
-        if not id:
-            return id
-        while id:
-            if self.IsVisible(id):
-                return id
-            id = self.GetNext(id)
+        item_id = self.GetRootItem()
+        if not item_id:
+            return item_id
+        while item_id:
+            if self.IsVisible(item_id):
+                return item_id
+            item_id = self.GetNext(item_id)
 
         return None
 
     def GetNextVisible(self, item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
-        id = item
-        while id:
-            id = self.GetNext(id)
-            if id and self.IsVisible(id):
-                return id
+        item_id = item
+        while item_id:
+            item_id = self.GetNext(item_id)
+            if item_id and self.IsVisible(item_id):
+                return item_id
 
         return None
 
-    def GetPrevVisible(self, item):
+    @staticmethod
+    def GetPrevVisible(item):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         raise Exception('\nERROR: Not Implemented')
-        return None
 
     def ResetTextControl(self):
-        self._textCtrl.Destroy()
-        self._textCtrl = None
+        self._text_ctrl.Destroy()
+        self._text_ctrl = None
         return
 
-    def FindItem(self, idParent, prefixOrig):
-        prefix = prefixOrig.lower()
-        id = idParent
+    def FindItem(self, id_parent, prefix_orig):
+        prefix = prefix_orig.lower()
+        parent_id = id_parent
         if len(prefix) == 1:
-            id = self.GetNext(id)
-        while id and not self.GetItemText(id).lower().startswith(prefix):
-            id = self.GetNext(id)
+            parent_id = self.GetNext(parent_id)
+        while parent_id and not self.GetItemText(parent_id).lower().startswith(prefix):
+            parent_id = self.GetNext(parent_id)
 
-        if not id:
-            id = self.GetRootItem()
+        if not parent_id:
+            parent_id = self.GetRootItem()
             if self.HasFlag(TR_HIDE_ROOT):
-                id = self.GetNext(id)
-            while id != idParent and not self.GetItemText(id).lower().startswith(prefix):
-                id = self.GetNext(id)
+                parent_id = self.GetNext(parent_id)
+            while parent_id != id_parent and not self.GetItemText(parent_id).lower().startswith(prefix):
+                parent_id = self.GetNext(parent_id)
 
-        return id
+        return parent_id
 
     def DoInsertItem(self, parentId, previous, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if ct_type < 0 or ct_type > 2:
             raise Exception('\nERROR: Item Type Should Be 0 (Normal), 1 (CheckBox) or 2 (RadioButton). ')
         parent = parentId
@@ -1668,7 +1715,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         item = GenericTreeItem(parent, text, ct_type, wnd, image, selImage, data)
         if wnd is not None:
             self._hasWindows = True
-            self._itemWithWindow.append(item)
+            self._item_with_window.append(item)
         parent.Insert(item, previous)
         return item
 
@@ -1676,16 +1723,18 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if self._anchor:
             raise Exception('\nERROR: Tree Can Have Only One Root')
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if ct_type < 0 or ct_type > 2:
             raise Exception('\nERROR: Item Type Should Be 0 (Normal), 1 (CheckBox) or 2 (RadioButton). ')
         self._dirty = True
         self._anchor = GenericTreeItem(None, text, ct_type, wnd, image, selImage, data)
         if wnd is not None:
             self._hasWindows = True
-            self._itemWithWindow.append(self._anchor)
+            self._item_with_window.append(self._anchor)
         if self.HasFlag(TR_HIDE_ROOT):
             self._anchor.SetHasPlus()
             self._anchor.Expand()
@@ -1697,16 +1746,20 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def PrependItem(self, parent, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         return self.DoInsertItem(parent, 0, text, ct_type, wnd, image, selImage, data)
 
     def InsertItemByItem(self, parentId, idPrevious, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         parent = parentId
         if not parent:
             return self.AddRoot(text, ct_type, wnd, image, selImage, data)
@@ -1721,9 +1774,11 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def InsertItemByIndex(self, parentId, before, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         parent = parentId
         if not parent:
             return self.AddRoot(text, ct_type, wnd, image, selImage, data)
@@ -1731,20 +1786,23 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def InsertItem(self, parentId, input, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if type(input) == type(1):
             return self.InsertItemByIndex(parentId, input, text, ct_type, wnd, image, selImage, data)
         else:
             return self.InsertItemByItem(parentId, input, text, ct_type, wnd, image, selImage, data)
-        return
 
     def AppendItem(self, parentId, text, ct_type=0, wnd=None, image=-1, selImage=-1, data=None):
         if wnd is not None and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert Controls You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
-            raise Exception('\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
+            raise Exception(
+                '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
         parent = parentId
         if not parent:
             return self.AddRoot(text, ct_type, wnd, image, selImage, data)
@@ -1756,7 +1814,8 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         event.SetEventObject(self)
         self.ProcessEvent(event)
 
-    def IsDescendantOf(self, parent, item):
+    @staticmethod
+    def IsDescendantOf(parent, item):
         while item:
             if item == parent:
                 return True
@@ -1765,8 +1824,9 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         return False
 
     def ChildrenClosing(self, item):
-        if self._textCtrl != None and item != self._textCtrl.item() and self.IsDescendantOf(item, self._textCtrl.item()):
-            self._textCtrl.StopEditing()
+        if self._text_ctrl is not None and item != self._text_ctrl.item() and self.IsDescendantOf(item,
+                                                                                                  self._text_ctrl.item()):
+            self._text_ctrl.StopEditing()
         if item != self._key_current and self.IsDescendantOf(item, self._key_current):
             self._key_current = None
         if self.IsDescendantOf(item, self._select_me):
@@ -1788,8 +1848,8 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if not item:
             raise Exception('\nERROR: Invalid Tree Item. ')
         self._dirty = True
-        if self._textCtrl != None and self.IsDescendantOf(item, self._textCtrl.item()):
-            self._textCtrl.StopEditing()
+        if self._text_ctrl is not None and self.IsDescendantOf(item, self._text_ctrl.item()):
+            self._text_ctrl.StopEditing()
         parent = item.GetParent()
         if self.IsDescendantOf(item, self._key_current):
             self._key_current = None
@@ -1806,12 +1866,12 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self.SendDeleteEvent(item)
         if item == self._select_me:
             self._select_me = None
-        if item in self._itemWithWindow:
+        if item in self._item_with_window:
             wnd = item.GetWindow()
             wnd.Hide()
             wnd.Destroy()
             item._wnd = None
-            self._itemWithWindow.remove(item)
+            self._item_with_window.remove(item)
         del item
         return
 
@@ -1889,7 +1949,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             self.Expand(item)
 
     def HideWindows(self):
-        for child in self._itemWithWindow:
+        for child in self._item_with_window:
             if not self.IsVisible(child):
                 wnd = child.GetWindow()
                 wnd.Hide()
@@ -1918,7 +1978,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def TagNextChildren(self, crt_item, last_item, select):
         parent = crt_item.GetParent()
-        if parent == None:
+        if parent is None:
             return self.TagAllChildrenUntilLast(crt_item, last_item, select)
         children = parent.GetChildren()
         index = children.index(crt_item)
@@ -1966,7 +2026,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                 return
         event = TreeEvent(wxEVT_TREE_SEL_CHANGING, self.GetId())
         event._item = item
-        event._itemOld = self._current
+        event._item_old = self._current
         event.SetEventObject(self)
         if self.GetEventHandler().ProcessEvent(event) and not event.IsAllowed():
             return
@@ -2010,8 +2070,8 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             item.SetHilight(False)
             self.RefreshLine(item)
 
-    def FillArray(self, item, array=[]):
-        if not array:
+    def FillArray(self, item, array=None):
+        if array is None:
             array = []
         if item.IsSelected():
             array.append(item)
@@ -2062,14 +2122,16 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             y += _PIXELS_PER_UNIT + 2
             x += _PIXELS_PER_UNIT + 2
             x_pos = self.GetScrollPos(wx.HORIZONTAL)
-            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos, item_y / _PIXELS_PER_UNIT)
+            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos,
+                               item_y / _PIXELS_PER_UNIT)
         elif item_y + self.GetLineHeight(item) > start_y + client_h:
             x, y = self._anchor.GetSize(x, y, self)
             y += _PIXELS_PER_UNIT + 2
             x += _PIXELS_PER_UNIT + 2
             item_y += _PIXELS_PER_UNIT + 2
             x_pos = self.GetScrollPos(wx.HORIZONTAL)
-            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos, (item_y + self.GetLineHeight(item) - client_h) / _PIXELS_PER_UNIT)
+            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos,
+                               (item_y + self.GetLineHeight(item) - client_h) / _PIXELS_PER_UNIT)
 
     def OnCompareItems(self, item1, item2):
         return self.GetItemText(item1) == self.GetItemText(item2)
@@ -2083,38 +2145,38 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             children.sort(self.OnCompareItems)
 
     def GetImageList(self):
-        return self._imageListNormal
+        return self._image_list_normal
 
     def GetButtonsImageList(self):
-        return self._imageListButtons
+        return self._image_list_buttons
 
     def GetStateImageList(self):
-        return self._imageListState
+        return self._image_list_state
 
     def GetImageListCheck(self):
-        return self._imageListCheck
+        return self._image_list_check
 
     def CalculateLineHeight(self):
         dc = wx.ClientDC(self)
         self._lineHeight = dc.GetCharHeight()
-        if self._imageListNormal:
-            n = self._imageListNormal.GetImageCount()
+        if self._image_list_normal:
+            n = self._image_list_normal.GetImageCount()
             for i in range(n):
-                width, height = self._imageListNormal.GetSize(i)
+                width, height = self._image_list_normal.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
 
-        if self._imageListButtons:
-            n = self._imageListButtons.GetImageCount()
+        if self._image_list_buttons:
+            n = self._image_list_buttons.GetImageCount()
             for i in range(n):
-                width, height = self._imageListButtons.GetSize(i)
+                width, height = self._image_list_buttons.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
 
-        if self._imageListCheck:
-            n = self._imageListCheck.GetImageCount()
+        if self._image_list_check:
+            n = self._image_list_check.GetImageCount()
             for i in range(n):
-                width, height = self._imageListCheck.GetSize(i)
+                width, height = self._image_list_check.GetSize(i)
                 if height > self._lineHeight:
                     self._lineHeight = height
 
@@ -2124,51 +2186,51 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             self._lineHeight += self._lineHeight / 10
 
     def SetImageList(self, imageList):
-        if self._ownsImageListNormal:
-            del self._imageListNormal
-        self._imageListNormal = imageList
-        self._ownsImageListNormal = False
+        if self._owns_image_list_normal:
+            del self._image_list_normal
+        self._image_list_normal = imageList
+        self._owns_image_list_normal = False
         self._dirty = True
         if imageList:
             self.CalculateLineHeight()
             sz = imageList.GetSize(0)
-            self._grayedImageList = wx.ImageList(sz[0], sz[1], True, 0)
+            self._image_list_grayed = wx.ImageList(sz[0], sz[1], True, 0)
             for ii in range(imageList.GetImageCount()):
                 bmp = imageList.GetBitmap(ii)
                 image = wx.ImageFromBitmap(bmp)
-                image = GrayOut(image)
-                newbmp = wx.BitmapFromImage(image)
-                self._grayedImageList.Add(newbmp)
+                image = gray_out(image)
+                new_bitmap = wx.BitmapFromImage(image)
+                self._image_list_grayed.Add(new_bitmap)
 
     def SetStateImageList(self, imageList):
-        if self._ownsImageListState:
-            del self._imageListState
-        self._imageListState = imageList
-        self._ownsImageListState = False
+        if self._owns_image_list_state:
+            del self._image_list_state
+        self._image_list_state = imageList
+        self._owns_image_list_state = False
 
     def SetButtonsImageList(self, imageList):
-        if self._ownsImageListButtons:
-            del self._imageListButtons
-        self._imageListButtons = imageList
-        self._ownsImageListButtons = False
+        if self._owns_image_list_buttons:
+            del self._image_list_buttons
+        self._image_list_buttons = imageList
+        self._owns_image_list_buttons = False
         self._dirty = True
         self.CalculateLineHeight()
 
     def SetImageListCheck(self, sizex, sizey, imglist=None):
         if imglist is None:
-            self._imageListCheck = wx.ImageList(sizex, sizey)
-            self._imageListCheck.Add(GetCheckedBitmap())
-            self._imageListCheck.Add(GetNotCheckedBitmap())
-            self._imageListCheck.Add(GetFlaggedBitmap())
-            self._imageListCheck.Add(GetNotFlaggedBitmap())
+            self._image_list_check = wx.ImageList(sizex, sizey)
+            self._image_list_check.Add(get_checked_bitmap())
+            self._image_list_check.Add(get_not_checked_bitmap())
+            self._image_list_check.Add(get_flagged_bitmap())
+            self._image_list_check.Add(get_not_flagged_bitmap())
         else:
             sizex, sizey = imglist.GetSize(0)
-            self._imageListCheck = imglist
+            self._image_list_check = imglist
         self._grayedCheckList = wx.ImageList(sizex, sizey, True, 0)
-        for ii in range(self._imageListCheck.GetImageCount()):
-            bmp = self._imageListCheck.GetBitmap(ii)
+        for ii in range(self._image_list_check.GetImageCount()):
+            bmp = self._image_list_check.GetBitmap(ii)
             image = wx.ImageFromBitmap(bmp)
-            image = GrayOut(image)
+            image = gray_out(image)
             newbmp = wx.BitmapFromImage(image)
             self._grayedCheckList.Add(newbmp)
 
@@ -2179,15 +2241,15 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def AssignImageList(self, imageList):
         self.SetImageList(imageList)
-        self._ownsImageListNormal = True
+        self._owns_image_list_normal = True
 
     def AssignStateImageList(self, imageList):
         self.SetStateImageList(imageList)
-        self._ownsImageListState = True
+        self._owns_image_list_state = True
 
     def AssignButtonsImageList(self, imageList):
         self.SetButtonsImageList(imageList)
-        self._ownsImageListButtons = True
+        self._owns_image_list_buttons = True
 
     def AdjustMyScrollbars(self):
         if self._anchor:
@@ -2196,7 +2258,8 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             x += _PIXELS_PER_UNIT + 2
             x_pos = self.GetScrollPos(wx.HORIZONTAL)
             y_pos = self.GetScrollPos(wx.VERTICAL)
-            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos, y_pos)
+            self.SetScrollbars(_PIXELS_PER_UNIT, _PIXELS_PER_UNIT, x / _PIXELS_PER_UNIT, y / _PIXELS_PER_UNIT, x_pos,
+                               y_pos)
         else:
             self.SetScrollbars(0, 0, 0, 0)
 
@@ -2206,46 +2269,46 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         else:
             return self._lineHeight
 
-    def DrawVerticalGradient(self, dc, rect, hasfocus):
-        oldpen = dc.GetPen()
-        oldbrush = dc.GetBrush()
+    def DrawVerticalGradient(self, dc, rect, has_focus: bool):
+        old_pen = dc.GetPen()
+        old_brush = dc.GetBrush()
         dc.SetPen(wx.TRANSPARENT_PEN)
-        if hasfocus:
-            col2 = self._secondcolour
-            col1 = self._firstcolour
+        if has_focus:
+            col2 = self._second_colour
+            col1 = self._first_colour
         else:
-            col2 = self._hilightUnfocusedBrush.GetColour()
-            col1 = self._hilightUnfocusedBrush2.GetColour()
+            col2 = self._hilight_unfocused_brush.GetColour()
+            col1 = self._hilight_unfocused_brush2.GetColour()
         r1, g1, b1 = int(col1.Red()), int(col1.Green()), int(col1.Blue())
         r2, g2, b2 = int(col2.Red()), int(col2.Green()), int(col2.Blue())
-        flrect = float(rect.height)
-        rstep = float(r2 - r1) / flrect
-        gstep = float(g2 - g1) / flrect
-        bstep = float(b2 - b1) / flrect
+        rect_height = float(rect.height)
+        r_step = float(r2 - r1) / rect_height
+        g_step = float(g2 - g1) / rect_height
+        b_step = float(b2 - b1) / rect_height
         rf, gf, bf = (0, 0, 0)
         for y in range(rect.y, rect.y + rect.height):
             currCol = (r1 + rf, g1 + gf, b1 + bf)
             dc.SetBrush(wx.Brush(currCol, wx.SOLID))
             dc.DrawRectangle(rect.x, y, rect.width, 1)
-            rf = rf + rstep
-            gf = gf + gstep
-            bf = bf + bstep
+            rf = rf + r_step
+            gf = gf + g_step
+            bf = bf + b_step
 
-        dc.SetPen(oldpen)
+        dc.SetPen(old_pen)
         dc.SetBrush(wx.TRANSPARENT_BRUSH)
         dc.DrawRectangleRect(rect)
-        dc.SetBrush(oldbrush)
+        dc.SetBrush(old_brush)
 
-    def DrawHorizontalGradient(self, dc, rect, hasfocus):
+    def DrawHorizontalGradient(self, dc, rect, has_focus):
         oldpen = dc.GetPen()
         oldbrush = dc.GetBrush()
         dc.SetPen(wx.TRANSPARENT_PEN)
-        if hasfocus:
-            col2 = self._secondcolour
-            col1 = self._firstcolour
+        if has_focus:
+            col2 = self._second_colour
+            col1 = self._first_colour
         else:
-            col2 = self._hilightUnfocusedBrush.GetColour()
-            col1 = self._hilightUnfocusedBrush2.GetColour()
+            col2 = self._hilight_unfocused_brush.GetColour()
+            col1 = self._hilight_unfocused_brush2.GetColour()
         r1, g1, b1 = int(col1.Red()), int(col1.Green()), int(col1.Blue())
         r2, g2, b2 = int(col2.Red()), int(col2.Green()), int(col2.Blue())
         flrect = float(rect.width)
@@ -2313,7 +2376,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             if attr.HasFont():
                 dc.SetFont(attr.GetFont())
             elif item.IsBold():
-                dc.SetFont(self._boldFont)
+                dc.SetFont(self._bold_font)
             if item.IsHyperText():
                 dc.SetFont(self.GetHyperTextFont())
                 if item.GetVisited():
@@ -2325,18 +2388,18 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             checkimage = item.GetCurrentCheckedImage()
             image_w, image_h = (0, 0)
             if image != _NO_IMAGE:
-                if self._imageListNormal:
-                    image_w, image_h = self._imageListNormal.GetSize(image)
+                if self._image_list_normal:
+                    image_w, image_h = self._image_list_normal.GetSize(image)
                     image_w += 4
                 else:
                     image = _NO_IMAGE
             if item.GetType() != 0:
-                wcheck, hcheck = self._imageListCheck.GetSize(item.GetType())
-                wcheck += 4
+                width_check, hcheck = self._image_list_check.GetSize(item.GetType())
+                width_check += 4
             else:
-                wcheck, hcheck = (0, 0)
+                width_check, hcheck = (0, 0)
             total_h = self.GetLineHeight(item)
-            drawItemBackground = False
+            _draw_item_background = False
             if item.IsSelected():
                 if wx.Platform == '__WXMAC__':
                     self._hasFocus or dc.SetBrush(wx.TRANSPARENT_BRUSH)
@@ -2344,11 +2407,11 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                 else:
                     dc.SetBrush(self._hilightBrush)
             else:
-                dc.SetBrush((self._hasFocus and [self._hilightBrush] or [self._hilightUnfocusedBrush])[0])
-                drawItemBackground = True
+                dc.SetBrush((self._hasFocus and [self._hilightBrush] or [self._hilight_unfocused_brush])[0])
+                _draw_item_background = True
         else:
             if attr and attr.HasBackgroundColour():
-                drawItemBackground = True
+                _draw_item_background = True
                 colBg = attr.GetBackgroundColour()
             else:
                 colBg = self._backgroundColour
@@ -2360,12 +2423,12 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             w, h = self.GetClientSize()
             itemrect = wx.Rect(x, item.GetY() + offset, w, total_h - offset)
             if item.IsSelected():
-                if self._usegradients:
-                    if self._gradientstyle == 0:
+                if self._use_gradients:
+                    if self._gradient_style == 0:
                         self.DrawHorizontalGradient(dc, itemrect, self._hasFocus)
                     else:
                         self.DrawVerticalGradient(dc, itemrect, self._hasFocus)
-                elif self._vistaselection:
+                elif self._vista_selection:
                     self.DrawVistaRectangle(dc, itemrect, self._hasFocus)
                 elif wx.Platform in ['__WXGTK2__', '__WXMAC__']:
                     flags = wx.CONTROL_SELECTED
@@ -2377,16 +2440,17 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         else:
             if item.IsSelected():
                 wnd = item.GetWindow()
-                wndx = 0
+                window_x = 0
                 if wnd:
-                    wndx, wndy = item.GetWindowSize()
-                itemrect = wx.Rect(item.GetX() + wcheck + image_w - 2, item.GetY() + offset, item.GetWidth() - image_w - wcheck + 2 - wndx, total_h - offset)
-                if self._usegradients:
-                    if self._gradientstyle == 0:
+                    window_x, wndy = item.GetWindowSize()
+                itemrect = wx.Rect(item.GetX() + width_check + image_w - 2, item.GetY() + offset,
+                                   item.GetWidth() - image_w - width_check + 2 - window_x, total_h - offset)
+                if self._use_gradients:
+                    if self._gradient_style == 0:
                         self.DrawHorizontalGradient(dc, itemrect, self._hasFocus)
                     else:
                         self.DrawVerticalGradient(dc, itemrect, self._hasFocus)
-                elif self._vistaselection:
+                elif self._vista_selection:
                     self.DrawVistaRectangle(dc, itemrect, self._hasFocus)
                 elif wx.Platform in ['__WXGTK2__', '__WXMAC__']:
                     flags = wx.CONTROL_SELECTED
@@ -2395,52 +2459,56 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                     wx.RendererNative.Get().DrawItemSelectionRect(self, dc, itemrect, flags)
                 else:
                     dc.DrawRectangleRect(itemrect)
-            elif drawItemBackground:
-                minusicon = wcheck + image_w - 2
-                itemrect = wx.Rect(item.GetX() + minusicon, item.GetY() + offset, item.GetWidth() - minusicon, total_h - offset)
-                if self._usegradients and self._hasFocus:
-                    if self._gradientstyle == 0:
+            elif _draw_item_background:
+                minusicon = width_check + image_w - 2
+                itemrect = wx.Rect(item.GetX() + minusicon, item.GetY() + offset, item.GetWidth() - minusicon,
+                                   total_h - offset)
+                if self._use_gradients and self._hasFocus:
+                    if self._gradient_style == 0:
                         self.DrawHorizontalGradient(dc, itemrect, self._hasFocus)
                     else:
                         self.DrawVerticalGradient(dc, itemrect, self._hasFocus)
                 else:
                     dc.DrawRectangleRect(itemrect)
             if image != _NO_IMAGE:
-                dc.SetClippingRegion(item.GetX(), item.GetY(), wcheck + image_w - 2, total_h)
+                dc.SetClippingRegion(item.GetX(), item.GetY(), width_check + image_w - 2, total_h)
                 if item.IsEnabled():
-                    imglist = self._imageListNormal
+                    imglist = self._image_list_normal
                 else:
-                    imglist = self._grayedImageList
-                imglist.Draw(image, dc, item.GetX() + wcheck, item.GetY() + (total_h > image_h and [(total_h - image_h) / 2] or [0])[0], wx.IMAGELIST_DRAW_TRANSPARENT)
+                    imglist = self._image_list_grayed
+                imglist.Draw(image, dc, item.GetX() + width_check,
+                             item.GetY() + (total_h > image_h and [(total_h - image_h) / 2] or [0])[0],
+                             wx.IMAGELIST_DRAW_TRANSPARENT)
                 dc.DestroyClippingRegion()
-            if wcheck:
+            if width_check:
                 if item.IsEnabled():
-                    imglist = self._imageListCheck
+                    imglist = self._image_list_check
                 else:
                     imglist = self._grayedCheckList
-                imglist.Draw(checkimage, dc, item.GetX(), item.GetY() + (total_h > hcheck and [(total_h - hcheck) / 2] or [0])[0], wx.IMAGELIST_DRAW_TRANSPARENT)
+                imglist.Draw(checkimage, dc, item.GetX(),
+                             item.GetY() + (total_h > hcheck and [(total_h - hcheck) / 2] or [0])[0],
+                             wx.IMAGELIST_DRAW_TRANSPARENT)
             dc.SetBackgroundMode(wx.TRANSPARENT)
             extraH = (total_h > text_h and [(total_h - text_h) / 2] or [0])[0]
-            textrect = wx.Rect(wcheck + image_w + item.GetX(), item.GetY() + extraH, text_w, text_h)
+            texture_rect = wx.Rect(width_check + image_w + item.GetX(), item.GetY() + extraH, text_w, text_h)
             if not item.IsEnabled():
                 foreground = dc.GetTextForeground()
                 dc.SetTextForeground(self._disabledColour)
-                dc.DrawLabel(item.GetText(), textrect)
+                dc.DrawLabel(item.GetText(), texture_rect)
                 dc.SetTextForeground(foreground)
             else:
                 if wx.Platform == '__WXMAC__' and item.IsSelected() and self._hasFocus:
                     dc.SetTextForeground(wx.WHITE)
-                dc.DrawLabel(item.GetText(), textrect)
+                dc.DrawLabel(item.GetText(), texture_rect)
             wnd = item.GetWindow()
             if wnd:
-                wndx = wcheck + image_w + item.GetX() + text_w + 4
-                wndx = self.GetVirtualSize()[0] - (wnd.GetSize()[0] + 4)
+                window_x = self.GetVirtualSize()[0] - (wnd.GetSize()[0] + 4)
                 xa, ya = self.CalcScrolledPosition((0, item.GetY()))
                 if not wnd.IsShown():
                     wnd.Show()
-                if wnd.GetPosition() != (wndx, ya):
-                    wnd.SetPosition((wndx, ya))
-        dc.SetFont(self._normalFont)
+                if wnd.GetPosition() != (window_x, ya):
+                    wnd.SetPosition((window_x, ya))
+        dc.SetFont(self._normal_font)
 
     def PaintLevel(self, item, dc, level, y):
         x = level * self._indent
@@ -2471,9 +2539,10 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         exposed_x = dc.LogicalToDeviceX(0)
         exposed_y = dc.LogicalToDeviceY(y_top)
         if self.IsExposed(exposed_x, exposed_y, 10000, h):
-            pen = (wx.Platform == '__WXMAC__' and (item.IsSelected() and self._hasFocus and [self._borderPen] or [wx.TRANSPARENT_PEN]))[0]
+            pen = (wx.Platform == '__WXMAC__' and (
+                    item.IsSelected() and self._hasFocus and [self._border_pen] or [wx.TRANSPARENT_PEN]))[0]
         else:
-            pen = self._borderPen
+            pen = self._border_pen
         if item.IsSelected():
             if wx.Platform == '__WXMAC__' and self._hasFocus:
                 colText = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
@@ -2486,7 +2555,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                     colText = attr.GetTextColour()
                 else:
                     colText = self.GetForegroundColour()
-                if self._vistaselection:
+                if self._vista_selection:
                     colText = wx.BLACK
                 dc.SetTextForeground(colText)
                 dc.SetPen(pen)
@@ -2500,7 +2569,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                 dc.SetBrush(wx.WHITE_BRUSH)
                 dc.SetTextForeground(wx.BLACK)
                 if not self.HasFlag(TR_NO_LINES):
-                    dc.SetPen(self._dottedPen)
+                    dc.SetPen(self._dotted_pen)
                     x_start = x
                     if x > self._indent:
                         x_start -= self._indent
@@ -2509,17 +2578,17 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                     dc.DrawLine(x_start, y_mid, x + self._spacing, y_mid)
                     dc.SetPen(oldpen)
                 if item.HasPlus() and self.HasButtons():
-                    if self._imageListButtons:
+                    if self._image_list_buttons:
                         image_h = 0
                         image_w = 0
                         image = (item.IsExpanded() and [TreeItemIcon_Expanded] or [TreeItemIcon_Normal])[0]
                         if item.IsSelected():
                             image += TreeItemIcon_Selected - TreeItemIcon_Normal
-                        image_w, image_h = self._imageListButtons.GetSize(image)
+                        image_w, image_h = self._image_list_buttons.GetSize(image)
                         xx = x - image_w / 2
                         yy = y_mid - image_h / 2
                         dc.SetClippingRegion(xx, yy, image_w, image_h)
-                        self._imageListButtons.Draw(image, dc, xx, yy, wx.IMAGELIST_DRAW_TRANSPARENT)
+                        self._image_list_buttons.draw(image, dc, xx, yy, wx.IMAGELIST_DRAW_TRANSPARENT)
                         dc.DestroyClippingRegion()
                     elif self._windowStyle & TR_TWIST_BUTTONS:
                         dc.SetPen(wx.BLACK_PEN)
@@ -2546,9 +2615,10 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                         flag = 0
                         if item.IsExpanded():
                             flag |= _CONTROL_EXPANDED
-                        if item == self._underMouse:
+                        if item == self._under_mouse:
                             flag |= _CONTROL_CURRENT
-                        self._drawingfunction(self, dc, wx.Rect(x - wImage / 2, y_mid - hImage / 2, wImage, hImage), flag)
+                        self._drawing_function(self, dc, wx.Rect(x - wImage / 2, y_mid - hImage / 2, wImage, hImage),
+                                               flag)
             if item.IsExpanded():
                 children = item.GetChildren()
                 count = len(children)
@@ -2572,7 +2642,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                         if oldY > yOrigin + height:
                             oldY = yOrigin + height
                         if y_mid < oldY:
-                            dc.SetPen(self._dottedPen)
+                            dc.SetPen(self._dotted_pen)
                             dc.DrawLine(x, y_mid, x, oldY)
         return y
 
@@ -2581,13 +2651,13 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         self.PrepareDC(dc)
         if not self._anchor:
             return
-        dc.SetFont(self._normalFont)
-        dc.SetPen(self._dottedPen)
+        dc.SetFont(self._normal_font)
+        dc.SetPen(self._dotted_pen)
         y = 2
         self.PaintLevel(self._anchor, dc, 0, y)
 
     def OnEraseBackground(self, event):
-        if not self._backgroundImage:
+        if not self._background_image:
             event.Skip()
             return
         if self._imageStretchStyle == _StyleTile:
@@ -2600,13 +2670,13 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def TileBackground(self, dc):
         sz = self.GetClientSize()
-        w = self._backgroundImage.GetWidth()
-        h = self._backgroundImage.GetHeight()
+        w = self._background_image.GetWidth()
+        h = self._background_image.GetHeight()
         x = 0
         while x < sz.width:
             y = 0
             while y < sz.height:
-                dc.DrawBitmap(self._backgroundImage, x, y, True)
+                dc.DrawBitmap(self._background_image, x, y, True)
                 y = y + h
 
             x = x + w
@@ -2623,21 +2693,22 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
 
     def OnKeyDown(self, event):
         te = TreeEvent(wxEVT_TREE_KEY_DOWN, self.GetId())
-        te._evtKey = event
+        te._event_key = event
         te.SetEventObject(self)
         if self.GetEventHandler().ProcessEvent(te):
             return
         if self._current is None or self._key_current is None:
             event.Skip()
             return
-        is_multiple, extended_select, unselect_others = EventFlagsToSelType(self.GetTreeStyle(), event.ShiftDown(), event.CmdDown())
+        is_multiple, extended_select, unselect_others = EventFlagsToSelType(self.GetTreeStyle(), event.ShiftDown(),
+                                                                            event.CmdDown())
         keyCode = event.GetKeyCode()
         if keyCode in [ord('+'), wx.WXK_ADD]:
             if self._current.HasPlus() and not self.IsExpanded(self._current) and self.IsEnabled(self._current):
                 self.Expand(self._current)
         if keyCode in [ord('*'), wx.WXK_MULTIPLY]:
             if not self.IsExpanded(self._current) and self.IsEnabled(self._current):
-                self.ExpandAll(self._current)
+                self.ExpandAll()
         if keyCode in [ord('-'), wx.WXK_SUBTRACT]:
             if self.IsExpanded(self._current):
                 self.Collapse(self._current)
@@ -2645,7 +2716,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             itemRect = self.GetBoundingRect(self._current, True)
             event = TreeEvent(wxEVT_TREE_ITEM_MENU, self.GetId())
             event._item = self._current
-            event._pointDrag = wx.Point(ItemRect.GetX(), ItemRect.GetY() + ItemRect.GetHeight() / 2)
+            event._point_drag = wx.Point(itemRect.GetX(), itemRect.GetY() + itemRect.GetHeight() / 2)
             event.SetEventObject(self)
             self.GetEventHandler().ProcessEvent(event)
         elif keyCode in [wx.WXK_RETURN, wx.WXK_SPACE]:
@@ -2751,18 +2822,19 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                     return
             if self.IsEnabled(prev):
                 self.DoSelectItem(prev, unselect_others, extended_select)
-        elif not event.HasModifiers() and (keyCode >= ord('0') and keyCode <= ord('9') or keyCode >= ord('a') and keyCode <= ord('z') or keyCode >= ord('A') and keyCode <= ord('Z')):
+        elif not event.HasModifiers() and (
+                keyCode >= ord('0') and keyCode <= ord('9') or keyCode >= ord('a') and keyCode <= ord(
+            'z') or keyCode >= ord('A') and keyCode <= ord('Z')):
             ch = chr(keyCode)
-            id = self.FindItem(self._current, self._findPrefix + ch)
+            id = self.FindItem(self._current, self._find_prefix + ch)
             if not id:
                 return
             if self.IsEnabled(id):
                 self.SelectItem(id)
-            self._findPrefix += ch
-            if not self._findTimer:
-                self._findTimer = TreeFindTimer(self)
-            self._findTimer.Start(_DELAY, wx.TIMER_ONE_SHOT)
+            self._find_prefix += ch
+            if not self._find_timer:
+                self._find_timer = TreeFindTimer(self)
+            self._find_timer.Start(_DELAY, wx.TIMER_ONE_SHOT)
         else:
             event.Skip()
         return
-

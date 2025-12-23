@@ -53,7 +53,7 @@ class S3DTexturesHolder(object):
             glDisable(GL_TEXTURE_2D)
             return
         if texture[1] == None:
-            texture[0].ReadFile(None, True, True)
+            texture[0].read_file(None, True, True)
             nbrLayers, trueAlpa, img, alpha, size = FSHConverter.decodeFSH(texture[0].content)
             nbOfBytes = size[0] * size[1]
             texture[0].content = None

@@ -175,7 +175,7 @@ class GroupProxy():
 
                     idx = tree.AppendItem(self.itemIdx, sub.Name)
                     tree.SetPyData(idx, sub.ID)
-                    tree.Refresh(False)
+                    tree.refresh(False)
         if self.kind == 4:
             if type(what) == types.TupleType:
                 if what not in self.items:
@@ -348,7 +348,7 @@ class ImageListCtrl(wx.ListCtrl):
                 texEntry = VirtualDat.this.getEntry(2058686020, 159781726, tgi + 4)
                 if texEntry == None:
                     return (Image.open('NoPreview.jpg').resize((128, 128), Image.BICUBIC), 0, '')
-                texEntry.ReadFile(None, True, True)
+                texEntry.read_file(None, True, True)
                 nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
                 nbOfBytes = size[0] * size[1]
                 texEntry.content = None
@@ -570,9 +570,9 @@ def FillListForIcon(self, entries, fnPrint):
         if texEntry != None:
             try:
                 if texEntry.content == None:
-                    texEntry.ReadFile(None, True, True)
+                    texEntry.read_file(None, True, True)
             except:
-                texEntry.ReadFile(None, True, True)
+                texEntry.read_file(None, True, True)
 
             cIO = io.BytesIO(texEntry.content)
             pilz = Image.open(cIO).convert('RGB')
