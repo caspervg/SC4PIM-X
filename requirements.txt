@@ -1,0 +1,25 @@
+# SC4PIM-X Python 3.11+ Requirements
+# Generated from pyproject.toml
+
+# Core GUI Framework
+wxPython>=4.2.0
+
+# Image Processing (replaces PIL)
+Pillow>=10.0.0
+
+# Numerical Computing (replaces Numeric)
+numpy>=1.24.0
+
+# 3D Rendering
+PyOpenGL>=3.1.0
+PyOpenGL-accelerate>=3.1.0
+
+# Windows-specific (optional)
+# Uncomment on Windows for registry access:
+# pywin32>=306; sys_platform == 'win32'
+
+# Development Dependencies (optional)
+# Uncomment for development:
+# black>=23.0.0
+# ruff>=0.1.0
+# mypy>=1.0.0

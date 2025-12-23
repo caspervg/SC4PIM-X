@@ -26,7 +26,7 @@ def ToUnsigned(val):
     try:
         return struct.unpack('L', struct.pack('l', val))[0]
     except:
-        print type(val), val
+        print(type(val), val)
         raise
 
 
@@ -34,7 +34,7 @@ def ToTile(val):
     try:
         return float(struct.unpack('l', struct.pack('L', int(val)))[0]) / float(1048576)
     except:
-        print type(val), val
+        print(type(val), val)
         raise
 
 
@@ -69,7 +69,7 @@ class DictWrapper(object):
     def __getattr__(self, attr):
         if attr in self.mapping.keys():
             return self.mapping[attr]
-        raise AttributeError, attr
+        raise AttributeError(attr)
 
     def __setattr__(self, attr, value):
         self.mapping[attr] = value
@@ -599,7 +599,7 @@ class ImageListLoaderProps():
                 image = wx.Bitmap(fileName, wx.BITMAP_TYPE_JPEG)
                 idx = self.virtualDAT.ilStandardModels.Add(image)
                 if idx == -1:
-                    print 'PropLoader : Error addind jpg file for', fileName, image.GetWidth(), 'by', image.GetHeight(), 'nbr already loaded:', self.virtualDAT.ilStandardModels.GetImageCount()
+                    print('PropLoader : Error addind jpg file for'), fileName, image.GetWidth(), 'by', image.GetHeight(), 'nbr already loaded:', self.virtualDAT.ilStandardModels.GetImageCount()
                 self.virtualDAT.s3dEntries[s3d.entry.tgi] = idx
 
         self.running = False
@@ -666,7 +666,7 @@ class ImageListLoaderTexture():
                                                                                                              0,
                                                                                                              0))
                 except:
-                    print 'blem'
+                    print('blem')
                     raise
 
             IID = texEntry.tgi[2] & 61440
@@ -684,13 +684,13 @@ class ImageListLoaderTexture():
             if trueAlpha:
                 idx = self.virtualDAT.ilOver.Add(image.ConvertToBitmap())
                 if idx == -1:
-                    print 'OverlayLoader : Error addind fsh %s-%s-%s from %s' % (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]), hex2str(texEntry.tgi[2]), texEntry.fileName)
+                    print('OverlayLoader : Error addind fsh %s-%s-%s from %s') % (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]), hex2str(texEntry.tgi[2]), texEntry.fileName)
                 self.virtualDAT.overTexEntriesDict[texEntry] = idx
                 self.virtualDAT.overTexEntries.append(texEntry)
             else:
                 idx = self.virtualDAT.ilBase.Add(image.ConvertToBitmap())
                 if idx == -1:
-                    print 'BaseLoader : Error addind fsh %s-%s-%s from %s' % (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]), hex2str(texEntry.tgi[2]), texEntry.fileName)
+                    print('BaseLoader : Error addind fsh %s-%s-%s from %s') % (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]), hex2str(texEntry.tgi[2]), texEntry.fileName)
                 self.virtualDAT.baseTexEntriesDict[texEntry] = idx
                 self.virtualDAT.baseTexEntries.append(texEntry)
 
@@ -733,8 +733,7 @@ class LotDesc():
 
 
 def PrintCat(cat, spaces=0):
-    print ' ' * spaces,
-    print cat.Name
+    print(' ' * spaces, cat.Name)
     for child in cat.childs:
         PrintCat(child, spaces + 1)
 
@@ -958,7 +957,7 @@ class ResourceViewer():
             viewer.Refresh(False)
             return
         except:
-            print state
+            print(state)
             raise
 
         viewer = what.__class__.viewer
@@ -1036,10 +1035,10 @@ class SC4ModelMesh():
                 xmlEntry.rawContent = None
                 del xmlEntry
             except:
-                print 'Error reading the xml in',
-                print xmlEntry.fileName
-                print 'xml for model 0x%08X-0x%08X' % (GID, IID)
-                print xmlEntry.content
+                print('Error reading the xml in'),
+                print(xmlEntry.fileName)
+                print('xml for model 0x%08X-0x%08X') % (GID, IID)
+                print(xmlEntry.content)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 self.descName = self.name
@@ -1109,10 +1108,10 @@ class SC4Model():
                 xmlEntry.rawContent = None
                 del xmlEntry
             except:
-                print 'Error reading the xml in',
-                print xmlEntry.fileName
-                print 'xml for model 0x%08X-0x%08X' % (GID, IID)
-                print xmlEntry.content
+                print('Error reading the xml in'),
+                print(xmlEntry.fileName)
+                print('xml for model 0x%08X-0x%08X') % (GID, IID)
+                print(xmlEntry.content)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 self.descName = self.name
