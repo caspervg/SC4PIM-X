@@ -6,10 +6,12 @@ from math import *
 
 import wx.lib.mixins.listctrl as listmix
 
+from SC4DataFunctions import readCategoryDef, FinalizeCategory
+
 try:
     import win32api
     import win32con
-
+    print("Win32 activated?")
     HAS_WIN32 = True
 except ImportError:
     HAS_WIN32 = False
@@ -20,57 +22,51 @@ from DependenciesDlg import *
 import treeDnD
 from translation import *
 from settings import *
+from util import basic_cmp, clamp_to_tile
 import wx.adv
 
 offsetGID = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
+_preload_config_result = None
 
 
-def basic_cmp(x, y) -> int:
-    return (x > y) - (x < y)
+def _env_true(name):
+    return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def round_to_int(a):
-    return int(round(a))
+def _trace(stage):
+    if _env_true('SC4PIM_TRACE'):
+        print('[TRACE] %s' % stage)
+        sys.stdout.flush()
 
 
-def clamp_to_tile(x):
-    if fmod(x, 16) < 0.5 and x > 16:
-        return int(x - 1) / 16 * 16 + 15.5
-    return int(x) / 16 * 16 + min(fmod(x, 16), 15.5)
+def _exit_after(stage):
+    target = os.environ.get('SC4PIM_EXIT_AFTER', '').strip()
+    if target and target == stage:
+        print('[TRACE] exit after %s' % stage)
+        sys.stdout.flush()
+        sys.exit(0)
 
 
-def test(condition, val_true, val_false):
-    if condition:
-        return val_true
-    return val_false
-
-
-def less_than(v1, v2):
-    return v1 < v2
-
-
-def greater_than(v1, v2):
-    return v1 > v2
+def _asset_path(*parts):
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    return os.path.join(base_dir, 'assets', *parts)
 
 
 class ProcessDlg(wx.Dialog):
 
     def __init__(self, parent, title='please wait'):
-        super().__init__()
-
-        pre = wx.Dialog()
-        pre.Create(parent, -1, 'PIM Extended')
-        self.PostCreate(pre)
+        wx.Dialog.__init__(self, parent, -1, 'PIM Extended')
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.label_g1 = wx.StaticText(self, -1, title, size=Size(500, -1))
-        sizer.Add(self.label_g1, 1, wx.EXPAND | wx.ALIGN_CENTRE | wx.ALL, 5)
+        sizer.Add(self.label_g1, 1, wx.EXPAND | wx.ALL, 5)
         self.g1 = wx.Gauge(self, -1, 32)
         # The following methods no longer exist in modern wxPython versions
         # self.g1.SetBezelFace(3)
         # self.g1.SetShadowWidth(3)
-        sizer.Add(self.g1, 0, wx.EXPAND | wx.ALIGN_CENTRE | wx.ALL, 5)
+        sizer.Add(self.g1, 0, wx.EXPAND | wx.ALL, 5)
         self.SetSizer(sizer)
+
         sizer.Fit(self)
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
         self.g1.SetRange(1000)
@@ -93,7 +89,7 @@ class ProcessDlg(wx.Dialog):
 
 class MyTreeCtrl(wx.TreeCtrl):
 
-    def __init__(self, virtual_dat: VirtualDat, wx_parent, main_frame, style, size):
+    def __init__(self, virtual_dat, wx_parent, main_frame, style, size):
         wx.TreeCtrl.__init__(self, wx_parent, -1, style=style | wx.TR_EDIT_LABELS, size=size)
         self.parent = main_frame
         self.virtual_dat = virtual_dat
@@ -123,7 +119,7 @@ class MyTreeCtrl(wx.TreeCtrl):
 
     def OnBeginEdit(self, event):
         item = event.GetItem()
-        data = self.GetPyData(item)
+        data = self.GetItemData(item)
         if data is not None and data.__class__ == DictWrapper and data.parentID == 4089087265:
             pass
         else:
@@ -134,7 +130,7 @@ class MyTreeCtrl(wx.TreeCtrl):
         if event.IsEditCancelled():
             return
         item = event.GetItem()
-        data = self.GetPyData(item)
+        data = self.GetItemData(item)
         file_name_base = 'Family ' + event.GetLabel()
         family = data.ID
         instance_id = family + 268435456 & 4294967295
@@ -194,7 +190,7 @@ class MyTreeCtrl(wx.TreeCtrl):
         item, flags = self.HitTest(pt)
         if item:
             self.SelectItem(item)
-            data = self.GetPyData(item)
+            data = self.GetItemData(item)
             if data is not None:
                 if data.__class__ == DictWrapper:
                     if data.parentID == 4089087265:
@@ -359,9 +355,9 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         listmix.ListCtrlAutoWidthMixin.__init__(self)
         self.SetItemCount(0)
         self.list_datas = None
-        self.attr1 = wx.ListItemAttr()
+        self.attr1 = wx.ItemAttr()
         self.attr1.SetBackgroundColour((255, 228, 181))
-        self.attr2 = wx.ListItemAttr()
+        self.attr2 = wx.ItemAttr()
         self.attr2.SetBackgroundColour('light blue')
         self.Bind(wx.EVT_LIST_COL_CLICK, self.OnListHeaderClick)
         return
@@ -436,7 +432,7 @@ class EditDialog(sc.SizedDialog):
 
 class NoteBookPanel(wx.Panel):
 
-    def __init__(self, parent, descriptor, virtual_dat: VirtualDat):
+    def __init__(self, parent, descriptor, virtual_dat):
         wx.Panel.__init__(self, parent)
         self.parent = parent
         self.descriptor = descriptor
@@ -503,7 +499,7 @@ class NoteBookPanel(wx.Panel):
             self.FillTheList()
             item = self.parent.parent.tree.GetSelection()
             try:
-                data = self.parent.parent.tree.GetPyData(item)
+                data = self.parent.parent.tree.GetItemData(item)
             except:
                 data = None
 
@@ -856,7 +852,7 @@ class NoteBookPanel(wx.Panel):
             self.FillTheList()
             item = self.parent.parent.tree.GetSelection()
             try:
-                data = self.parent.parent.tree.GetPyData(item)
+                data = self.parent.parent.tree.GetItemData(item)
             except:
                 data = None
 
@@ -920,8 +916,8 @@ class NoteBookPanel(wx.Panel):
         self.InternalSave(self.exemplar.entry.fileName)
         self.bSave.Enable(False)
         IID = self.exemplar.entry.tgi[2]
-        texEntry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
-        if texEntry != None:
+        texEntry = self.getEntry(2238569388, 1782082854, IID)
+        if texEntry is None:
             texEntry.content = texEntry.rawContent = None
         self.descriptor.name = self.exemplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
@@ -930,7 +926,7 @@ class NoteBookPanel(wx.Panel):
         self.FillTheList()
         item = self.parent.parent.tree.GetSelection()
         try:
-            data = self.parent.parent.tree.GetPyData(item)
+            data = self.parent.parent.tree.GetItemData(item)
         except:
             data = None
 
@@ -2608,9 +2604,16 @@ class SC4NoteBook(wx.Notebook):
         return
 
     def LoadPics(self, virtualDAT):
+        if _env_true('SC4PIM_SKIP_NOTEBOOK_PICS'):
+            return
         il = wx.ImageList(47, 37)
         for i, cat in virtualDAT.categories.items():
-            cat.imgIdx = il.Add(wx.Image(cat.imgName).ConvertToBitmap())
+            icon_path = _asset_path('icons', cat.imgName)
+            img = wx.Image(icon_path)
+            if not img.IsOk():
+                _trace('notebook:missing_icon:%s' % icon_path)
+                img = wx.Image(1, 1)
+            cat.imgIdx = il.Add(img.ConvertToBitmap())
 
         self.AssignImageList(il)
 
@@ -2631,16 +2634,19 @@ class SC4NoteBook(wx.Notebook):
         self.Freeze()
         self.parent.staticFileName.SetLabel(unknownRK)
         self.currentPage = newPage
-        if self.parent.viewer.s3d_mesh != None:
+        if hasattr(self.parent, 'viewer') and hasattr(self.parent.viewer, 's3d_mesh') and self.parent.viewer.s3d_mesh is not None:
+            self.parent.viewer.s3d_mesh = None
+
+        if self.parent.viewer.s3d_mesh is not None:
             self.parent.viewer.s3d_mesh.free_3d(self.parent.viewer.s3d_textures_holder)
             self.parent.viewer.s3d_mesh = None
             self.parent.viewer.refresh(False)
         descriptor = self.descriptors[newPage]
-        examplar = descriptor.examplar
-        rkt4 = examplar.GetProp(662775844)
+        exemplar = descriptor.exemplar
+        rkt4 = exemplar.GetProp(662775844)
         self.parent.cbStateChoice.Clear()
         self.parent.cbStateChoice.SetValue('')
-        if rkt4 != None:
+        if rkt4 is not None:
             choices = []
             for z in range(len(rkt4) / 8):
                 choices.append(('Model #%d' % z, z))
@@ -2768,52 +2774,58 @@ class ConfigureDialog(sc.SizedDialog):
         pane.SetSizerType('vertical')
         wx.StaticText(pane, -1, configurationDialogGID % parent.GID)
         self.listFolder = [parent.maxisFolder, parent.maxisPluginsFolder, parent.rootFolder]
-        toCheck = [
-            0, 1, 2]
+        to_check = [0, 1, 2]
         for root, dirs, files in os.walk(parent.rootFolder):
             for i, folder in enumerate(dirs):
                 self.listFolder.append(os.path.join(parent.rootFolder, folder))
                 if os.path.join(parent.rootFolder, folder) in self.pathToScan:
-                    toCheck.append(i + 3)
+                    to_check.append(i + 3)
 
             break
 
-        self.lb1 = wx.CheckListBox(pane, -1, choices=self.listFolder, style=wx.LB_SINGLE | wx.LB_HSCROLL, size=(700,
-                                                                                                                -1))
+        self.lb1 = wx.CheckListBox(pane, -1, choices=self.listFolder, style=wx.LB_SINGLE | wx.LB_HSCROLL, size=Size(700, -1))
         self.lb1.SetSelection(0)
         self.lb1.SetSizerProp('expand', True)
         self.lb1.SetSizerProp('proportion', 1)
-        for checked in toCheck:
+        for checked in to_check:
             self.lb1.Check(checked)
 
         buttonPane = sc.SizedPanel(pane, -1)
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
         self.SetMinSize(self.GetSize())
+        self.Bind(wx.EVT_BUTTON, self.OnOK, id=wx.ID_OK)
+        self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
+
+    def OnOK(self, event):
+        # Save configuration before closing
+        print("ONOK")
+        self.OnSave(None)
+        self.EndModal(wx.ID_OK)
+
+    def OnCancel(self, event):
+        print("ONCANCEL")
+        self.EndModal(wx.ID_CANCEL)
 
     def ReadConfig(self):
         self.pathToScan = []
-        try:
+        def getText(nodelist):
+            rc = ''
+            for node in nodelist:
+                if node.nodeType == node.TEXT_NODE:
+                    rc = rc + node.data
 
-            def getText(nodelist):
-                rc = ''
-                for node in nodelist:
-                    if node.nodeType == node.TEXT_NODE:
-                        rc = rc + node.data
+            return rc
 
-                return rc
+        configXML = xml.dom.minidom.parse('config.xml')
+        for node in configXML.documentElement.childNodes:
+            if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
+                for subNode in node.childNodes:
+                    if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
+                        recurse = int(subNode.getAttribute('recurse'))
+                        path = str(getText(subNode.childNodes))
+                        self.pathToScan.append(path)
 
-            configXML = xml.dom.minidom.parse('config.xml')
-            for node in configXML.documentElement.childNodes:
-                if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
-                    for subNode in node.childNodes:
-                        if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
-                            recurse = int(subNode.getAttribute('recurse'))
-                            path = str(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
-                            self.pathToScan.append(path)
-
-        except:
-            pass
 
     def OnSave(self, parent):
         xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -2838,8 +2850,7 @@ class ConfigureDialog(sc.SizedDialog):
 class MainFrame(wx.Frame):
 
     def __init__(self):
-        wx.Frame.__init__(self, None, title='SC4 PIM Extended 2009 RC8', size=(800,
-                                                                               800))
+        wx.Frame.__init__(self, None, title='SC4 PIM Extended 2009 RC8', size=Size(800, 800))
         # Initialize GID (Group ID) from Windows registry or generate new one
         try:
             if not HAS_WIN32:
@@ -2848,7 +2859,8 @@ class MainFrame(wx.Frame):
             self.GID = win32api.RegQueryValueEx(maxisKey, 'User Group ID')[0]
             x = struct.pack('L', self.GID)
             self.GID = struct.unpack('L', x)[0]
-        except Exception:
+        except Exception as ex:
+            print(ex)
             # Generate new GID if registry access fails or on non-Windows platforms
             init = datetime.datetime(2005, 5, 5, 21, 24, 15)
             today = datetime.datetime.today()
@@ -2869,7 +2881,8 @@ class MainFrame(wx.Frame):
                                                      0, win32con.KEY_SET_VALUE)
                     iid = struct.unpack('i', struct.pack('I', self.GID))[0]
                     win32api.RegSetValueEx(maxisKey, 'User Group ID', 0, win32con.REG_DWORD, iid)
-                except Exception:
+                except Exception as ex:
+                    print(ex)
                     pass  # Ignore registry write failures
 
         menuBar = wx.MenuBar()
@@ -2896,16 +2909,23 @@ class MainFrame(wx.Frame):
         dt = treeDnD.DropTarget(self.tree, self.OnDrop, self.OnDropFile)
         self.tree.SetDropTarget(dt)
         self.Bind(wx.EVT_TREE_SEL_CHANGED, self.OnSelChanged, self.tree)
-        self.glCanvas = MyCanvasBase(leftPanel)
-        self.s3dviewer = S3DViewer(None, self.glCanvas)
-        self.atcviewer = ATCViewer(None, self.glCanvas)
-        ATCProxy.viewer = self.atcviewer
-        ATC.viewer = self.atcviewer
-        StandardModel.viewer = self.s3dviewer
-        SC4Model.viewer = self.s3dviewer
-        SC4ModelMesh.viewer = self.s3dviewer
-        SC4Model1MeshPerZoom.viewer = self.s3dviewer
-        self.viewer = self.atcviewer
+        if _env_true('SC4PIM_SKIP_VIEWER'):
+            print("Skipping viewer")
+            self.glCanvas = wx.Panel(leftPanel)
+            self.s3dviewer = None
+            self.atcviewer = None
+            self.viewer = None
+        else:
+            self.glCanvas = MyCanvasBase(leftPanel)
+            self.s3dviewer = S3DViewer(None, self.glCanvas)
+            self.atcviewer = ATCViewer(None, self.glCanvas)
+            ATCProxy.viewer = self.atcviewer
+            ATC.viewer = self.atcviewer
+            StandardModel.viewer = self.s3dviewer
+            SC4Model.viewer = self.s3dviewer
+            SC4ModelMesh.viewer = self.s3dviewer
+            SC4Model1MeshPerZoom.viewer = self.s3dviewer
+            self.viewer = self.atcviewer
         self.cbZoom = wx.ComboBox(leftPanel, -1, viewerZoomBest, style=wx.CB_READONLY)
         choices = [(viewerZoomBest, -1), (viewerZoom1, 0), (viewerZoom2, 1), (viewerZoom3, 2), (viewerZoom4, 3),
                    (viewerZoom5, 4)]
@@ -2955,8 +2975,11 @@ class MainFrame(wx.Frame):
         self.nb.LoadPics(self.virtualDAT)
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
         if self.PreLoadDatas():
-            self.LoadDatas()
-            self.bLoaded = True
+            if _env_true('SC4PIM_SKIP_LOAD'):
+                self.bLoaded = True
+            else:
+                self.LoadDatas()
+                self.bLoaded = True
         else:
             self.bLoaded = False
         return
@@ -2982,7 +3005,7 @@ class MainFrame(wx.Frame):
 
     def OnDrop(self, data, item):
         what = self.listItemsCat[data]
-        category = self.tree.GetPyData(item)
+        category = self.tree.GetItemData(item)
         bbox = (8, 1, 8)
         try:
             mesh = what.sc4Model.s3dMeshes[4][0]
@@ -3237,6 +3260,10 @@ class MainFrame(wx.Frame):
             wx.CallAfter(DoDragDrop)
 
     def PreLoadDatas(self):
+        global _preload_config_result
+        if _preload_config_result is not None:
+            return _preload_config_result
+        _trace('preload:start')
         self.pathToScan = []
         try:
             if not HAS_WIN32:
@@ -3251,18 +3278,28 @@ class MainFrame(wx.Frame):
             self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'plugins')
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
         self.rootFolder = os.path.join(self.mydocs, 'SimCity 4\\Plugins')
-        dlg = ConfigureDialog(self)
+        _trace('preload:dialog')
+        dlg = ConfigureDialog(parent=self)
         if dlg.ShowModal() == wx.ID_OK:
             dlg.OnSave(self)
             dlg.Destroy()
-            return True
+            _preload_config_result = True
+            _trace('preload:ok')
+            _exit_after('preload:ok')
+            return _preload_config_result
         dlg.Destroy()
-        return False
+        _preload_config_result = False
+        _trace('preload:cancel')
+        _exit_after('preload:cancel')
+        return _preload_config_result
 
     def LoadDatas(self):
+        _trace('loaddatas:start')
         wx.BeginBusyCursor()
         bLoadMaxisModel = False
         bLoadMaxisDesc = False
+        if _env_true('SC4PIM_SKIP_DAT_SCAN'):
+            self.pathToScan = []
         try:
 
             def getText(nodelist):
@@ -3285,15 +3322,18 @@ class MainFrame(wx.Frame):
         except:
             pass
 
+        _trace('loaddatas:processdlg')
         dlg = ProcessDlg(self, loadingDialogMsg)
         dlg.Show()
         start = time.time()
+        _trace('loaddatas:cohorts')
         self.virtualDAT.addFile(dlg, 'cohorts.dat', True)
         if self.maxisFolder != '':
             if bLoadMaxisDesc or bLoadMaxisModel:
                 pass
         for path, recurse in self.pathToScan:
             if path == self.maxisFolder:
+                _trace('loaddatas:maxis')
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_1.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_2.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_3.dat'))
@@ -3320,30 +3360,56 @@ class MainFrame(wx.Frame):
 
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, localeFolder))
             else:
+                _trace('loaddatas:folder:%s' % path)
                 self.virtualDAT.addFolder(dlg, path, recurse)
 
-        self.virtualDAT.Finalize(dlg)
-        texLoader = ImageListLoaderTexture(self.virtualDAT)
-        texLoader.Start()
-        if len(self.virtualDAT.missingPics) > 0:
+        _trace('loaddatas:finalize')
+        if not _env_true('SC4PIM_SKIP_FINALIZE'):
+            self.virtualDAT.Finalize(dlg)
+        else:
+            _trace('loaddatas:finalize:skipped')
+        _trace('loaddatas:textures')
+        if not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
+            texLoader = ImageListLoaderTexture(self.virtualDAT)
+            texLoader.Start()
+        else:
+            _trace('loaddatas:textures:skipped')
+        if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
+            _trace('loaddatas:missingpics')
             dlg2 = ImageDBBuilder(self, -1, 'Builder')
             dlg2.Show()
-            for data in self.virtualDAT.missingPics:
+            for data in self.virtualDAT.missing_pictures:
                 dlg2.Draw(data)
                 dlg.Increment()
 
             dlg2.Destroy()
-        propLoader = ImageListLoaderProps(self.virtualDAT)
-        propLoader.Start()
+        _trace('loaddatas:props')
+        if not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
+            propLoader = ImageListLoaderProps(self.virtualDAT)
+            propLoader.Start()
+        else:
+            _trace('loaddatas:props:skipped')
         wx.EndBusyCursor()
         self.tree.EnsureVisible(self.tree.standard_models_item)
-        self.tree.SelectItem(self.tree.standard_models_item)
+        if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
+            wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
+        else:
+            _trace('loaddatas:treeselect:skipped')
+        #self.tree.SelectItem(self.tree.standard_models_item)
+        _trace('loaddatas:after_select')
         self.tree.EnsureVisible(self.tree.root)
         InfoEx()
         dlg.Destroy()
-        self.t2 = wx.CallLater(500, self.RefreshEvent)
+        if not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
+            self.t2 = wx.CallLater(500, self.RefreshEvent)
+        _trace('loaddatas:done')
+        _exit_after('loaddatas:done')
 
     def RefreshEvent(self):
+        _trace('refresh:event')
+        if not hasattr(self, 'viewer') or not hasattr(self.viewer, 's3d_mesh'):
+            _trace('refresh:noviewer')
+            return
         if self.currentModel is not None:
             zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
             rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
@@ -3465,11 +3531,11 @@ class MainFrame(wx.Frame):
     def OnItemListSelected(self, event):
         item = event.GetItem()
         idx = event.m_itemIndex
-        if self.viewer.S3DMesh != None:
-            self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
-            self.viewer.S3DMesh = None
+        if self.viewer.s3d_mesh is not None:
+            self.viewer.s3d_mesh.free_3d(self.viewer.s3DTexturesHolder)
+            self.viewer.s3d_mesh = None
             self.viewer.refresh(False)
-        if self.listItemsCat != None:
+        if self.listItemsCat is not None:
             if self.listItemsCat.__class__.__name__ == 'list':
                 self.cbStateChoice.Clear()
                 self.cbStateChoice.SetValue('')
@@ -3482,7 +3548,7 @@ class MainFrame(wx.Frame):
                     nZoom = zoom
                 self.viewer = data.__class__.viewer
                 self.viewer.InitGL()
-                self.viewer.S3DMesh = None
+                self.viewer.s3d_mesh = None
                 self.viewer.refresh(False)
                 self.staticFileName.SetLabel(self.listItemsCat[idx].fileName)
                 data.draw(self.viewer, self.staticFileName, zoom, rot)
@@ -3493,35 +3559,37 @@ class MainFrame(wx.Frame):
         return
 
     def OnSelChanged(self, event):
+        _trace(f"onselchanged:start: {event}")
         item = event.GetItem()
         tree = event.GetEventObject()
         try:
-            data = tree.GetPyData(item)
+            data = tree.GetItemData(item)
         except:
             data = None
 
         if data:
             if data.__class__.__name__ == 'list':
                 self.FillItemsListModel(data)
-                if self.viewer.S3DMesh != None:
-                    self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
-                    self.viewer.S3DMesh = None
+                if self.viewer.s3d_mesh is not None:
+                    self.viewer.s3d_mesh.free_3d(self.viewer.s3d_textures_holder)
+                    self.viewer.s3d_mesh = None
                     self.viewer.refresh(False)
             if data.__class__.__name__ == 'DictWrapper':
                 self.FillItemsList(data)
-                if self.viewer.S3DMesh != None:
-                    self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
-                    self.viewer.S3DMesh = None
+                if self.viewer.s3d_mesh is not None:
+                    self.viewer.s3d_mesh.free_3d(self.viewer.s3d_textures_holder)
+                    self.viewer.s3d_mesh = None
                     self.viewer.refresh(False)
         else:
             self.listItemsCat = None
             self.listItems.DeleteAllItems()
             self.listItems.SetItemCount(0)
-            if self.viewer.S3DMesh != None:
-                self.viewer.S3DMesh.free_3d(self.viewer.s3DTexturesHolder)
-                self.viewer.S3DMesh = None
+            if self.viewer is not None and self.viewer.s3d_mesh is not None:
+                self.viewer.s3d_mesh.free_3d(self.viewer.s3d_textures_holder)
+                self.viewer.s3d_mesh = None
                 self.viewer.refresh(False)
             self.currentModel = None
+        _trace(f"onselchanged:end: {event}")
         return
 
 
@@ -3531,6 +3599,7 @@ class SplashScreen(wx.adv.SplashScreen):
         bmp = wx.Image('../../assets/other/splash.jpg', wx.BITMAP_TYPE_JPEG).ConvertToBitmap()
         wx.adv.SplashScreen.__init__(self, bmp, wx.adv.SPLASH_CENTRE_ON_SCREEN | wx.adv.SPLASH_TIMEOUT, 500, None, -1)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self._show_main_called = False
         return
 
     def OnClose(self, evt):
@@ -3539,6 +3608,9 @@ class SplashScreen(wx.adv.SplashScreen):
         self.ShowMain()
 
     def ShowMain(self):
+        if self._show_main_called:
+            return
+        self._show_main_called = True
         frame = MainFrame()
         if frame.bLoaded:
             frame.Show()
