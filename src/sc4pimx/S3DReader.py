@@ -1,17 +1,17 @@
 """S3D (SimCity 4 3D model) file reader."""
-from S3DViewer import *
 import struct
-import wx
-from PIL import Image
-from PIL import ImageChops
-import FSHConverter
+
+import numpy
 import numpy as np
+
+from S3DViewer import *
+
 
 class S3D(object):
 
     def __init__(self, entry):
         self.entry = entry
-        if entry == None:
+        if entry is None:
             return
         self.tgi = entry.tgi
         return
@@ -19,7 +19,7 @@ class S3D(object):
     def ReadFile(self):
         if hasattr(self, 'vertexBuffers'):
             return
-        if self.entry == None:
+        if self.entry is None:
             return
         entry = self.entry
         entry.read_file(None, True, True)
@@ -126,7 +126,7 @@ class S3D(object):
                     texsNb = 2
                 vertexSize = 3 * 4 * coordsNb + 4 * colorsNb + 2 * 4 * texsNb
             buffer = buffer[8:]
-            vertices = Numeric.zeros((count, 3), 'f')
+            vertices = numpy.zeros((count, 3), 'f')
             uvs = np.zeros((count, 2), 'f')
             for vert in range(count):
                 vertexData = buffer[:vertexSize]

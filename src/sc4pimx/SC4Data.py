@@ -10,6 +10,7 @@ import xml.dom.minidom
 
 from PIL import ImageDraw, ImageFont
 
+import FSHConverter
 from S3DReader import *
 from SC4DatTools import *
 from SC4DataFunctions import ToTile

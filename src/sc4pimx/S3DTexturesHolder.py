@@ -1,10 +1,8 @@
 """S3D textures holder for OpenGL rendering."""
-from SC4OpenGL import *
-import struct
-import wx
 from PIL import Image
-from PIL import ImageChops
+
 import FSHConverter
+
 
 class S3DTexturesHolder(object):
     __module__ = __name__
