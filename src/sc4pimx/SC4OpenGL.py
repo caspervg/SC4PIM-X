@@ -22,7 +22,9 @@ from wx import glcanvas
 class MyCanvasBase(glcanvas.GLCanvas):
 
     def __init__(self, parent, size=(256, 256)):
-        glcanvas.GLCanvas.__init__(self, parent, -1, size=size)
+        attribs = wx.glcanvas.GLAttributes()
+        attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(16).EndList()
+        glcanvas.GLCanvas.__init__(self, parent, attribs, size=size)
         self.displayer = None
         self.init = False
         self.mouseX = self.mouseY = 30

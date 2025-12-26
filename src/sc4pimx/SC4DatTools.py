@@ -6,7 +6,7 @@ SimCity 4 .dat files, including compressed entries and property handling.
 import wx
 import time
 import struct
-import QFS
+#import QFS
 import os
 import os.path
 import re
@@ -349,7 +349,7 @@ class Prop():
             raise
 
 
-class Examplar():
+class SC4Exemplar():
 
     def __init__(self, entry, virtualDAT):
         self.modified = False
@@ -391,7 +391,7 @@ class Examplar():
     def free(self):
         self.virtualDAT = None
         for prop in self.props:
-            prop.examplar = None
+            prop.exemplar = None
 
         self.entry = None
         return
@@ -481,7 +481,7 @@ class Examplar():
                 return p
 
         if self.link is not None:
-            return self.link.examplar.GetPropObject(key)
+            return self.link.exemplar.GetPropObject(key)
         return
 
     def GetProp(self, key):
@@ -490,7 +490,7 @@ class Examplar():
                 return p.values
 
         if self.link is not None:
-            return self.link.examplar.GetProp(key)
+            return self.link.exemplar.GetProp(key)
         return
 
     def LinkToParent(self):
@@ -504,8 +504,8 @@ class Examplar():
                 if 'examplar' not in self.link.__dict__:
                     print('require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
                     self.link.read_file(None, True, True)
-                    cohort = Examplar(self.link, self.virtualDAT)
-                    self.link.examplar = cohort
+                    cohort = SC4Exemplar(self.link, self.virtualDAT)
+                    self.link.exemplar = cohort
                     self.link.rawContent = None
                     self.link.content = None
         return

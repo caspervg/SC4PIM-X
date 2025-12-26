@@ -9,7 +9,6 @@ import random
 import datetime
 import types
 import math
-import BalloonTip as BT
 from SC4OpenGL import *
 from translation import *
 from SC4Data import *
@@ -94,8 +93,8 @@ class LEDropTarget(wx.PyDropTarget):
         self.frame.SetMatForUnproj()
         h = self.frame.size[1]
         px, py, pz = gluUnProject(x, h - y, 0)
-        maxx = self.frame.examplar.GetProp(2297284496)[0] * 8
-        maxy = self.frame.examplar.GetProp(2297284496)[1] * 8
+        maxx = self.frame.exemplar.GetProp(2297284496)[0] * 8
+        maxy = self.frame.exemplar.GetProp(2297284496)[1] * 8
         minx = -maxx
         miny = -maxy
         if px >= minx and px <= maxx and py >= miny and py <= maxy:
@@ -111,12 +110,12 @@ class LEDropTarget(wx.PyDropTarget):
             posX, posY, pz = gluUnProject(x, h - y, 0)
             posX /= 16.0
             posY /= 16.0
-            posX += self.frame.examplar.GetProp(2297284496)[0] / 2.0
-            posY += self.frame.examplar.GetProp(2297284496)[1] / 2.0
+            posX += self.frame.exemplar.GetProp(2297284496)[0] / 2.0
+            posY += self.frame.exemplar.GetProp(2297284496)[1] / 2.0
             currentID = 0
             lastIDProp = 2297284864
             for lcp in range(2297284864, 2297286144):
-                values = self.frame.examplar.GetProp(lcp)
+                values = self.frame.exemplar.GetProp(lcp)
                 if values == None:
                     break
                 if values[11] > currentID:
@@ -148,7 +147,7 @@ class LEDropTarget(wx.PyDropTarget):
                 bOk = True
             elif data.__class__ == PropProxy:
                 entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
-                examplar = entry.examplar
+                examplar = entry.exemplar
                 try:
                     width = examplar.GetProp(662775824)[0] / 16.0
                     depth = examplar.GetProp(662775824)[2] / 16.0
@@ -166,11 +165,11 @@ class LEDropTarget(wx.PyDropTarget):
                 catID = data.what
                 examplar = None
                 for desc in VirtualDat.this.categories[catID].descriptors:
-                    if desc.examplar.entry.tgi[0] != 1697917002:
+                    if desc.exemplar.entry.tgi[0] != 1697917002:
                         continue
-                    if desc.examplar.GetProp(16)[0] != 30 and desc.examplar.GetProp(16)[0] != 15:
+                    if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
                         continue
-                    examplar = desc.examplar
+                    examplar = desc.exemplar
                     width = max(width, examplar.GetProp(662775824)[0] / 16.0)
                     depth = max(depth, examplar.GetProp(662775824)[2] / 16.0)
 
@@ -190,7 +189,7 @@ class LEDropTarget(wx.PyDropTarget):
                 xmax = ToUnsigned(xmax * 1048576)
                 ymax = ToUnsigned(ymax * 1048576)
                 v = [vType, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, currentID, v12]
-                self.frame.examplar.AddTextProp(CreateAProp(self.frame.virtual_dat.properties[lastIDProp], v[:]))
+                self.frame.exemplar.AddTextProp(CreateAProp(self.frame.virtual_dat.properties[lastIDProp], v[:]))
                 self.frame.PreCacheObject(v)
                 self.frame.UpdatePIM()
                 self.frame.RebuildVars()
@@ -816,7 +815,7 @@ class LotEditorWin(wx.Frame):
     def OnUpdateIcon(self, event):
         if self.examplar.GetProp(16)[0] == 16:
             desc = self.virtualDAT.FindBuildingFromLot(self.examplar)
-            if desc.examplar.entry.tgi[0] == 1697917002:
+            if desc.exemplar.entry.tgi[0] == 1697917002:
                 if desc in self.virtualDAT.categories[3431971885].descriptors:
                     self.OnDraw()
                     self.OnDraw()
@@ -1004,13 +1003,13 @@ class LotEditorWin(wx.Frame):
         if buildingID in self.virtualDAT.categories:
             name = self.virtualDAT.categories[buildingID].Name
             for desc in self.virtualDAT.categories[buildingID].descriptors:
-                if desc.examplar.GetProp(16)[0] == 2 and desc.examplar.entry.tgi[0] == 1697917002:
+                if desc.exemplar.GetProp(16)[0] == 2 and desc.exemplar.entry.tgi[0] == 1697917002:
                     selectedDesc.append(desc)
 
             if selectedDesc == []:
                 return 'not found'
         if selectedDesc == []:
-            possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == buildingID, self.virtualDAT.categories[210746197].descriptors)
+            possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == buildingID, self.virtualDAT.categories[210746197].descriptors)
             for desc in possibles:
                 selectedDesc.append(desc)
                 name = desc.name
@@ -1019,11 +1018,11 @@ class LotEditorWin(wx.Frame):
         if selectedDesc == []:
             return 'not found'
         for desc in selectedDesc:
-            rkt0 = desc.examplar.GetProp(662775840)
-            rkt1 = desc.examplar.GetProp(662775841)
-            rkt3 = desc.examplar.GetProp(662775843)
-            rkt4 = desc.examplar.GetProp(662775844)
-            rkt5 = desc.examplar.GetProp(662775845)
+            rkt0 = desc.exemplar.GetProp(662775840)
+            rkt1 = desc.exemplar.GetProp(662775841)
+            rkt3 = desc.exemplar.GetProp(662775843)
+            rkt4 = desc.exemplar.GetProp(662775844)
+            rkt5 = desc.exemplar.GetProp(662775845)
             buildingViewer = None
             if rkt0:
                 buildingViewer = ResourceViewer(662775840, rkt0, self.virtualDAT, None)
@@ -1080,7 +1079,7 @@ class LotEditorWin(wx.Frame):
                     bOk = False
                     for desc in self.virtualDAT.categories[propID].descriptors:
                         name = self.virtualDAT.categories[propID].Name
-                        if desc.examplar.GetProp(16)[0] == 30 and desc.examplar.entry.tgi[0] == 1697917002:
+                        if desc.exemplar.GetProp(16)[0] == 30 and desc.exemplar.entry.tgi[0] == 1697917002:
                             bOk = True
                             selectedDesc = desc
                             if propID not in self.lotFamiliesPropID:
@@ -1090,7 +1089,7 @@ class LotEditorWin(wx.Frame):
                     if not bOk:
                         continue
                 if selectedDesc == None:
-                    possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
+                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
                     for desc in possibles:
                         selectedDesc = desc
                         name = selectedDesc.name
@@ -1113,7 +1112,7 @@ class LotEditorWin(wx.Frame):
             bOk = False
             for desc in self.virtualDAT.categories[propID].descriptors:
                 name = self.virtualDAT.categories[propID].Name
-                if desc.examplar.GetProp(16)[0] == 30 and desc.examplar.entry.tgi[0] == 1697917002:
+                if desc.exemplar.GetProp(16)[0] == 30 and desc.exemplar.entry.tgi[0] == 1697917002:
                     bOk = True
                     selectedDesc = desc
                     self.lotFamiliesPropID.append(propID)
@@ -1122,7 +1121,7 @@ class LotEditorWin(wx.Frame):
             if not bOk:
                 return (None, 'not found')
         if selectedDesc == None:
-            possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
+            possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
             for desc in possibles:
                 selectedDesc = desc
                 name = selectedDesc.name
@@ -1134,7 +1133,7 @@ class LotEditorWin(wx.Frame):
         rkt1 = selectedDesc.examplar.GetProp(662775841)
         rkt3 = selectedDesc.examplar.GetProp(662775843)
         rkt4 = selectedDesc.examplar.GetProp(662775844)
-        rkt5 = desc.examplar.GetProp(662775845)
+        rkt5 = desc.exemplar.GetProp(662775845)
         self.lotPropDescs.append(selectedDesc)
         propViewer = None
         if rkt0:
@@ -1165,7 +1164,7 @@ class LotEditorWin(wx.Frame):
     def LoadFloraModel(self, propID):
         selectedDesc = None
         if selectedDesc == None:
-            possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == propID, self.virtualDAT.categories[1830116951].descriptors)
+            possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[1830116951].descriptors)
             for desc in possibles:
                 selectedDesc = desc
                 name = selectedDesc.name
