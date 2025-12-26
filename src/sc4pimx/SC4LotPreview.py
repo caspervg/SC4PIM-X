@@ -2703,7 +2703,7 @@ class ImageDBBuilder(wx.Frame):
     def Draw(self, sc4data):
         self.viewer.InitGL()
         glClearColor(0.5, 0.5, 0.5, 0.0)
-        self.viewer.S3DMesh = None
+        self.viewer.s3d_mesh = None
         self.viewer.Refresh(False)
         self.viewer.useBestFit = True
         self.viewer.drawAxis = False
@@ -2723,6 +2723,6 @@ class ImageDBBuilder(wx.Frame):
         del image
         del data
         del size
-        self.viewer.S3DMesh.FreeAll(self.viewer.s3d_textures_holder)
+        self.viewer.s3d_mesh.FreeAll(self.viewer.s3d_textures_holder)
         return
 

@@ -17,8 +17,8 @@ from OpenGL.GL import (
     glVertex3f,
 )
 
+from sc4pimx.SC4VirtualDat import VirtualDat
 from sc4pimx.S3DTexturesHolder import S3DTexturesHolder
-from sc4pimx.SC4Data import VirtualDat
 from sc4pimx.SC4DatTools import SC4Entry
 
 

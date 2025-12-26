@@ -62,3 +62,5 @@ dmypy.json
 *.tmp
 *.bak
 *.log
+ImageDB
+ImageDBLarge

@@ -1,6 +1,11 @@
 """S3D 3D model viewer with OpenGL rendering."""
-from S3DTexturesHolder import *
-from SC4OpenGL import *
+from OpenGL.GL import glClearColor, glClearDepth, glShadeModel, glMatrixMode, glDisable, GL_SMOOTH, GL_MODELVIEW, \
+    glLoadIdentity, GL_CULL_FACE, glPolygonMode, GL_FRONT_AND_BACK, GL_LINE, GL_FILL, glTranslate, glRotatef, glScalef, \
+    glColor3f, glBegin, glVertex3f, glClear, GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT, GL_PROJECTION, glViewport, glEnd, \
+    glOrtho, GL_TEXTURE_2D, GL_LINES, glEnable
+
+from S3DTexturesHolder import S3DTexturesHolder
+from SC4OpenGL import rotate_around_x, rotate_around_y
 
 
 class S3DViewer(object):
@@ -10,7 +15,7 @@ class S3DViewer(object):
     def __init__(self, S3DMesh, openGLCanvas):
         self.openGLCanvas = openGLCanvas
         self.openGLCanvas.displayer = self
-        self.S3DMesh = S3DMesh
+        self.s3d_mesh = S3DMesh
         self.s3d_textures_holder = S3DTexturesHolder(self.openGLCanvas)
         self.useBestFit = True
         self.zoom = 4
@@ -34,16 +39,16 @@ class S3DViewer(object):
 
     def Reinit(self):
         self.openGLCanvas.displayer = self
-        if self.S3DMesh == None:
+        if self.s3d_mesh == None:
             return
-        self.posy = self.S3DMesh.miny
-        self.posx = (self.S3DMesh.maxx + self.S3DMesh.minx) / 2.0
-        self.posz = (self.S3DMesh.maxz + self.S3DMesh.minz) / 2.0
+        self.posy = self.s3d_mesh.miny
+        self.posx = (self.s3d_mesh.maxx + self.s3d_mesh.minx) / 2.0
+        self.posz = (self.s3d_mesh.maxz + self.s3d_mesh.minz) / 2.0
         return
 
     def OnDraw(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        if self.S3DMesh == None:
+        if self.s3d_mesh == None:
             self.openGLCanvas.SwapBuffers()
             return
         glMatrixMode(GL_PROJECTION)
@@ -81,12 +86,13 @@ class S3DViewer(object):
                             return v
 
                         for i in range(8):
-                            r = rotate_around_x(-self.angleMul * angleX, rotate_around_y(22.5 - self.preAngle, Corner(self.S3DMesh, i)))
+                            r = rotate_around_x(-self.angleMul * angleX,
+                                                rotate_around_y(22.5 - self.preAngle, Corner(self.s3d_mesh, i)))
                             p.append(r)
 
-                        xs = [ c[0] for c in p ]
-                        ys = [ c[1] for c in p ]
-                        zs = [ c[2] for c in p ]
+                        xs = [c[0] for c in p]
+                        ys = [c[1] for c in p]
+                        zs = [c[2] for c in p]
                         minX = min(xs)
                         minY = min(ys)
                         maxX = max(xs)
@@ -143,47 +149,47 @@ class S3DViewer(object):
                 glColor3f(1.0, 0.0, 0.0)
                 glBegin(GL_LINES)
                 glVertex3f(0, 0, 0)
-                glVertex3f(self.S3DMesh.bboxX * 2, 0, 0)
+                glVertex3f(self.s3d_mesh.bboxX * 2, 0, 0)
                 glEnd()
                 glColor3f(0.0, 1.0, 0.0)
                 glBegin(GL_LINES)
                 glVertex3f(0, 0, 0)
-                glVertex3f(0, self.S3DMesh.bboxY * 2, 0)
+                glVertex3f(0, self.s3d_mesh.bboxY * 2, 0)
                 glEnd()
                 glColor3f(0.0, 0.0, 1.0)
                 glBegin(GL_LINES)
                 glVertex3f(0, 0, 0)
-                glVertex3f(0, 0, self.S3DMesh.bboxZ * 2)
+                glVertex3f(0, 0, self.s3d_mesh.bboxZ * 2)
                 glEnd()
                 glColor3f(1.0, 1.0, 0.0)
                 glBegin(GL_LINES)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.minz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.miny, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.minx, self.S3DMesh.maxy, self.S3DMesh.maxz)
-                glVertex3f(self.S3DMesh.maxx, self.S3DMesh.maxy, self.S3DMesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.minz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.miny, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.minx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
+                glVertex3f(self.s3d_mesh.maxx, self.s3d_mesh.maxy, self.s3d_mesh.maxz)
                 glEnd()
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glEnable(GL_TEXTURE_2D)
-        self.S3DMesh.draw(self.s3d_textures_holder)
+        self.s3d_mesh.draw(self.s3d_textures_holder)
         self.openGLCanvas.SwapBuffers()
         return

@@ -17,6 +17,7 @@ from OpenGL.GL import (
 from OpenGL.GLUT import glutStrokeCharacter
 from OpenGL.GLUT.fonts import GLUT_STROKE_ROMAN
 from wx import glcanvas
+from wx.glcanvas import GLContext
 
 
 class MyCanvasBase(glcanvas.GLCanvas):
@@ -25,6 +26,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
         attribs = wx.glcanvas.GLAttributes()
         attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(16).EndList()
         glcanvas.GLCanvas.__init__(self, parent, attribs, size=size)
+        self.context = GLContext(self)
         self.displayer = None
         self.init = False
         self.mouseX = self.mouseY = 30
@@ -56,8 +58,8 @@ class MyCanvasBase(glcanvas.GLCanvas):
 
     def on_size(self, event):
         self.size = self.GetClientSize()
-        if self.GetContext():
-            self.SetCurrent(self.GetContext())
+        if self.context:
+            self.SetCurrent(self.context)
             w = self.size[0]
             h = self.size[1]
             if w > h:
@@ -72,7 +74,6 @@ class MyCanvasBase(glcanvas.GLCanvas):
 
     def on_paint(self, event):
         dc = wx.PaintDC(self)
-        self.SetCurrent(self.GetContext())
         if not self.init:
             if self.displayer:
                 self.displayer.InitGL()
