@@ -73,6 +73,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
         event.Skip()
 
     def on_paint(self, event):
+        self.SetCurrent(self.context)
         dc = wx.PaintDC(self)
         if not self.init:
             if self.displayer:
