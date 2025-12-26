@@ -1,5 +1,5 @@
 """Dependencies dialog for SC4 building lots."""
-import wx
+import wx.html
 import wx.lib.sized_controls as sc
 import CustomTreeCtrl as CT
 import os.path
@@ -10,10 +10,10 @@ from PIL import Image
 import io
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
 
-class MyHtmlListBox(wx.HtmlListBox):
+class MyHtmlListBox(wx.html.HtmlListBox):
 
     def __init__(self, parent, id=-1, pos=(-1, -1), size=(-1, -1), style=0):
-        wx.HtmlListBox.__init__(self, parent, id, pos=pos, size=size, style=style)
+        wx.html.HtmlListBox.__init__(self, parent, id, pos=pos, size=size, style=style)
         self.values = []
         self.SetItemCount(0)
         self.txtClip = ''
@@ -89,7 +89,7 @@ class DependenciesDlg(sc.SizedDialog):
         thisBuildingItem = self.tree.AppendItem(rootItem, desc.name, ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(desc.fileName)[1]))
         self.lb.Append(desc.fileName)
         self.tree.CheckItem(thisBuildingItem, True)
-        rtk = desc.examplar.GetProp(662775840)
+        rtk = desc.exemplar.GetProp(662775840)
         if isValidRTK(rtk):
             rtkEntry = self.virtualDAT.getEntry(rtk[0], rtk[1], rtk[2])
             if rtkEntry:
@@ -99,7 +99,7 @@ class DependenciesDlg(sc.SizedDialog):
             else:
                 rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
-        rtk = desc.examplar.GetProp(662775841)
+        rtk = desc.exemplar.GetProp(662775841)
         if isValidRTK(rtk):
             rtkEntry = self.virtualDAT.getEntry(rtk[0], rtk[1], rtk[2])
             if rtkEntry:
@@ -109,7 +109,7 @@ class DependenciesDlg(sc.SizedDialog):
             else:
                 rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
-        rtk = desc.examplar.GetProp(662775844)
+        rtk = desc.exemplar.GetProp(662775844)
         if rtk:
             rktData = tuple(rtk)
             for line in range(len(rktData) // 8):
@@ -129,7 +129,7 @@ class DependenciesDlg(sc.SizedDialog):
                     rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (data[5], data[6], data[7]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                     self.lb.Missing(DepDlgMissing)
 
-        propQuery = desc.examplar.GetProp(709468037)
+        propQuery = desc.exemplar.GetProp(709468037)
         if propQuery:
             entry = self.virtualDAT.getEntry(0, 2527069872, propQuery[0])
             if entry:
@@ -139,7 +139,7 @@ class DependenciesDlg(sc.SizedDialog):
             else:
                 item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
-        propIcon = desc.examplar.GetProp(2317746872)
+        propIcon = desc.exemplar.GetProp(2317746872)
         if propIcon:
             entry = self.virtualDAT.getEntry(2238569388, 1782082854, propIcon[0])
             if entry:
@@ -150,7 +150,7 @@ class DependenciesDlg(sc.SizedDialog):
                 item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.lb.Missing(DepDlgMissing)
         for propId in [2854081431, 1246499630, 172757963, 3384359510, 3390691274]:
-            propSound = desc.examplar.GetProp(propId)
+            propSound = desc.exemplar.GetProp(propId)
             if propSound:
                 entry = self.virtualDAT.getEntry(193823258, 3394050371, propSound[0])
                 if entry:
@@ -162,7 +162,7 @@ class DependenciesDlg(sc.SizedDialog):
                     self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
                     self.lb.Missing(DepDlgMissing)
 
-        UVNK = desc.examplar.GetProp(2319542937)
+        UVNK = desc.exemplar.GetProp(2319542937)
         if UVNK:
             uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
             bFound = False
@@ -206,7 +206,7 @@ class DependenciesDlg(sc.SizedDialog):
         if buildingFoundation:
             self.buildFound = self.tree.AppendItem(self.root, DepDlgBuildingFoundation)
             self.tree.SetItemBold(self.buildFound)
-            possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == buildingFoundation[0], self.virtualDAT.categories[1829068375].descriptors)
+            possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == buildingFoundation[0], self.virtualDAT.categories[1829068375].descriptors)
             bAdded = False
             for desc in possibles:
                 self.AddBuildingOrProp(self.buildFound, desc)
@@ -228,12 +228,12 @@ class DependenciesDlg(sc.SizedDialog):
                 buildingID = values[12]
                 if buildingID in self.virtualDAT.categories:
                     for desc in self.virtualDAT.categories[buildingID].descriptors:
-                        if desc.examplar.GetProp(16)[0] == 2:
+                        if desc.exemplar.GetProp(16)[0] == 2:
                             self.AddBuildingOrProp(self.buildingsItem, desc)
                             bAdded = True
 
                 else:
-                    possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == buildingID, self.virtualDAT.categories[210746197].descriptors)
+                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == buildingID, self.virtualDAT.categories[210746197].descriptors)
                     for desc in possibles:
                         self.AddBuildingOrProp(self.buildingsItem, desc)
                         bAdded = True
@@ -251,12 +251,12 @@ class DependenciesDlg(sc.SizedDialog):
                     bAdded = False
                     if propID in self.virtualDAT.categories:
                         for desc in self.virtualDAT.categories[propID].descriptors:
-                            if desc.examplar.GetProp(16)[0] == 30:
+                            if desc.exemplar.GetProp(16)[0] == 30:
                                 self.AddBuildingOrProp(self.propsItem, desc)
                                 bAdded = True
 
                     else:
-                        possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
+                        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
                         for desc in possibles:
                             self.AddBuildingOrProp(self.propsItem, desc)
                             bAdded = True
@@ -287,7 +287,7 @@ class DependenciesDlg(sc.SizedDialog):
                 if floraID not in floraIDs:
                     floraIDs.append(floraID)
                     bAdded = False
-                    possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == floraID, self.virtualDAT.categories[1830116951].descriptors)
+                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == floraID, self.virtualDAT.categories[1830116951].descriptors)
                     for desc in possibles:
                         self.AddBuildingOrProp(self.florasItem, desc)
                         bAdded = True

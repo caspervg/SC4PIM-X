@@ -16,10 +16,10 @@ class DropData(wx.CustomDataObject):
         return pickle.loads(self.GetData())
 
 
-class DropTarget(wx.PyDropTarget):
+class DropTarget(wx.DropTarget):
 
     def __init__(self, tree, callbackItem, callbackFile):
-        wx.PyDropTarget.__init__(self)
+        wx.DropTarget.__init__(self)
         self._makeObjects()
         self.tree = tree
         self.selections = []

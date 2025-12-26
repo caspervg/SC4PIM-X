@@ -9,8 +9,6 @@ import io
 import random
 import datetime
 import types
-import BalloonTip as BT
-import win32gui
 from SC4OpenGL import *
 from translation import *
 from SC4Data import *
@@ -200,7 +198,7 @@ class GroupProxy():
                     t = tgi[0]
                     g = tgi[1]
                     i = tgi[2]
-                    possibles = filter(lambda desc: desc.examplar.entry.tgi[0] == t and desc.examplar.entry.tgi[1] == g and desc.examplar.entry.tgi[2] == i, VirtualDat.this.categories[210746660].descriptors)
+                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[0] == t and desc.exemplar.entry.tgi[1] == g and desc.exemplar.entry.tgi[2] == i, VirtualDat.this.categories[210746660].descriptors)
                     for desc in possibles:
                         selectedDesc = desc
                         break
@@ -312,7 +310,7 @@ class ImageListCtrl(wx.ListCtrl):
         data = self.GetPyData(idx)
         if data.__class__ == PropProxy:
             entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
-            examplar = entry.examplar
+            examplar = entry.exemplar
             img, multi = BuildImageForProp(examplar)
             tipballoon.SetBalloonIcon(img)
             if multi:
@@ -326,9 +324,9 @@ class ImageListCtrl(wx.ListCtrl):
             VirtualDat.this.categories[catID].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
             thisDesc = None
             for desc in VirtualDat.this.categories[catID].descriptors:
-                if desc.examplar.entry.tgi[0] != 1697917002:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
-                if desc.examplar.GetProp(16)[0] != 30 and desc.examplar.GetProp(16)[0] != 15:
+                if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
                     continue
                 if thisId == 0:
                     tgi = GetTGIForProp(desc)
@@ -492,7 +490,7 @@ def FillListForTex(self, entries, fnPrint):
 class PropProxy():
 
     def __init__(self, desc):
-        self.what = desc.examplar.entry.tgi
+        self.what = desc.exemplar.entry.tgi
 
 
 class FamilyProxy():
@@ -510,11 +508,11 @@ def FillListForPropsAsSingle(self, entries, fnPrint):
 
 
 def GetTGIForProp(desc):
-    rkt0 = desc.examplar.GetProp(662775840)
-    rkt1 = desc.examplar.GetProp(662775841)
-    rkt3 = desc.examplar.GetProp(662775843)
-    rkt4 = desc.examplar.GetProp(662775844)
-    rkt5 = desc.examplar.GetProp(662775845)
+    rkt0 = desc.exemplar.GetProp(662775840)
+    rkt1 = desc.exemplar.GetProp(662775841)
+    rkt3 = desc.exemplar.GetProp(662775843)
+    rkt4 = desc.exemplar.GetProp(662775844)
+    rkt5 = desc.exemplar.GetProp(662775845)
     tgi = (0, 0, 0)
     if rkt0 and rkt0[0] == 1523640343:
         tgi = tuple(rkt0)
@@ -538,9 +536,9 @@ def GetTGIForProp(desc):
 
 def FillListForProps(self, entries, fnPrint, catID=None):
     for desc in entries:
-        if desc.examplar.entry.tgi[0] != 1697917002:
+        if desc.exemplar.entry.tgi[0] != 1697917002:
             continue
-        if desc.examplar.GetProp(16)[0] != 30 and desc.examplar.GetProp(16)[0] != 15:
+        if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
             continue
         tgi = GetTGIForProp(desc)
         idx = 0
@@ -591,11 +589,11 @@ def FillListForNothing(self, entries, fnPrint):
 
 
 def DisplayNameForPropsTGI(desc):
-    return '%s\n%s' % (hex2str(desc.examplar.entry.tgi[2])[2:], desc.examplar.GetProp(32)[0])
+    return '%s\n%s' % (hex2str(desc.exemplar.entry.tgi[2])[2:], desc.exemplar.GetProp(32)[0])
 
 
 def DisplayNameForPropsName(desc):
-    return '%s\n%s' % (desc.examplar.GetProp(32)[0], hex2str(desc.examplar.entry.tgi[2])[2:])
+    return '%s\n%s' % (desc.exemplar.GetProp(32)[0], hex2str(desc.exemplar.entry.tgi[2])[2:])
 
 
 def DisplayNameForTex(entry):
@@ -630,9 +628,9 @@ class LETreeCtrl(wx.TreeCtrl):
 
         def IsItAPropFamilies(entries):
             for desc in entries:
-                if desc.examplar.entry.tgi[0] != 1697917002:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
-                if desc.examplar.GetProp(16)[0] != 30 and desc.examplar.GetProp(16)[0] != 15:
+                if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
                     continue
                 return True
 
@@ -855,7 +853,7 @@ class TextureDlg(wx.Frame):
         elif item == tree.overlayTexturesItem:
             self.propList.Reset(VirtualDat.this.ilOver, VirtualDat.this.overTexEntries, FillListForTex, DisplayNameForTex)
         elif item == tree.singlePropsItemTGI:
-            VirtualDat.this.categories[210746660].descriptors.sort(cmp=lambda n1, n2: CmpTGI(n1.examplar.entry.tgi, n2.examplar.entry.tgi))
+            VirtualDat.this.categories[210746660].descriptors.sort(cmp=lambda n1, n2: CmpTGI(n1.exemplar.entry.tgi, n2.exemplar.entry.tgi))
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[210746660].descriptors, FillListForProps, DisplayNameForPropsTGI)
         elif item == tree.singlePropsItemName:
             VirtualDat.this.categories[210746660].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
@@ -878,7 +876,7 @@ class TextureDlg(wx.Frame):
             self.parent.lotFloraDescs.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
             self.propList.Reset(VirtualDat.this.ilStandardModels, self.parent.lotFloraDescs, FillListForPropsAsSingle, DisplayNameForPropsName)
         elif item == tree.lotIcon:
-            IID = self.parent.examplar.entry.tgi[2]
+            IID = self.parent.exemplar.entry.tgi[2]
             entry = VirtualDat.this.getEntry(2238569388, 1782082854, IID)
             self.propList.Reset(VirtualDat.this.ilIcon, [entry], FillListForIcon, DisplayNameForIcon)
         else:

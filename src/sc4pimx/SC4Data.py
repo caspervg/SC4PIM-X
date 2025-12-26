@@ -11,7 +11,7 @@ from PIL import ImageDraw, ImageFont
 
 from S3DReader import *
 from SC4DatTools import *
-
+from translation import *
 
 def ToUnsigned(val):
     try:
@@ -210,16 +210,16 @@ def readCategoryDef(node):
     return cat
 
 
-def DuplicateProp(dup, newID):
+def DuplicateProp(dup, new_instance_id):
     prop = DictWrapper({})
     prop.Name = dup.Name
-    prop.ID = newID
+    prop.ID = new_instance_id
     prop.Type = dup.Type
     prop.Count = dup.Count
     prop.ShowAsHex = dup.ShowAsHex
     prop.ShowAsMap = dup.ShowAsMap
-    prop.maxVal = dup.maxVal
-    prop.minVal = dup.minVal
+    prop.maxVal = dup.maxVal if hasattr(dup, 'maxVal') else None
+    prop.minVal = dup.minVal if hasattr(dup, 'minVal') else None
     prop.Options = dup.Options
     return prop
 
@@ -234,16 +234,16 @@ class Family:
         if potentialCohorts != []:
             for cohort in potentialCohorts:
                 try:
-                    if cohort.examplar.entry == cohort:
+                    if cohort.exemplar.entry == cohort:
                         pass
                 except:
                     cohort.read_file(None, True, True)
-                    examplar = Examplar(cohort)
-                    cohort.examplar = examplar
+                    examplar = SC4Exemplar(cohort)
+                    cohort.exemplar = examplar
                     cohort.rawContent = None
                     cohort.content = None
 
-                name = cohort.examplar.GetProp(32)
+                name = cohort.exemplar.GetProp(32)
                 if name is not None:
                     self.name = name[0] + ' [%s]' % self.name
                     self.bNamed = True
@@ -256,7 +256,7 @@ class Family:
 
     def addMember(self, propDesc):
         self.members.append(propDesc)
-        item = self.tree.AppendItem(self.item, propDesc.examplar.GetProp(32)[0])
+        item = self.tree.AppendItem(self.item, propDesc.exemplar.GetProp(32)[0])
         self.tree.SetPyData(item, propDesc)
 
 
@@ -280,9 +280,9 @@ def AddDescRecurs(virtualDAT, catID, desc):
 class FloraDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.examplar
+        self.examplar = entry.exemplar
         try:
-            self.name = entry.examplar.GetProp(32)[0]
+            self.name = entry.exemplar.GetProp(32)[0]
         except:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
@@ -322,9 +322,9 @@ class ATCProxy():
 class FoundationDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.examplar
+        self.examplar = entry.exemplar
         try:
-            self.name = entry.examplar.GetProp(32)[0]
+            self.name = entry.exemplar.GetProp(32)[0]
         except:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
@@ -349,7 +349,7 @@ class FoundationDesc():
 
 
 def GetCategories(root, desc):
-    if CheckAgainstFilter(root, desc.examplar):
+    if CheckAgainstFilter(root, desc.exemplar):
         b = False
         if len(root.childs) == 0:
             if len(root.setProperties) + len(root.factorProperties) + len(root.pairedFactorProperties) + len(root.programProperties) + len(root.evalProperties) + len(root.code) > 0:
@@ -376,9 +376,9 @@ def GetCategories(root, desc):
 class BuildingDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.examplar
+        self.examplar = entry.exemplar
         try:
-            self.name = entry.examplar.GetProp(32)[0]
+            self.name = entry.exemplar.GetProp(32)[0]
         except:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
@@ -403,7 +403,7 @@ class BuildingDesc():
 
 
 def Categorize(root, desc):
-    if CheckAgainstFilter(root, desc.examplar):
+    if CheckAgainstFilter(root, desc.exemplar):
         b = False
         if len(root.childs) == 0:
             b = True
@@ -712,9 +712,9 @@ def IsFromCategory(cat, examplar):
 class LotDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.examplar
+        self.examplar = entry.exemplar
         try:
-            self.name = entry.examplar.GetProp(32)[0]
+            self.name = entry.exemplar.GetProp(32)[0]
         except:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
@@ -732,9 +732,9 @@ def PrintCat(cat, spaces=0):
 class PropDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.examplar
+        self.examplar = entry.exemplar
         try:
-            self.name = entry.examplar.GetProp(32)[0]
+            self.name = entry.exemplar.GetProp(32)[0]
         except:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
@@ -871,7 +871,7 @@ class ResourceViewer():
                 self.viewingData.append(virtualDAT.otherModelsDict[rktData])
             else:
                 what = SC4ModelMesh(rktData[1], rktData[2], virtualDAT)
-                if what.bValid == False:
+                if what.is_valid == False:
                     return None
                 virtualDAT.otherModels.append(StandardModel(virtualDAT.getEntry(rktData[0], rktData[1], rktData[2]), what))
                 virtualDAT.otherModelsDict[rktData] = what
@@ -881,7 +881,7 @@ class ResourceViewer():
                 self.viewingData.append(virtualDAT.standardModelsDict[rktData])
             else:
                 what = SC4Model(rktData[1], rktData[2], virtualDAT)
-                if not what.bValid:
+                if not what.is_valid:
                     return None
                 virtualDAT.standardModels.append(StandardModel(virtualDAT.getEntry(rktData[0], rktData[1], rktData[2]), what))
                 virtualDAT.standardModelsDict[rktData] = what
@@ -907,7 +907,7 @@ class ResourceViewer():
                         self.viewingData.append(virtualDAT.otherModelsDict[data[5:]])
                     else:
                         what = SC4ModelMesh(data[6], data[7], virtualDAT)
-                        if what.bValid == False:
+                        if what.is_valid == False:
                             continue
                         else:
                             virtualDAT.otherModels.append(StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
@@ -918,7 +918,7 @@ class ResourceViewer():
                         self.viewingData.append(virtualDAT.standardModelsDict[data[5:]])
                     else:
                         what = SC4Model(data[6], data[7], virtualDAT)
-                        if not what.bValid:
+                        if not what.is_valid:
                             pass
                         else:
                             virtualDAT.standardModelsDict.append(StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
@@ -1007,10 +1007,10 @@ class SC4ModelMesh():
         self.IID = IID
         self.virtualDAT = virtualDAT
         self.mainMesh = S3D(virtualDAT.getEntry(1523640343, GID, IID + 0))
-        self.bValid = True
+        self.is_valid = True
         self.descName = self.name
         if self.mainMesh.entry == None:
-            self.bValid = False
+            self.is_valid = False
         xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
             xmlEntry.read_file(None, True, True)
@@ -1081,9 +1081,9 @@ class SC4Model():
                     nbrInit += 1
 
         if nbrInit > 1:
-            self.bValid = False
+            self.is_valid = False
             return
-        self.bValid = True
+        self.is_valid = True
         xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
             xmlEntry.read_file(None, True, True)
@@ -1196,10 +1196,10 @@ class VirtualDat():
         if buildingID in self.categories:
             bOk = False
             for desc in self.categories[buildingID].descriptors:
-                if desc.examplar.GetProp(16)[0] == 2 and desc.examplar.entry.tgi[0] == 1697917002:
+                if desc.exemplar.GetProp(16)[0] == 2 and desc.exemplar.entry.tgi[0] == 1697917002:
                     return desc
 
-        possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == buildingID, self.categories[210746197].descriptors)
+        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == buildingID, self.categories[210746197].descriptors)
         for desc in possibles:
             return desc
 
@@ -1226,7 +1226,7 @@ class VirtualDat():
 
         def UseThisIID(desc):
             for lcp in range(2297284864, 2297286143):
-                values = desc.examplar.GetProp(lcp)
+                values = desc.exemplar.GetProp(lcp)
                 if values == None:
                     return False
                 if values[0] == 0 and values[12] in possibles:
@@ -1248,7 +1248,7 @@ class VirtualDat():
 
         def UseThisIID(desc):
             for lcp in range(2297284864, 2297286143):
-                values = desc.examplar.GetProp(lcp)
+                values = desc.exemplar.GetProp(lcp)
                 if values == None:
                     return False
                 if values[0] == 0 and values[12] in possibles:
@@ -1263,10 +1263,10 @@ class VirtualDat():
         if propID in self.categories:
             bOk = False
             for desc in self.categories[propID].descriptors:
-                if desc.examplar.GetProp(16)[0] == 30 and desc.examplar.entry.tgi[0] == 1697917002:
+                if desc.exemplar.GetProp(16)[0] == 30 and desc.exemplar.entry.tgi[0] == 1697917002:
                     return desc
 
-        possibles = filter(lambda desc: desc.examplar.entry.tgi[2] == propID, self.categories[210746660].descriptors)
+        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.categories[210746660].descriptors)
         for desc in possibles:
             return desc
 
