@@ -33,12 +33,12 @@ class DictWrapper(object):
         object.__setattr__(self, 'mapping', mapping)
 
     def __getitem__(self, key):
-        if key.__class__.__name__ == 'unicode' or key.__class__.__name__ == 'str':
+        if isinstance(key, str):
             if key[:2].upper() == '0X':
                 key = '0x' + key[2:10].upper() + key[10:]
         if key in self.mapping.keys():
             return self.mapping[key]
-        if key.__class__.__name__ == 'unicode' or key.__class__.__name__ == 'str':
+        if isinstance(key, str):
             sub = key.find('.')
             if sub == -1:
                 return ''

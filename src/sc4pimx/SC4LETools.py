@@ -8,20 +8,20 @@ import treeDnD
 import io
 import random
 import datetime
-import types
 from SC4OpenGL import *
 from translation import *
 from SC4Data import *
 from ATCReader import *
+from util import basic_cmp
 
 def CmpTGI(tgi1, tgi2):
     if tgi1[0] == tgi2[0]:
         if tgi1[1] == tgi2[1]:
-            return cmp(tgi1[2], tgi2[2])
+            return basic_cmp(tgi1[2], tgi2[2])
         else:
-            return cmp(tgi1[1], tgi2[1])
+            return basic_cmp(tgi1[1], tgi2[1])
     else:
-        return cmp(tgi1[0], tgi2[0])
+        return basic_cmp(tgi1[0], tgi2[0])
 
 
 class TreeDropTarget(wx.PyDropTarget):
@@ -108,7 +108,7 @@ class GroupProxy():
     def Save(self, fout):
         fout.write('group = GroupProxy( "%s" , %d )\n' % (self.name, self.kind))
         for item in self.items:
-            if type(item) == types.TupleType:
+            if type(item) == tuple:
                 fout.write('group.AddItem( (%s) )\n' % ','.join([ hex2str(i) for i in item ]))
             elif self.kind == 0 or self.kind == 1:
                 fout.write('group.AddItem( %s )\n' % hex2str(item - 3))
@@ -133,7 +133,7 @@ class GroupProxy():
                 tree.SetPyData(self.itemIdx, self)
                 if self.kind == 2:
                     for item in self.items:
-                        if type(item) != types.TupleType:
+                        if type(item) != tuple:
                             try:
                                 sub = VirtualDat.this.categories[item]
                             except KeyError:
@@ -160,7 +160,7 @@ class GroupProxy():
             if what + 3 not in self.items:
                 self.items.append(what + 3)
         if self.kind == 2 or self.kind == 3:
-            if type(what) == types.TupleType:
+            if type(what) == tuple:
                 if what not in self.items:
                     self.items.append(what)
             elif what not in self.items:
@@ -175,7 +175,7 @@ class GroupProxy():
                     tree.SetPyData(idx, sub.ID)
                     tree.refresh(False)
         if self.kind == 4:
-            if type(what) == types.TupleType:
+            if type(what) == tuple:
                 if what not in self.items:
                     self.items.append(what)
         return
@@ -184,7 +184,7 @@ class GroupProxy():
         if self.kind == 0 or self.kind == 1:
             lst = [ VirtualDat.this.getEntry(2058686020, 159781726, IID) for IID in self.items ]
             lst = [ desc for desc in lst if desc is not None ]
-            lst.sort(cmp=lambda n1, n2: CmpTGI(n1.tgi, n2.tgi))
+            lst.sort(key=lambda n: n.tgi)
             if self.kind == 0:
                 il = VirtualDat.this.ilBase
             else:
@@ -194,7 +194,7 @@ class GroupProxy():
 
             def GetDescFromTGI(tgi):
                 selectedDesc = None
-                if type(tgi) == types.TupleType:
+                if type(tgi) == tuple:
                     t = tgi[0]
                     g = tgi[1]
                     i = tgi[2]
@@ -207,7 +207,7 @@ class GroupProxy():
 
             lst = [ GetDescFromTGI(tgi) for tgi in self.items ]
             lst = [ desc for desc in lst if desc is not None ]
-            lst.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            lst.sort(key=lambda n: n.name.upper())
             lstCtrl.Reset(VirtualDat.this.ilStandardModels, lst, FillListForProps, DisplayNameForPropsName)
         return
 
@@ -245,7 +245,7 @@ def BuildImageForProp(examplar):
         return (
          BitmapFromTGI(tgi), False)
     elif rkt4:
-        nbChoices = len(rkt4) / 8
+        nbChoices = len(rkt4) // 8
         fullImage = Image.new('RGB', (128 * nbChoices, 128))
         for cb in range(nbChoices):
             rkt = rkt4[cb * 8:cb * 8 + 8]
@@ -321,7 +321,7 @@ class ImageListCtrl(wx.ListCtrl):
             catID = data.what
             thisId = idx
             tgi = (0, 0, 0)
-            VirtualDat.this.categories[catID].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            VirtualDat.this.categories[catID].descriptors.sort(key=lambda n: n.name.upper())
             thisDesc = None
             for desc in VirtualDat.this.categories[catID].descriptors:
                 if desc.exemplar.entry.tgi[0] != 1697917002:
@@ -522,7 +522,7 @@ def GetTGIForProp(desc):
         tgi = tuple(rkt3[0:2] + [rkt3[-1]])
     else:
         if rkt4:
-            nbChoices = len(rkt4) / 4
+            nbChoices = len(rkt4) // 4
             for cb in range(nbChoices):
                 rkt = rkt4[cb * 4:cb * 4 + 4]
                 if rkt[0] == 662775841:
@@ -637,14 +637,14 @@ class LETreeCtrl(wx.TreeCtrl):
             return False
 
         listSub = self.virtualDAT.categories[4089086497].childs[:]
-        listSub.sort(cmp=lambda n1, n2: cmp(n1.ID, n2.ID))
+        listSub.sort(key=lambda n: n.ID)
         for sub in listSub:
             if IsItAPropFamilies(sub.descriptors):
                 idx = self.AppendItem(self.familiesPropsItem, sub.Name)
                 self.SetPyData(idx, sub.ID)
 
         listSub = self.virtualDAT.categories[4089087265].childs[:]
-        listSub.sort(cmp=lambda n1, n2: cmp(n1.ID, n2.ID))
+        listSub.sort(key=lambda n: n.ID)
         for sub in listSub:
             if IsItAPropFamilies(sub.descriptors):
                 idx = self.AppendItem(self.familiesPropsItem, sub.Name)
@@ -696,7 +696,8 @@ class TextureDlg(wx.Frame):
 
         self.groups = []
         if os.path.exists('groups.ini'):
-            execfile('groups.ini')
+            with open('groups.ini', 'r', encoding='utf-8', errors='replace') as group_file:
+                exec(compile(group_file.read(), 'groups.ini', 'exec'), globals(), locals())
         dt = TreeDropTarget(self.tree)
         self.tree.SetDropTarget(dt)
         return
@@ -853,27 +854,27 @@ class TextureDlg(wx.Frame):
         elif item == tree.overlayTexturesItem:
             self.propList.Reset(VirtualDat.this.ilOver, VirtualDat.this.overTexEntries, FillListForTex, DisplayNameForTex)
         elif item == tree.singlePropsItemTGI:
-            VirtualDat.this.categories[210746660].descriptors.sort(cmp=lambda n1, n2: CmpTGI(n1.exemplar.entry.tgi, n2.exemplar.entry.tgi))
+            VirtualDat.this.categories[210746660].descriptors.sort(key=lambda n: n.exemplar.entry.tgi)
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[210746660].descriptors, FillListForProps, DisplayNameForPropsTGI)
         elif item == tree.singlePropsItemName:
-            VirtualDat.this.categories[210746660].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            VirtualDat.this.categories[210746660].descriptors.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[210746660].descriptors, FillListForProps, DisplayNameForPropsName)
         elif item == tree.floraItem:
-            VirtualDat.this.categories[1830116951].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            VirtualDat.this.categories[1830116951].descriptors.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[1830116951].descriptors, FillListForProps, DisplayNameForPropsName)
         elif item == tree.lotBaseTexturesItem:
             lst = [ VirtualDat.this.getEntry(2058686020, 159781726, IID) for IID in self.parent.lotBaseTextures ]
-            lst.sort(cmp=lambda n1, n2: CmpTGI(n1.tgi, n2.tgi))
+            lst.sort(key=lambda n: n.tgi)
             self.propList.Reset(VirtualDat.this.ilBase, lst, FillListForTex, DisplayNameForTex)
         elif item == tree.lotOverlayTexturesItem:
             lst = [ VirtualDat.this.getEntry(2058686020, 159781726, IID) for IID in self.parent.lotOverTextures ]
-            lst.sort(cmp=lambda n1, n2: CmpTGI(n1.tgi, n2.tgi))
+            lst.sort(key=lambda n: n.tgi)
             self.propList.Reset(VirtualDat.this.ilOver, lst, FillListForTex, DisplayNameForTex)
         elif item == tree.lotPropsItem:
-            self.parent.lotPropDescs.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            self.parent.lotPropDescs.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, self.parent.lotPropDescs, FillListForPropsAsSingle, DisplayNameForPropsName)
         elif item == tree.lotFloraItem:
-            self.parent.lotFloraDescs.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+            self.parent.lotFloraDescs.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, self.parent.lotFloraDescs, FillListForPropsAsSingle, DisplayNameForPropsName)
         elif item == tree.lotIcon:
             IID = self.parent.exemplar.entry.tgi[2]
@@ -885,7 +886,7 @@ class TextureDlg(wx.Frame):
                 if catID.__class__ == GroupProxy:
                     catID.Display(self.propList)
                 else:
-                    VirtualDat.this.categories[catID].descriptors.sort(cmp=lambda n1, n2: cmp(n1.name.upper(), n2.name.upper()))
+                    VirtualDat.this.categories[catID].descriptors.sort(key=lambda n: n.name.upper())
                     self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[catID].descriptors, FillListForPropsAsFamily, DisplayNameForPropsName, catID)
             else:
                 self.propList.Reset(VirtualDat.this.ilBase, None, FillListForNothing, DisplayNameForTex)

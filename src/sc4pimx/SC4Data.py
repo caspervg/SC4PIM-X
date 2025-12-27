@@ -3,6 +3,7 @@
 This module provides classes for managing SC4 building descriptions, textures,
 lots, and virtual DAT file collections.
 """
+import codecs
 import functools
 import os
 import threading
@@ -14,6 +15,7 @@ import FSHConverter
 from S3DReader import *
 from SC4DatTools import *
 from SC4DataFunctions import ToTile
+from paths import asset_path
 from translation import *
 from util import basic_cmp, DictWrapper
 
@@ -253,7 +255,7 @@ def ConvertAPropToReadable(prop, propFormat):
         resultat += '%s: ' % mapIdx[0]
         resultat += mapFirstVal[prop.values[0]]
         resultat += ' - %s: ' % mapIdx[1]
-        resultat += mapSecondVal[prop.values[1] / 16]
+        resultat += mapSecondVal[prop.values[1] // 16]
         resultat += ' - %s: ' % mapIdx[2]
         try:
             resultat += mapThirdVal[prop.values[2]]
@@ -284,16 +286,19 @@ def ConvertAPropToReadable(prop, propFormat):
         if resultat != u'':
             resultat += ' '
         if 'COL:%d' % i in propFormat.Options:
-            resultat += propFormat.Options['COL:%d' % i].encode('unicode_escape') + ':'
+            resultat += codecs.encode(propFormat.Options['COL:%d' % i], 'unicode_escape').decode('ascii') + ':'
         if v in propFormat.Options:
-            resultat += propFormat.Options[v].encode('unicode_escape')
+            resultat += codecs.encode(propFormat.Options[v], 'unicode_escape').decode('ascii')
         elif prop.typeValue == 2816:
             if v == 0:
                 resultat += 'False'
             else:
                 resultat += 'True'
         elif prop.typeValue == 3072:
-            resultat += v.decode('unicode_escape')
+            if isinstance(v, bytes):
+                resultat += v.decode('unicode_escape')
+            else:
+                resultat += codecs.decode(v, 'unicode_escape')
         elif prop.typeValue == 2304:
             resultat += '%.01f' % v
         elif prop.typeValue == 2048 and propFormat.ShowAsHex == True:
@@ -323,11 +328,6 @@ def CreateAPropFromString(prop, value):
     else:
         buffer = '0x%08x:{"%s"}=%s:%d:(%s)' % (prop.ID, prop.Name, prop.Type, count, value)
     return buffer
-
-
-def _asset_path(*parts):
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    return os.path.join(base_dir, 'assets', *parts)
 
 
 def _env_true(name):
@@ -382,7 +382,7 @@ class ImageListLoaderProps(object):
         if _env_true('SC4PIM_SKIP_PROP_IMAGES'):
             self.running = False
             return
-        file_name = _asset_path('other', 'NoPreview.jpg')
+        file_name = str(asset_path('other', 'NoPreview.jpg'))
         wx.CallAfter(self._AddStandardModelImage, file_name, None)
         for s3d in self.virtualDAT.standardModels:
             if not self.keepGoing:
@@ -635,7 +635,7 @@ class ResourceViewer():
                 virtualDAT.otherModelsDict[rktData[0:3]] = what
                 self.viewingData.append(what)
         if self.rkType == 662775844:
-            for line in range(len(rktData) / 8):
+            for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
                 if data[4] == 662775840:
                     if data[5] == 698733036:

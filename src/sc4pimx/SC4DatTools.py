@@ -3,14 +3,15 @@
 This module provides classes and functions for reading, parsing, and writing
 SimCity 4 .dat files, including compressed entries and property handling.
 """
-import wx
-import time
-import struct
-#import QFS
+import io
 import os
 import os.path
 import re
-import io
+import struct
+import time
+import wx
+
+import QFS
 binEx = 0
 textEx = 0
 binProp = 0
@@ -46,7 +47,7 @@ def CreateAProp(prop, values):
 propRegex = re.compile('0[xX]([\\dA-Fa-f]+):{"([a-zA-Z0-9_ \\.,/:\\(\\)]+)"}=([a-zA-Z0-9]+):([0-9]+):{(.*)}')
 generic_saveValue = 3
 COMPRESSED_SIG = 64272
-translationTable = '#' * 32 + ''.join([ chr(x) for x in range(32, 128) ]) + '#' * 128
+translationTable = bytes([35] * 32 + list(range(32, 128)) + [35] * 128)
 
 def InfoEx():
     pass
@@ -88,9 +89,9 @@ class Prop():
             if self.typeValue == 3072:
                 self.count = struct.unpack('B', line.read(1))[0]
                 strlen = struct.unpack('I', line.read(4))[0]
-                tt = str(line.read(strlen))
+                tt = line.read(strlen)
                 self.rawdata = tt
-                txtConv = tt.translate(translationTable)
+                txtConv = tt.translate(translationTable).decode("latin-1")
                 self.values = [txtConv]
                 count += 1 + 4 + strlen
             else:
@@ -154,7 +155,7 @@ class Prop():
                     if tv == 'String':
                         tt = fields[3][2:-2]
                         self.rawdata = tt
-                        txtConv = tt.translate(translationTable)
+                        txtConv = tt.encode("latin-1", errors="replace").translate(translationTable).decode("latin-1")
                         self.values = [txtConv]
                     if tv == 'Float32':
                         if fields[3][1:-1].split(',') != ['']:
@@ -321,8 +322,9 @@ class Prop():
                 self.count = 0
             if self.typeValue == 3072:
                 ret += struct.pack('B', 0)
-                ret += struct.pack('I', len(self.values[0]))
-                ret += str(self.values[0])
+                encoded = self.values[0].encode("latin-1", errors="replace")
+                ret += struct.pack('I', len(encoded))
+                ret += encoded
             else:
                 if self.sizeOfCounter > 0:
                     ret += struct.pack('B', 0)
@@ -410,18 +412,18 @@ class SC4Exemplar():
 
         self.RemoveProp(p.id)
         self.props.append(p)
-        self.props.sort(cmp=lambda x, y: cmp(x.id, y.id))
+        self.props.sort(key=lambda p: p.id)
         return True
 
     def BinaryRep(self):
         if self.sig[0] == 'E':
-            newBuff = 'EQZB1###'
+            newBuff = b'EQZB1###'
         else:
-            newBuff = 'CQZB1###'
+            newBuff = b'CQZB1###'
         newBuff += struct.pack('III', self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
         self.nbrProp = len(self.props)
         newBuff += struct.pack('I', self.nbrProp)
-        self.props.sort(cmp=lambda p1, p2: cmp(p1.id, p2.id))
+        self.props.sort(key=lambda p: p.id)
         for p in self.props:
             rep = p.BinaryRep()
             newBuff += rep
@@ -432,7 +434,7 @@ class SC4Exemplar():
         global binEx
         binEx += 1
         buf = io.BytesIO(self.buffer)
-        self.sig = buf.read(8)
+        self.sig = buf.read(8).decode("latin-1")
         self.parentCohort = tuple(struct.unpack('III', buf.read(12)))
         self.LinkToParent()
         self.nbrProp = struct.unpack('I', buf.read(4))[0]
@@ -443,19 +445,25 @@ class SC4Exemplar():
 
     def DecodeBuffer(self, bLazy=True):
         self.props = []
-        if self.buffer[:4] == 'CQZB':
-            self.DecodeBinary(bLazy)
-        elif self.buffer[:4] == 'EQZB':
-            self.DecodeBinary(bLazy)
-        elif self.buffer[:4] == 'EQZT':
-            self.DecodeText(bLazy)
-        elif self.buffer[:4] == 'CQZT':
-            self.DecodeText(bLazy)
+        magic = self.buffer[:4]
+        if isinstance(magic, bytes):
+            if magic in (b'CQZB', b'EQZB'):
+                self.DecodeBinary(bLazy)
+            elif magic in (b'EQZT', b'CQZT'):
+                self.DecodeText(bLazy)
+        else:
+            if magic in ('CQZB', 'EQZB'):
+                self.DecodeBinary(bLazy)
+            elif magic in ('EQZT', 'CQZT'):
+                self.DecodeText(bLazy)
 
     def DecodeText(self, bLazy=True):
         global textEx
         textEx += 1
-        lines = self.buffer.split('\r\n')
+        text = self.buffer
+        if isinstance(text, (bytes, bytearray)):
+            text = text.decode("latin-1", errors="replace")
+        lines = text.split('\r\n')
         self.sig = lines[0]
         l = lines[1].find('{')
         lines[1] = lines[1][l + 1:-1]
@@ -465,7 +473,7 @@ class SC4Exemplar():
         lines = lines[3:]
         self.props = []
         for x in lines:
-            if x is not '':
+            if x != '':
                 try:
                     prop = Prop(x, False, self)
                     self.props.append(prop)
@@ -560,16 +568,11 @@ class SC4Exemplar():
         lines.append(newBuff)
         lines.append('ParentCohort=Key:{0x%08X,0x%08X,0x%08X}' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
         lines.append('PropCount=0x%08X' % len(self.props))
-        self.props.sort(cmp=lambda p1, p2: cmp(p1.id, p2.id))
+        self.props.sort(key=lambda p: p.id)
         for p in self.props:
-            z = p.TextRep()
-            if z.__class__ == unicode:
-                print('*' * 10, 'ERROR')
-                print(z)
-                print(z.__class__)
-            lines.append(z)
+            lines.append(p.TextRep())
 
-        return '\r\n'.join(lines) + '\r\n'
+        return ('\r\n'.join(lines) + '\r\n').encode("latin-1", errors="replace")
 
 
 def BuildSortedFilesList(folder, bRecurse=True):
@@ -580,12 +583,12 @@ def BuildSortedFilesList(folder, bRecurse=True):
             wx.Yield()
             fileNames.append(os.path.join(root, fileName))
 
-        fileNames.sort(key=unicode.lower)
+        fileNames.sort(key=str.lower)
         if bRecurse:
             for subFolder in dirs:
                 subFolders.append(os.path.join(root, subFolder))
 
-            subFolders.sort(key=unicode.lower)
+            subFolders.sort(key=str.lower)
             for subFolder in subFolders:
                 fileNames += BuildSortedFilesList(subFolder)
 
@@ -651,8 +654,11 @@ class SC4Entry():
 
     def Maj(self):
         self.compressed = False
-        self.rawContent = self.content
-        self.lenContent = len(self.content)
+        content = self.content
+        if isinstance(content, str):
+            content = content.encode("latin-1", errors="replace")
+        self.rawContent = content
+        self.lenContent = len(content)
         self.filesize = self.lenContent
         self.buffer = struct.pack('LLLLL', self.tgi[0], self.tgi[1], self.tgi[2], 0, self.filesize)
 
@@ -680,11 +686,11 @@ class DatFile():
 
     def ReadHeader(self, dlg):
         self.header = self.sc4.read(96)
-        if self.header[:4] != 'DBPF':
+        if self.header[:4] != b'DBPF':
             if dlg:
                 dlg.LogError('Not a valid SC4 file : %s' % self.fileName)
             raise IOError
-        self.header = self.header[0:48] + '\x00' * 12 + self.header[48 + 12:96]
+        self.header = self.header[0:48] + b'\x00' * 12 + self.header[48 + 12:96]
         header = io.BytesIO(self.header)
         header.read(4)
         try:
@@ -740,8 +746,8 @@ class DatFile():
 
         header.close()
         if dirEntry is not None:
-            dirEntry.ReadFile(self.sc4, True, True)
-            nbrCompressedEntries = dirEntry.filesize / 16
+            dirEntry.read_file(self.sc4, True, True)
+            nbrCompressedEntries = dirEntry.filesize // 16
             for idx in range(nbrCompressedEntries):
                 subBuf = dirEntry.rawContent[idx * 16:idx * 16 + 16]
                 t, g, i, lenUncompressed = struct.unpack('LLLL', subBuf[0:0 + 16])
@@ -776,7 +782,7 @@ def GenerateDirectory(allEntries, fileName):
     header += struct.pack('I', 0)
     header += struct.pack('I', 16 * nbrCompressed)
     dirEnt = SC4Entry(header, 0, fileName)
-    buffer = ''
+    buffer = b''
     for entry in allEntries:
         if entry.compressed:
             buffer += entry.buffer[0:12]
@@ -809,7 +815,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
                     sc4In.close()
             if bRecompress and not entry.compressed and len(entry.rawContent) > 600:
                 compression = QFS.encode(entry.rawContent)
-                if len(compression) < len(entry.rawContent) and len(compression) > 0:
+                if compression and len(compression) < len(entry.rawContent):
                     compression = struct.pack('l', len(compression)) + compression
                     entry.filesize = len(compression)
                     entry.rawContent = compression
@@ -818,15 +824,6 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
             withoutDir.append(entry)
 
     allEntries = withoutDir
-
-    def CompEnt(a, b):
-        if a.tgi[0] == b.tgi[0]:
-            if a.tgi[1] == b.tgi[1]:
-                return cmp(a.tgi[2], b.tgi[2])
-            else:
-                return cmp(a.tgi[1], b.tgi[1])
-        else:
-            return cmp(a.tgi[0], b.tgi[0])
 
     dirEnt = GenerateDirectory(allEntries, fileName)
     if dirEnt is not None:
@@ -839,8 +836,8 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
     fileVersionMajor = 1
     fileVersionMinor = 0
     indexRecordType = 7
-    header = '\x00' * 96
-    header = 'DBPF' + header[4:]
+    header = b'\x00' * 96
+    header = b'DBPF' + header[4:]
     header = header[:4] + struct.pack('l', fileVersionMajor) + header[4 + 4:]
     header = header[:8] + struct.pack('l', fileVersionMinor) + header[8 + 4:]
     header = header[:24] + struct.pack('I', dateCreated) + header[24 + 4:]
@@ -889,7 +886,10 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
             sc4In = open(entry.fileName, 'rb')
             entry.read_file(sc4In)
             sc4In.close()
-        sc4.write(entry.rawContent)
+        raw = entry.rawContent
+        if isinstance(raw, str):
+            raw = raw.encode("latin-1", errors="replace")
+        sc4.write(raw)
 
     for entry in allEntries:
         sc4.write(entry.buffer)
