@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <config>
  <folders>
-  <folder recurse="0">b''</folder>
-  <folder recurse="1">b''</folder>
-  <folder recurse="0">b'C:\\\\\\\\Users\\\\\\\\caspe\\\\\\\\Documents\\\\\\\\SimCity 4\\\\\\\\Plugins'</folder>
+  <folder recurse="0"></folder>
+  <folder recurse="1"></folder>
+  <folder recurse="0">C:\\\\Users\\\\caspe\\\\Documents\\\\SimCity 4\\\\Plugins</folder>
  </folders>
 </config>

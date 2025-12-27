@@ -22,6 +22,8 @@ from DependenciesDlg import *
 import treeDnD
 from translation import *
 from settings import *
+from paths import asset_path, package_data_path
+from textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text, encode_unicode_escape
 from util import basic_cmp, clamp_to_tile
 import wx.adv
 
@@ -48,9 +50,6 @@ def _exit_after(stage):
         sys.exit(0)
 
 
-def _asset_path(*parts):
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    return os.path.join(base_dir, 'assets', *parts)
 
 
 class ProcessDlg(wx.Dialog):
@@ -336,15 +335,15 @@ class MyTreeCtrl(wx.TreeCtrl):
                     desc = FoundationDesc(entry)
                 if _0x10 is not None and _0x10[0] == 15:
                     desc = FloraDesc(entry)
-            if _0x10 is not None and _0x10[0] == 16:
-                desc = LotDesc(entry)
-            if desc is not None:
-                self.Recategorize(desc, False, False)
-            else:
-                del desc
-                entry.exemplar.free()
-                del entry.exemplar
-                del exemplar
+                if _0x10 is not None and _0x10[0] == 16:
+                    desc = LotDesc(entry)
+                if desc is not None:
+                    self.Recategorize(desc, False, False)
+                else:
+                    del desc
+                    entry.exemplar.free()
+                    del entry.exemplar
+                    del exemplar
         return
 
 
@@ -624,7 +623,7 @@ class NoteBookPanel(wx.Panel):
                     if uvnk:
                         uvnk.read_file(None, True, True)
                         try:
-                            txt = uvnk.content[4:].decode('unicode_internal')
+                            txt = decode_sc4_text(uvnk.content[4:])
                         except UnicodeDecodeError:
                             txt = uvnk.content.decode('utf8')
 
@@ -646,7 +645,7 @@ class NoteBookPanel(wx.Panel):
                     if idk:
                         idk.read_file(None, True, True)
                         try:
-                            txt = idk.content[4:].decode('unicode_internal')
+                            txt = decode_sc4_text(idk.content[4:])
                         except UnicodeDecodeError:
                             txt = idk.content.decode('utf8')
 
@@ -695,14 +694,14 @@ class NoteBookPanel(wx.Panel):
     def OnEditLTEXT(self, ltext_entry):
         ltext_entry.read_file(None, True, True)
         try:
-            txt = ltext_entry.content[4:].decode('unicode_internal')
+            txt = decode_sc4_text(ltext_entry.content[4:])
         except UnicodeDecodeError:
             txt = ltext_entry.content.decode('utf8')
 
         dlg = EditDialog(self, editUnicodeTitle, txt)
         if dlg.ShowModal() == wx.ID_OK:
-            unicode_text = str(dlg.GetValue())
-            new_val = unicode_text.encode('unicode_internal')
+            unicode_text = dlg.GetValue()
+            new_val = encode_sc4_text(unicode_text)
             buffer = struct.pack('H', len(unicode_text))
             buffer += struct.pack('H', 4096)
             buffer += new_val
@@ -1696,7 +1695,7 @@ class NoteBookPanel(wx.Panel):
                         if uvnk != None:
                             uvnk.read_file(None, True, True)
                             try:
-                                utxt = uvnk.content[4:].decode('unicode_internal')
+                                utxt = decode_sc4_text(uvnk.content[4:])
                             except UnicodeDecodeError:
                                 utxt = uvnk.content.decode('utf8')
 
@@ -1716,7 +1715,7 @@ class NoteBookPanel(wx.Panel):
                         if idk != None:
                             idk.read_file(None, True, True)
                             try:
-                                utxt = idk.content[4:].decode('unicode_internal')
+                                utxt = decode_sc4_text(idk.content[4:])
                             except UnicodeDecodeError:
                                 utxt = idk.content.decode('utf8')
 
@@ -2308,7 +2307,7 @@ class NoteBookPanel(wx.Panel):
             self.parent.AddNewDesc(desc, self.virtual_dat, False)
 
     def DuplicateLTEXTEntry(self, examplar, utxt, t, g, i):
-        newVal = utxt.encode('unicode_internal')
+        newVal = encode_sc4_text(utxt)
         buffer = struct.pack('III', t, g, i)
         buffer += struct.pack('II', 0, 4 + len(newVal))
         ltextEntry = SC4Entry(buffer, 0, examplar.entry.fileName)
@@ -2321,7 +2320,7 @@ class NoteBookPanel(wx.Panel):
         return ltextEntry
 
     def CreateLTEXTEntry(self, utxt, t, g, i, propid2add, propid2remove=0):
-        newVal = utxt.encode('unicode_internal')
+        newVal = encode_sc4_text(utxt)
         buffer = struct.pack('III', t, g, i)
         buffer += struct.pack('II', 0, 4 + len(newVal))
         ltextEntry = SC4Entry(buffer, 0, self.exemplar.entry.fileName)
@@ -2353,7 +2352,7 @@ class NoteBookPanel(wx.Panel):
             utxt = str(txt)
         except:
             try:
-                utxt = txt.decode('unicode_internal')
+                utxt = decode_sc4_text(txt)
             except:
                 utxt = txt.decode('utf8')
 
@@ -2364,7 +2363,7 @@ class NoteBookPanel(wx.Panel):
                 if uvnk:
                     uvnk.read_file(None, True, True)
                     try:
-                        utxt = uvnk.content[4:].decode('unicode_internal')
+                        utxt = decode_sc4_text(uvnk.content[4:])
                     except UnicodeDecodeError:
                         utxt = uvnk.content.decode('utf8')
 
@@ -2384,7 +2383,7 @@ class NoteBookPanel(wx.Panel):
             utxt = str(txt)
         except:
             try:
-                utxt = txt.decode('unicode_internal')
+                utxt = decode_sc4_text(txt)
             except:
                 utxt = txt.decode('utf8')
 
@@ -2400,7 +2399,7 @@ class NoteBookPanel(wx.Panel):
             utxt = str(txt)
         except:
             try:
-                utxt = txt.decode('unicode_internal')
+                utxt = decode_sc4_text(txt)
             except:
                 utxt = txt.decode('utf8')
 
@@ -2411,7 +2410,7 @@ class NoteBookPanel(wx.Panel):
                 if idk:
                     idk.read_file(None, True, True)
                     try:
-                        utxt = idk.content[4:].decode('unicode_internal')
+                        utxt = decode_sc4_text(idk.content[4:])
                     except UnicodeDecodeError:
                         utxt = idk.content.decode('utf8')
 
@@ -2428,7 +2427,7 @@ class NoteBookPanel(wx.Panel):
             utxt = str(txt)
         except:
             try:
-                utxt = txt.decode('unicode_internal')
+                utxt = decode_sc4_text(txt)
             except:
                 utxt = txt.decode('utf8')
 
@@ -2608,7 +2607,7 @@ class SC4NoteBook(wx.Notebook):
             return
         il = wx.ImageList(47, 37)
         for i, cat in virtualDAT.categories.items():
-            icon_path = _asset_path('icons', cat.imgName)
+            icon_path = str(asset_path('icons', cat.imgName))
             img = wx.Image(icon_path)
             if not img.IsOk():
                 _trace('notebook:missing_icon:%s' % icon_path)
@@ -2648,7 +2647,7 @@ class SC4NoteBook(wx.Notebook):
         self.parent.cbStateChoice.SetValue('')
         if rkt4 is not None:
             choices = []
-            for z in range(len(rkt4) / 8):
+            for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
             for ch in choices:
@@ -2758,7 +2757,7 @@ class SC4NoteBook(wx.Notebook):
         self.Freeze()
         page = NoteBookPanel(self, descriptor, virtualDAT)
         self.descriptors.append(descriptor)
-        self.AddPage(page, descriptor.name.decode('unicode_escape'), True, img)
+        self.AddPage(page, decode_unicode_escape(str(descriptor.name)), True, img)
         self.ChangeSelection(self.GetPageCount() - 1)
         self.Thaw()
         return page
@@ -2817,7 +2816,10 @@ class ConfigureDialog(sc.SizedDialog):
 
             return rc
 
-        configXML = xml.dom.minidom.parse('config.xml')
+        config_path = os.path.join(os.getcwd(), 'config.xml')
+        if not os.path.exists(config_path):
+            config_path = str(package_data_path('config.xml'))
+        configXML = xml.dom.minidom.parse(config_path)
         for node in configXML.documentElement.childNodes:
             if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
                 for subNode in node.childNodes:
@@ -2833,16 +2835,16 @@ class ConfigureDialog(sc.SizedDialog):
         xmlData += ' <folders>\n'
         for i, path in enumerate(self.listFolder):
             if self.lb1.IsChecked(i):
+                escaped_path = encode_unicode_escape(path.replace('\\', '\\\\'))
                 if i == 0 or i == 2:
-                    xmlData += '  <folder recurse="0">%s</folder>\n' % path.replace('\\', '\\\\').encode(
-                        'unicode_escape')
+                    xmlData += '  <folder recurse="0">%s</folder>\n' % escaped_path
                 else:
-                    xmlData += '  <folder recurse="1">%s</folder>\n' % path.replace('\\', '\\\\').encode(
-                        'unicode_escape')
+                    xmlData += '  <folder recurse="1">%s</folder>\n' % escaped_path
 
         xmlData += ' </folders>\n'
         xmlData += '</config>\n'
-        fconfig = open('config.xml', 'wt')
+        config_path = os.path.join(os.getcwd(), 'config.xml')
+        fconfig = open(config_path, 'wt')
         fconfig.write(xmlData)
         fconfig.close()
 
@@ -3208,26 +3210,26 @@ class MainFrame(wx.Frame):
             tgi = examplar.GetProp(2319542937)
             if tgi != [0, 0, 0]:
                 txt = u'Name of the building' + examplarName
-                txt = txt.encode('unicode_internal')
+                encoded_txt = encode_sc4_text(txt)
                 buffer = struct.pack('III', tgi[0], tgi[1], tgi[2])
-                buffer += struct.pack('II', 0, 4 + len(txt))
+                buffer += struct.pack('II', 0, 4 + len(encoded_txt))
                 entry2 = SC4Entry(buffer, 0, os.path.join(self.rootFolder, descFileName))
-                buffer = struct.pack('H', len(txt) / 2)
+                buffer = struct.pack('H', len(txt))
                 buffer += struct.pack('H', 4096)
-                buffer += txt
+                buffer += encoded_txt
                 entry2.content = entry2.rawContent = buffer
                 entries.append(entry2)
         if examplar.GetProp(3393284789) is not None:
             tgi = examplar.GetProp(3393284789)
             if tgi != [0, 0, 0]:
                 txt = u'Description of the building' + v
-                txt = txt.encode('unicode_internal')
+                encoded_txt = encode_sc4_text(txt)
                 buffer = struct.pack('III', tgi[0], tgi[1], tgi[2])
-                buffer += struct.pack('II', 0, 4 + len(txt))
+                buffer += struct.pack('II', 0, 4 + len(encoded_txt))
                 entry2 = SC4Entry(buffer, 0, os.path.join(self.rootFolder, descFileName))
-                buffer = struct.pack('H', len(txt) / 2)
+                buffer = struct.pack('H', len(txt))
                 buffer += struct.pack('H', 4096)
-                buffer += txt
+                buffer += encoded_txt
                 entry2.content = entry2.rawContent = buffer
                 entries.append(entry2)
         entry.examplar.Maj()
@@ -3310,13 +3312,16 @@ class MainFrame(wx.Frame):
 
                 return rc
 
-            configXML = xml.dom.minidom.parse('config.xml')
+            config_path = os.path.join(os.getcwd(), 'config.xml')
+            if not os.path.exists(config_path):
+                config_path = str(package_data_path('config.xml'))
+            configXML = xml.dom.minidom.parse(config_path)
             for node in configXML.documentElement.childNodes:
                 if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
                     for subNode in node.childNodes:
                         if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
                             recurse = int(subNode.getAttribute('recurse'))
-                            path = str(getText(subNode.childNodes)).decode('unicode_escape').replace('\\\\', '\\')
+                            path = decode_unicode_escape(str(getText(subNode.childNodes))).replace('\\\\', '\\')
                             self.pathToScan.append((path, recurse))
 
         except:
@@ -3518,7 +3523,7 @@ class MainFrame(wx.Frame):
         rkt4 = examplar.GetProp(662775844)
         if rkt4 != None:
             choices = []
-            for z in range(len(rkt4) / 8):
+            for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
             for ch in choices:
@@ -3596,7 +3601,7 @@ class MainFrame(wx.Frame):
 class SplashScreen(wx.adv.SplashScreen):
 
     def __init__(self):
-        bmp = wx.Image('../../assets/other/splash.jpg', wx.BITMAP_TYPE_JPEG).ConvertToBitmap()
+        bmp = wx.Image(str(asset_path('other', 'splash.jpg')), wx.BITMAP_TYPE_JPEG).ConvertToBitmap()
         wx.adv.SplashScreen.__init__(self, bmp, wx.adv.SPLASH_CENTRE_ON_SCREEN | wx.adv.SPLASH_TIMEOUT, 500, None, -1)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self._show_main_called = False
@@ -3626,16 +3631,9 @@ class App(wx.App):
         return True
 
 
-if 1:
-    try:
-        os.mkdir('ImageDB')
-    except:
-        pass
-
-    try:
-        os.mkdir('ImageDBLarge')
-    except:
-        pass
+def main() -> None:
+    os.makedirs('ImageDB', exist_ok=True)
+    os.makedirs('ImageDBLarge', exist_ok=True)
 
     blank = Image.new('RGB', (64, 64), 8355711)
     blank.save('ImageDB/0xbadb57f1-0x00000000.jpg')
@@ -3645,3 +3643,7 @@ if 1:
     blank.save('ImageDBLarge/0x00000000-0x00000000.jpg')
     prog = App()
     prog.MainLoop()
+
+
+if __name__ == "__main__":
+    main()

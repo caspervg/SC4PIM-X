@@ -185,7 +185,7 @@ def readCategoryDef(node):
                     if pairedFactor:
                         paired = pairedFactor.split(',')
                         cat.pairedFactorProperties[id] = []
-                        for i in range(len(paired) / 2):
+                        for i in range(len(paired) // 2):
                             cat.pairedFactorProperties[id].append((paired[i * 2], float(paired[i * 2 + 1])))
 
                     setVal = subsubNode.getAttribute('Set')
