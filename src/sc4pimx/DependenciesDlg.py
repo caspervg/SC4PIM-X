@@ -48,7 +48,7 @@ class DependenciesDlg(sc.SizedDialog):
         pane = self.GetContentsPane()
         pane.SetSizerType('vertical')
         self.exemplar = exemplar
-        self.virtualDAT = parent.virtual_dat
+        self.virtualDAT = getattr(parent, 'virtual_dat', None) or getattr(parent, 'virtualDAT')
         self.tree = CT.CustomTreeCtrl(pane, -1, style=wx.SUNKEN_BORDER | CT.TR_HAS_VARIABLE_ROW_HEIGHT | CT.TR_FULL_ROW_HIGHLIGHT | CT.TR_SINGLE, size=(300,
                                                                                                                                                         300))
         self.root = self.tree.AddRoot(exemplar.GetProp(32)[0])

@@ -106,6 +106,24 @@ def _read_sc4_install_folder_from_registry():
     return ''
 
 
+def _read_user_group_id_from_registry():
+    if not HAS_WIN32:
+        return None
+    access_modes = [0]
+    for flag_name in ('KEY_WOW64_32KEY', 'KEY_WOW64_64KEY'):
+        flag = getattr(win32con, flag_name, None)
+        if flag is not None:
+            access_modes.append(win32con.KEY_READ | flag)
+
+    for access in access_modes:
+        try:
+            key = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools', 0, access)
+            return win32api.RegQueryValueEx(key, 'User Group ID')[0]
+        except Exception:
+            pass
+    return None
+
+
 def _enable_faulthandler():
     global _faulthandler_file
     if not _env_true('SC4PIM_FAULTHANDLER'):
@@ -2957,39 +2975,17 @@ class MainFrame(wx.Frame):
 
     def __init__(self):
         wx.Frame.__init__(self, None, title='SC4 PIM Extended 2009 RC8', size=Size(800, 800))
-        # Initialize GID (Group ID) from Windows registry or generate new one
-        try:
-            if not HAS_WIN32:
-                raise ImportError("win32api not available")
-            maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools')
-            self.GID = win32api.RegQueryValueEx(maxisKey, 'User Group ID')[0]
-            x = struct.pack('L', self.GID)
-            self.GID = struct.unpack('L', x)[0]
-        except Exception as ex:
-            print(ex)
-            # Generate new GID if registry access fails or on non-Windows platforms
+        # Initialize GID (Group ID) from Windows registry or generate new one.
+        self.GID = _read_user_group_id_from_registry()
+        if self.GID is None:
             init = datetime.datetime(2005, 5, 5, 21, 24, 15)
             today = datetime.datetime.today()
             dt = today - init
             dt = dt.days * 24 * 3600 + dt.seconds
             first = random.randrange(1, 15, 2)
             self.GID = first * 268435456 + (dt & 268435455)
-            x = struct.pack('L', self.GID)
-            self.GID = struct.unpack('L', x)[0]
-            # Try to save to registry on Windows
-            if HAS_WIN32:
-                try:
-                    keypath = 'SOFTWARE\\Maxis\\SimCity 4\\Tools'.split('\\')
-                    keyhandle = win32con.HKEY_LOCAL_MACHINE
-                    for subkey in keypath:
-                        keyhandle = win32api.RegCreateKey(keyhandle, subkey)
-                    maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\Tools',
-                                                     0, win32con.KEY_SET_VALUE)
-                    iid = struct.unpack('i', struct.pack('I', self.GID))[0]
-                    win32api.RegSetValueEx(maxisKey, 'User Group ID', 0, win32con.REG_DWORD, iid)
-                except Exception as ex:
-                    print(ex)
-                    pass  # Ignore registry write failures
+        x = struct.pack('L', self.GID)
+        self.GID = struct.unpack('L', x)[0]
 
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()

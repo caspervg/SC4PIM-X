@@ -118,7 +118,21 @@ def get_flagged_data():
 
 
 def get_flagged_bitmap():
-    return wx.Bitmap(get_flagged_image())
+    try:
+        return wx.Bitmap(get_flagged_image())
+    except zlib.error:
+        bitmap = wx.Bitmap(13, 13)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.Brush(wx.WHITE))
+        dc.Clear()
+        dc.SetPen(wx.Pen(wx.Colour(128, 128, 128)))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        dc.DrawRectangle(0, 0, 13, 13)
+        dc.SetPen(wx.Pen(wx.BLACK, 2))
+        dc.DrawLine(3, 6, 6, 9)
+        dc.DrawLine(6, 9, 10, 3)
+        dc.SelectObject(wx.NullBitmap)
+        return bitmap
 
 
 def get_flagged_image():
@@ -175,7 +189,7 @@ def gray_out(img: Image):
             img.GetMaskRed(), img.GetMaskGreen(), img.GetMaskBlue())
     else:
         mask_colour = None
-    data = list(map(ord, list(img.GetData())))
+    data = bytearray(img.GetData())
     for i in range(0, len(data), 3):
         pixel = (
             data[i], data[i + 1], data[i + 2])
@@ -183,7 +197,7 @@ def gray_out(img: Image):
         for x in range(3):
             data[i + x] = pixel[x]
 
-    img.SetData(''.join(map(chr, data)))
+    img.SetData(bytes(data))
     return img
 
 
@@ -2196,7 +2210,7 @@ class CustomTreeCtrl(wx.ScrolledWindow):
             self._image_list_grayed = wx.ImageList(sz[0], sz[1], True, 0)
             for ii in range(imageList.GetImageCount()):
                 bmp = imageList.GetBitmap(ii)
-                image = wx.ImageFromBitmap(bmp)
+                image = bmp.ConvertToImage()
                 image = gray_out(image)
                 new_bitmap = wx.Bitmap(image)
                 self._image_list_grayed.Add(new_bitmap)
@@ -2228,7 +2242,7 @@ class CustomTreeCtrl(wx.ScrolledWindow):
         self._grayedCheckList = wx.ImageList(sizex, sizey, True, 0)
         for ii in range(self._image_list_check.GetImageCount()):
             bmp = self._image_list_check.GetBitmap(ii)
-            image = wx.ImageFromBitmap(bmp)
+            image = bmp.ConvertToImage()
             image = gray_out(image)
             newbmp = wx.Bitmap(image)
             self._grayedCheckList.Add(newbmp)

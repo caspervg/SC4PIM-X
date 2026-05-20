@@ -1,14 +1,17 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
+from contextlib import contextmanager
 import math
 
 import numpy
 import wx
 import wx.lib.sized_controls as sc
+from OpenGL.GLU import gluUnProject
 from PIL import Image
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
 from .SC4Data import *
+from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
 from .SC4LETools import *
 from .SC4OpenGL import *
 from .translation import *
@@ -55,6 +58,35 @@ def gl_texture_name(value):
 
 def delete_gl_texture(value):
     glDeleteTextures([gl_texture_name(value)])
+
+
+@contextmanager
+def pushed_modelview_matrix():
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    try:
+        yield
+    finally:
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+
+
+def texture_coords_for_flag(flag):
+    coords = [(0, 1), (0, 0), (1, 0), (1, 1)]
+    rotation = flag & 15
+    if rotation == 0:
+        coords = [coords[2], coords[3], coords[0], coords[1]]
+    elif rotation == 1:
+        coords = [coords[1], coords[2], coords[3], coords[0]]
+    elif rotation == 3:
+        coords = [coords[3], coords[0], coords[1], coords[2]]
+    if flag & 2147483648 == 2147483648:
+        coords = [(1 - u, v) for u, v in coords]
+    return coords
+
+
+def ToTileOrigin(val):
+    return ToTile(val) - 0.5
 
 
 def minmax(a, b):
@@ -1239,7 +1271,7 @@ class LotEditorWin(wx.Frame):
             else:
                 bBase = self.textures[texID][1]
             texData = [
-             values[3] / 1048576, values[5] / 1048576, values[2], texID, values[11]]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], texID, values[11]]
             if bBase:
                 self.texBases.append(texData)
             else:
@@ -1261,15 +1293,15 @@ class LotEditorWin(wx.Frame):
                 self.floraViewers.append(viewer)
         if values[0] == 5:
             texData = [
-             values[3] / 1048576, values[5] / 1048576, values[2], 8960]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960]
             self.waters.append(texData)
         if values[0] == 6:
             texData = [
-             values[3] / 1048576, values[5] / 1048576, values[2], 8960]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960]
             self.lands.append(texData)
         if values[0] == 7:
             texData = [
-             values[3] / 1048576, values[5] / 1048576, values[2], (values[12], 0), values[14]]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], (values[12], 0), values[14]]
             self.te.append(texData)
 
     def PreCache(self):
@@ -1381,138 +1413,120 @@ class LotEditorWin(wx.Frame):
             glDisable(GL_BLEND)
         offsetX = x * 16 - self.lotSizeXOffset
         offsetY = y * 16 - self.lotSizeYOffset
-        glPushMatrix()
-        glTranslate(offsetX, offsetY, 0)
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
-        if flag & 2147483648 == 2147483648:
-            glScalef(-1, 1, 0)
-        if flag & 15 == 0:
-            glRotatef(180, 0, 0, 1)
-        if flag & 15 == 1:
-            glRotatef(90, 0, 0, 1)
-        if flag & 15 == 3:
-            glRotatef(270, 0, 0, 1)
-        glMatrixMode(GL_MODELVIEW)
-        if bTex:
-            glBegin(GL_QUADS)
-            glTexCoord2i(0, 1)
-            glVertex3i(0, 16, 0)
-            glTexCoord2i(0, 0)
-            glVertex3i(0, 0, 0)
-            glTexCoord2i(1, 0)
-            glVertex3i(16, 0, 0)
-            glTexCoord2i(1, 1)
-            glVertex3i(16, 16, 0)
-            glEnd()
-        if bHighlighted:
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_ONE, GL_ONE)
+        tex_coords = texture_coords_for_flag(flag)
+        with pushed_modelview_matrix():
+            glTranslate(offsetX, offsetY, 0)
+            glMatrixMode(GL_TEXTURE)
+            glLoadIdentity()
+            glMatrixMode(GL_MODELVIEW)
+            if bTex:
+                glBegin(GL_QUADS)
+                glTexCoord2f(*tex_coords[0])
+                glVertex3i(0, 16, 0)
+                glTexCoord2f(*tex_coords[1])
+                glVertex3i(0, 0, 0)
+                glTexCoord2f(*tex_coords[2])
+                glVertex3i(16, 0, 0)
+                glTexCoord2f(*tex_coords[3])
+                glVertex3i(16, 16, 0)
+                glEnd()
+            if bHighlighted:
+                glEnable(GL_BLEND)
+                glBlendFunc(GL_ONE, GL_ONE)
+                glDisable(GL_TEXTURE_2D)
+                glBegin(GL_QUADS)
+                glColor3f(1, 0, 0)
+                glVertex3i(0, 16, 0)
+                glColor3f(1, 0, 0)
+                glVertex3i(0, 0, 0)
+                glColor3f(1, 0, 0)
+                glVertex3i(16, 0, 0)
+                glColor3f(1, 0, 0)
+                glVertex3i(16, 16, 0)
+                glEnd()
+                glDisable(GL_BLEND)
             glDisable(GL_TEXTURE_2D)
-            glBegin(GL_QUADS)
-            glColor3f(1, 0, 0)
-            glVertex3i(0, 16, 0)
-            glColor3f(1, 0, 0)
-            glVertex3i(0, 0, 0)
-            glColor3f(1, 0, 0)
-            glVertex3i(16, 0, 0)
-            glColor3f(1, 0, 0)
-            glVertex3i(16, 16, 0)
-            glEnd()
             glDisable(GL_BLEND)
-        glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glColor3f(1, 1, 1)
-        glPopMatrix()
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            glColor3f(1, 1, 1)
 
     def DrawHighLight(self, minx, miny, maxx, maxy, color=(1, 0, 0)):
-        glPushMatrix()
-        offsetX = -self.lotSizeXOffset
-        offsetY = -self.lotSizeYOffset
-        glTranslate(offsetX, offsetY, 0)
-        glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-        glColor3f(color[0], color[1], color[2])
-        glRectf(minx, miny, maxx, maxy)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glPopMatrix()
+        with pushed_modelview_matrix():
+            offsetX = -self.lotSizeXOffset
+            offsetY = -self.lotSizeYOffset
+            glTranslate(offsetX, offsetY, 0)
+            glDisable(GL_TEXTURE_2D)
+            glDisable(GL_BLEND)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glColor3f(color[0], color[1], color[2])
+            glRectf(minx, miny, maxx, maxy)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
     def DrawQuadsHighLight(self, quads, color=(1, 0, 0)):
-        glPushMatrix()
-        offsetX = -self.lotSizeXOffset
-        offsetY = -self.lotSizeYOffset
-        glTranslate(offsetX, offsetY, 0)
-        glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-        glColor3f(color[0], color[1], color[2])
-        for quad in quads:
-            glRectf(quad[0], quad[1], quad[2], quad[3])
+        with pushed_modelview_matrix():
+            offsetX = -self.lotSizeXOffset
+            offsetY = -self.lotSizeYOffset
+            glTranslate(offsetX, offsetY, 0)
+            glDisable(GL_TEXTURE_2D)
+            glDisable(GL_BLEND)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glColor3f(color[0], color[1], color[2])
+            for quad in quads:
+                glRectf(quad[0], quad[1], quad[2], quad[3])
 
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glPopMatrix()
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
     def DrawQuadColor(self, flag, minx, miny, maxx, maxy, color, bMissing):
-        glPushMatrix()
-        offsetX = -self.lotSizeXOffset
-        offsetY = -self.lotSizeYOffset
-        glTranslate(offsetX, offsetY, 0)
-        glDisable(GL_TEXTURE_2D)
-        glColor4f(color[0], color[1], color[2], color[3])
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glRectf(minx, miny, maxx, maxy)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-        glDisable(GL_BLEND)
-        glColor3f(color[0], color[1], color[2])
-        glRectf(minx, miny, maxx, maxy)
-        glColor4f(color[0], color[1], color[2], color[3])
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glEnable(GL_TEXTURE_2D)
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
-        if flag & 2147483648 == 2147483648:
-            glScalef(-1, 1, 0)
-        if flag & 15 == 0:
-            glRotatef(180, 0, 0, 1)
-        if flag & 15 == 1:
-            glRotatef(90, 0, 0, 1)
-        if flag & 15 == 3:
-            glRotatef(270, 0, 0, 1)
-        glColor3f(1, 0, 1)
-        glMatrixMode(GL_MODELVIEW)
-        glDisable(GL_TEXTURE_2D)
-        try:
+        with pushed_modelview_matrix():
+            offsetX = -self.lotSizeXOffset
+            offsetY = -self.lotSizeYOffset
+            glTranslate(offsetX, offsetY, 0)
+            glDisable(GL_TEXTURE_2D)
+            glColor4f(color[0], color[1], color[2], color[3])
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glRectf(minx, miny, maxx, maxy)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glDisable(GL_BLEND)
+            glColor3f(color[0], color[1], color[2])
+            glRectf(minx, miny, maxx, maxy)
+            glColor4f(color[0], color[1], color[2], color[3])
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
             glEnable(GL_TEXTURE_2D)
-            glBindTexture(GL_TEXTURE_2D, self.textures[1802442183][0][0])
-            glBegin(GL_QUADS)
-            glTexCoord2f(0, 1)
-            glVertex3i(minx, maxy, 0)
-            glTexCoord2f(0, 0)
-            glVertex3i(minx, miny, 0)
-            glTexCoord2f(1, 0)
-            glVertex3i(maxx, miny, 0)
-            glTexCoord2f(1, 1)
-            glVertex3i(maxx, maxy, 0)
-            glEnd()
-        except Exception:
-            pass
+            tex_coords = texture_coords_for_flag(flag)
+            glMatrixMode(GL_TEXTURE)
+            glLoadIdentity()
+            glColor3f(1, 0, 1)
+            glMatrixMode(GL_MODELVIEW)
+            glDisable(GL_TEXTURE_2D)
+            try:
+                glEnable(GL_TEXTURE_2D)
+                glBindTexture(GL_TEXTURE_2D, self.textures[1802442183][0][0])
+                glBegin(GL_QUADS)
+                glTexCoord2f(*tex_coords[0])
+                glVertex3f(minx, maxy, 0)
+                glTexCoord2f(*tex_coords[1])
+                glVertex3f(minx, miny, 0)
+                glTexCoord2f(*tex_coords[2])
+                glVertex3f(maxx, miny, 0)
+                glTexCoord2f(*tex_coords[3])
+                glVertex3f(maxx, maxy, 0)
+                glEnd()
+            except Exception:
+                pass
 
-        glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-        if bMissing:
-            self.missingLines.append((minx, miny))
-            self.missingLines.append((maxx, maxy))
-            self.missingLines.append((minx, maxy))
-            self.missingLines.append((maxx, miny))
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glColor4f(1, 1, 1, 1)
-        glPopMatrix()
+            glDisable(GL_TEXTURE_2D)
+            glDisable(GL_BLEND)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            if bMissing:
+                self.missingLines.append((minx, miny))
+                self.missingLines.append((maxx, maxy))
+                self.missingLines.append((minx, maxy))
+                self.missingLines.append((maxx, miny))
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            glColor4f(1, 1, 1, 1)
 
     def Draw2D(self):
         self.missingLines = []
@@ -1527,19 +1541,17 @@ class LotEditorWin(wx.Frame):
         glLoadIdentity()
         size = self.size = self.glCanvas2D.GetClientSize()
         if self.panel == 3:
-            w = self.size[0] / 2
+            w = self.size[0] // 2
             s = w
-        else:
-            if self.panel == 2:
-                w = self.size[0]
-                s = 0
-            return
-            w = 0
+        elif self.panel == 2:
+            w = self.size[0]
             s = 0
+        else:
+            return
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(s, 0, w, h)
+        glViewport(int(s), 0, int(w), int(h))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -1644,14 +1656,13 @@ class LotEditorWin(wx.Frame):
                 self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
         if self.snapSize != 0:
-            glPushMatrix()
-            glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
-            glColor3f(0.5, 0, 0.2)
-            glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(2, GL_FLOAT, 0, self.snapGrids)
-            glDrawArrays(GL_LINES, 0, self.nbSnapLines)
-            glDisableClientState(GL_VERTEX_ARRAY)
-            glPopMatrix()
+            with pushed_modelview_matrix():
+                glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
+                glColor3f(0.5, 0, 0.2)
+                glEnableClientState(GL_VERTEX_ARRAY)
+                glVertexPointer(2, GL_FLOAT, 0, self.snapGrids)
+                glDrawArrays(GL_LINES, 0, self.nbSnapLines)
+                glDisableClientState(GL_VERTEX_ARRAY)
         if self.modeDisplay & MODE_BUILDING_ONLY:
             if self.building:
                 minx = ToCoord(self.building[6])
@@ -1720,14 +1731,13 @@ class LotEditorWin(wx.Frame):
             self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1,
                                                                                                         1,
                                                                                                         1))
-        glPushMatrix()
-        glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
-        glColor3f(1, 0, 0)
-        glEnableClientState(GL_VERTEX_ARRAY)
-        glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
-        glDrawArrays(GL_LINES, 0, len(self.missingLines))
-        glDisableClientState(GL_VERTEX_ARRAY)
-        glPopMatrix()
+        with pushed_modelview_matrix():
+            glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
+            glColor3f(1, 0, 0)
+            glEnableClientState(GL_VERTEX_ARRAY)
+            glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
+            glDrawArrays(GL_LINES, 0, len(self.missingLines))
+            glDisableClientState(GL_VERTEX_ARRAY)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
         if not bUnderMouse:
@@ -1749,30 +1759,29 @@ class LotEditorWin(wx.Frame):
             glDisable(GL_ALPHA_TEST)
             offsetX = x - self.lotSizeXOffset
             offsetY = y - self.lotSizeYOffset
-            glPushMatrix()
-            glRotatef(-self.ry, 0.0, 1.0, 0.0)
-            glRotatef(self.rx, 1.0, 0.0, 0.0)
-            scales = [
-             9.2, 4.6, 2.3, 1.0, 1.0 / 2.0]
-            scale = scales[zoom]
-            glScalef(scale, scale, -scale)
-            glTranslate(offsetX, 0, offsetY)
-            glMatrixMode(GL_TEXTURE)
-            glLoadIdentity()
-            glMatrixMode(GL_MODELVIEW)
-            glBegin(GL_QUADS)
-            w = self.BackTextureSizes[zoom][0] / 3.5
-            h = self.BackTextureSizes[zoom][1] / 3.5
-            glTexCoord2i(0, 1)
-            glVertex3f(0, -0.1, 0)
-            glTexCoord2i(0, 0)
-            glVertex3f(0, -0.1, h)
-            glTexCoord2i(1, 0)
-            glVertex3f(w, -0.1, h)
-            glTexCoord2i(1, 1)
-            glVertex3f(w, -0.1, 0)
-            glEnd()
-            glPopMatrix()
+            with pushed_modelview_matrix():
+                glRotatef(-self.ry, 0.0, 1.0, 0.0)
+                glRotatef(self.rx, 1.0, 0.0, 0.0)
+                scales = [
+                 9.2, 4.6, 2.3, 1.0, 1.0 / 2.0]
+                scale = scales[zoom]
+                glScalef(scale, scale, -scale)
+                glTranslate(offsetX, 0, offsetY)
+                glMatrixMode(GL_TEXTURE)
+                glLoadIdentity()
+                glMatrixMode(GL_MODELVIEW)
+                glBegin(GL_QUADS)
+                w = self.BackTextureSizes[zoom][0] / 3.5
+                h = self.BackTextureSizes[zoom][1] / 3.5
+                glTexCoord2i(0, 1)
+                glVertex3f(0, -0.1, 0)
+                glTexCoord2i(0, 0)
+                glVertex3f(0, -0.1, h)
+                glTexCoord2i(1, 0)
+                glVertex3f(w, -0.1, h)
+                glTexCoord2i(1, 1)
+                glVertex3f(w, -0.1, 0)
+                glEnd()
         return
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
@@ -1793,30 +1802,22 @@ class LotEditorWin(wx.Frame):
         glDisable(GL_ALPHA_TEST)
         offsetX = x * 16 - self.lotSizeXOffset
         offsetY = y * 16 - self.lotSizeYOffset
-        glPushMatrix()
-        glTranslate(offsetX, 0, offsetY)
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
-        if flag & 2147483648 == 2147483648:
-            glScalef(-1, 1, 0)
-        if flag & 15 == 0:
-            glRotatef(180, 0, 0, 1)
-        if flag & 15 == 1:
-            glRotatef(90, 0, 0, 1)
-        if flag & 15 == 3:
-            glRotatef(270, 0, 0, 1)
-        glMatrixMode(GL_MODELVIEW)
-        glBegin(GL_QUADS)
-        glTexCoord2i(0, 1)
-        glVertex3f(0, 0, 16)
-        glTexCoord2i(0, 0)
-        glVertex3f(0, 0, 0)
-        glTexCoord2i(1, 0)
-        glVertex3f(16, 0, 0)
-        glTexCoord2i(1, 1)
-        glVertex3f(16, 0, 16)
-        glEnd()
-        glPopMatrix()
+        tex_coords = texture_coords_for_flag(flag)
+        with pushed_modelview_matrix():
+            glTranslate(offsetX, 0, offsetY)
+            glMatrixMode(GL_TEXTURE)
+            glLoadIdentity()
+            glMatrixMode(GL_MODELVIEW)
+            glBegin(GL_QUADS)
+            glTexCoord2f(*tex_coords[0])
+            glVertex3f(0, 0, 16)
+            glTexCoord2f(*tex_coords[1])
+            glVertex3f(0, 0, 0)
+            glTexCoord2f(*tex_coords[2])
+            glVertex3f(16, 0, 0)
+            glTexCoord2f(*tex_coords[3])
+            glVertex3f(16, 0, 16)
+            glEnd()
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom):
         if resource is None:
@@ -1843,7 +1844,7 @@ class LotEditorWin(wx.Frame):
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
             scaleATC = LotEditorWin.zoomScaleATC[zoom]
-            modelview = glGetFloatv(GL_MODELVIEW_MATRIX).flat
+            modelview = numpy.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=numpy.float32).reshape(16)
             modelview[0] = 1
             modelview[1] = 0
             modelview[2] = 0
@@ -1870,138 +1871,132 @@ class LotEditorWin(wx.Frame):
             zoom = 4
         if zoom == 4 or zoom == 3:
             angleX = 45
+        elif zoom == 2:
+            angleX = 40
+        elif zoom == 1:
+            angleX = 35
         else:
-            if zoom == 2:
-                angleX = 40
+            angleX = 30
+        size = self.size = self.glCanvas2D.GetClientSize()
+        if self.panel == 3:
+            w = self.size[0] // 2
+        elif self.panel == 1:
+            w = self.size[0]
+        else:
+            return
+        h = self.size[1]
+        valW = w * 2.0 / 60.0
+        valH = h * 2.0 / 60.0
+        glViewport(0, 0, int(w), int(h))
+        glOrtho(-valW, valW, -valH, valH, 40000, -40000)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        rotation = self.rotation
+        rot2D = rotation * 90.0
+        self.rx = angleX
+        self.ry = rot2D - 22.5
+        self.rz = 0
+        scaling = LotEditorWin.zoomScale3D[zoom]
+        glScalef(scaling, scaling, -scaling)
+        glTranslate(-self.pos3Dx, -self.pos3Dy, -self.pos3Dz)
+        glRotatef(self.rx, 1.0, 0.0, 0.0)
+        glRotatef(self.ry, 0.0, 1.0, 0.0)
+        glColor3f(1.0, 1.0, 1.0)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        glEnable(GL_DEPTH_TEST)
+        for texData in self.texBases:
+            self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
+
+        for texData in self.texOverlays:
+            self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
+
+        if self.exemplar.GetProp(1246398704)[0] & 8:
+            for x in range(self.exemplar.GetProp(2297284496)[0]):
+                self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
+
+        if self.exemplar.GetProp(1246398704)[0] & 1:
+            for y in range(self.exemplar.GetProp(2297284496)[1]):
+                self.DrawQuad3D(-1, y, 0, 641146880, True)
+
+        if self.exemplar.GetProp(1246398704)[0] & 4:
+            for y in range(self.exemplar.GetProp(2297284496)[1]):
+                self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+
+        glMatrixMode(GL_TEXTURE)
+        glLoadIdentity()
+        glEnable(GL_DEPTH_TEST)
+        glMatrixMode(GL_MODELVIEW)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0)
+        rotMapping = [2, 1, 0, 3]
+        lotSizeXOver = self.lotSizeXOver
+        lotSizeYOver = self.lotSizeYOver
+        try:
+            if self.buildingViewer[self.currentBuilding] is not None:
+                with pushed_modelview_matrix():
+                    offsetX = ToCoord(self.building[3]) - lotSizeXOver / 2
+                    offsetZ = ToCoord(self.building[5]) - lotSizeYOver / 2
+                    offsetY = 0
+                    if self.building[12] in self.rtk4Offsets.keys():
+                        rtk4 = self.rtk4Offsets[self.building[12]]
+                    else:
+                        rtk4 = (0, 0, 0)
+                    glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
+                    self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], zoom)
+        except IndexError:
+            pass
+
+        afters = []
+        afterViewers = []
+        for prop, propViewer in zip(self.props, self.propViewers):
+            tempViewer = propViewer
+            if tempViewer is None:
+                tempViewer = self.LEAnimMissing
+            if tempViewer.viewingData == []:
+                pass
             else:
-                if zoom == 1:
-                    angleX = 35
-                elif zoom == 0:
-                    angleX = 30
-                size = self.size = self.glCanvas2D.GetClientSize()
-                if self.panel == 3:
-                    w = self.size[0] / 2
+                what = tempViewer.viewingData[0]
+                if what.__class__ == ATC:
+                    afters.append(prop)
+                    afterViewers.append(tempViewer)
                 else:
-                    if self.panel == 1:
-                        w = self.size[0]
-                    return
-                    w = 0
-                h = self.size[1]
-                valW = w * 2.0 / 60.0
-                valH = h * 2.0 / 60.0
-                glViewport(0, 0, w, h)
-                glOrtho(-valW, valW, -valH, valH, 40000, -40000)
-                glMatrixMode(GL_MODELVIEW)
-                glLoadIdentity()
-                rotation = self.rotation
-                rot2D = rotation * 90.0
-                self.rx = angleX
-                self.ry = rot2D - 22.5
-                self.rz = 0
-                scaling = LotEditorWin.zoomScale3D[zoom]
-                glScalef(scaling, scaling, -scaling)
-                glTranslate(-self.pos3Dx, -self.pos3Dy, -self.pos3Dz)
-                glRotatef(self.rx, 1.0, 0.0, 0.0)
-                glRotatef(self.ry, 0.0, 1.0, 0.0)
-                glColor3f(1.0, 1.0, 1.0)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-                glEnable(GL_DEPTH_TEST)
-                for texData in self.texBases:
-                    self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
-
-                for texData in self.texOverlays:
-                    self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
-
-                if self.exemplar.GetProp(1246398704)[0] & 8:
-                    for x in range(self.exemplar.GetProp(2297284496)[0]):
-                        self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
-
-                if self.exemplar.GetProp(1246398704)[0] & 1:
-                    for y in range(self.exemplar.GetProp(2297284496)[1]):
-                        self.DrawQuad3D(-1, y, 0, 641146880, True)
-
-                if self.exemplar.GetProp(1246398704)[0] & 4:
-                    for y in range(self.exemplar.GetProp(2297284496)[1]):
-                        self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
-
-                glMatrixMode(GL_TEXTURE)
-                glLoadIdentity()
-                glEnable(GL_DEPTH_TEST)
-                glMatrixMode(GL_MODELVIEW)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-                glEnable(GL_TEXTURE_2D)
-                glColor3f(1.0, 1.0, 1.0)
-                rotMapping = [2, 1, 0, 3]
-                lotSizeXOver = self.lotSizeXOver
-                lotSizeYOver = self.lotSizeYOver
-                try:
-                    if self.buildingViewer[self.currentBuilding] is not None:
-                        glPushMatrix()
-                        offsetX = ToCoord(self.building[3]) - lotSizeXOver / 2
-                        offsetZ = ToCoord(self.building[5]) - lotSizeYOver / 2
+                    with pushed_modelview_matrix():
+                        offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
+                        offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
                         offsetY = 0
-                        if self.building[12] in self.rtk4Offsets.keys():
-                            rtk4 = self.rtk4Offsets[self.building[12]]
+                        if prop[12] in self.rtk4Offsets.keys():
+                            rtk4 = self.rtk4Offsets[prop[12]]
                         else:
                             rtk4 = (0, 0, 0)
-                        glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
-                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], zoom)
-                        glPopMatrix()
-                except IndexError:
-                    pass
+                        glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                        self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
 
-                afters = []
-                afterViewers = []
-                for prop, propViewer in zip(self.props, self.propViewers):
-                    tempViewer = propViewer
-                    if tempViewer is None:
-                        tempViewer = self.LEAnimMissing
-                    if tempViewer.viewingData == []:
-                        pass
-                    else:
-                        what = tempViewer.viewingData[0]
-                        if what.__class__ == ATC:
-                            afters.append(prop)
-                            afterViewers.append(tempViewer)
+        for prop, propViewer in zip(self.floras, self.floraViewers):
+            tempViewer = propViewer
+            if tempViewer is None:
+                tempViewer = self.LEAnimMissing
+            if tempViewer.viewingData == []:
+                pass
+            else:
+                what = tempViewer.viewingData[0]
+                if what.__class__ == ATC:
+                    afters.append(prop)
+                    afterViewers.append(tempViewer)
+                else:
+                    with pushed_modelview_matrix():
+                        offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
+                        offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
+                        offsetY = 0
+                        if prop[12] in self.rtk4Offsets.keys():
+                            rtk4 = self.rtk4Offsets[prop[12]]
                         else:
-                            glPushMatrix()
-                            offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
-                            offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
-                            offsetY = 0
-                            if prop[12] in self.rtk4Offsets.keys():
-                                rtk4 = self.rtk4Offsets[prop[12]]
-                            else:
-                                rtk4 = (0, 0, 0)
-                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
-                            glPopMatrix()
+                            rtk4 = (0, 0, 0)
+                        glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                        self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
 
-                for prop, propViewer in zip(self.floras, self.floraViewers):
-                    tempViewer = propViewer
-                    if tempViewer is None:
-                        tempViewer = self.LEAnimMissing
-                    if tempViewer.viewingData == []:
-                        pass
-                    else:
-                        what = tempViewer.viewingData[0]
-                        if what.__class__ == ATC:
-                            afters.append(prop)
-                            afterViewers.append(tempViewer)
-                        else:
-                            glPushMatrix()
-                            offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
-                            offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
-                            offsetY = 0
-                            if prop[12] in self.rtk4Offsets.keys():
-                                rtk4 = self.rtk4Offsets[prop[12]]
-                            else:
-                                rtk4 = (0, 0, 0)
-                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
-                            glPopMatrix()
-
-            for prop, propViewer in zip(afters, afterViewers):
-                glPushMatrix()
+        for prop, propViewer in zip(afters, afterViewers):
+            with pushed_modelview_matrix():
                 offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
                 offsetY = 0
@@ -2011,7 +2006,6 @@ class LotEditorWin(wx.Frame):
                     rtk4 = (0, 0, 0)
                 glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
                 self.DrawModel(rtk4, propViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
-                glPopMatrix()
 
         glColor3f(1.0, 1.0, 1.0)
         return
@@ -2019,7 +2013,7 @@ class LotEditorWin(wx.Frame):
     def Save(self):
         size = self.glCanvas2D.GetClientSize()
         glReadBuffer(GL_FRONT)
-        w = size[0] / 2 & 4294967280
+        w = (size[0] // 2) & 4294967280
         h = size[1] & 4294967280
         data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
         decal = len(data) - w * h * 3
@@ -2037,19 +2031,17 @@ class LotEditorWin(wx.Frame):
         glLoadIdentity()
         size = self.size = self.glCanvas2D.GetClientSize()
         if self.panel == 3:
-            w = self.size[0] / 2
+            w = self.size[0] // 2
             s = w
-        else:
-            if self.panel == 2:
-                w = self.size[0]
-                s = 0
-            return None
-            w = 0
+        elif self.panel == 2:
+            w = self.size[0]
             s = 0
+        else:
+            return None
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(s, 0, w, h)
+        glViewport(int(s), 0, int(w), int(h))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -2298,8 +2290,8 @@ class LotEditorWin(wx.Frame):
                         def UpdateTexData(what):
                             for texData in what:
                                 if texData[4] == id:
-                                    texData[0] = values[3] / 1048576
-                                    texData[1] = values[5] / 1048576
+                                    texData[0] = ToTileOrigin(values[3])
+                                    texData[1] = ToTileOrigin(values[5])
                                     minx = texData[0] * 16
                                     miny = texData[1] * 16
                                     maxx = texData[0] * 16 + 16
