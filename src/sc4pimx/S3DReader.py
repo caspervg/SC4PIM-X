@@ -172,8 +172,8 @@ class S3D(object):
             count = struct.unpack('H', buffer[4:6])[0]
             buffer = buffer[6:]
             indices = struct.unpack('H' * count, buffer[:count * 2])
-            idxs = np.asarray(indices)
-            self.IndexBlocks.append((idxs.tostring(), count))
+            idxs = np.asarray(indices, dtype=np.uint16)
+            self.IndexBlocks.append((idxs.tobytes(), count))
             buffer = buffer[count * 2:]
 
         return buffer
@@ -342,7 +342,7 @@ class S3D(object):
             glEnableClientState(GL_TEXTURE_COORD_ARRAY)
             glVertexPointer(3, GL_FLOAT, 0, vertexBuffer[0])
             glTexCoordPointer(2, GL_FLOAT, 0, vertexBuffer[1])
-            glDrawElements(GL_TRIANGLES, indexBuffer[1], GL_UNSIGNED_INT, indexBuffer[0])
+            glDrawElements(GL_TRIANGLES, indexBuffer[1], GL_UNSIGNED_SHORT, indexBuffer[0])
             glDisableClientState(GL_VERTEX_ARRAY)
             glDisableClientState(GL_TEXTURE_COORD_ARRAY)
 

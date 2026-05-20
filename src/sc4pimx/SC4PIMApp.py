@@ -2,6 +2,7 @@
 import functools
 import os.path
 import sys
+import faulthandler
 from math import *
 
 import wx.lib.mixins.listctrl as listmix
@@ -30,6 +31,7 @@ import wx.adv
 offsetGID = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
 _preload_config_result = None
+_faulthandler_file = None
 
 
 def _env_true(name):
@@ -48,6 +50,22 @@ def _exit_after(stage):
         print('[TRACE] exit after %s' % stage)
         sys.stdout.flush()
         sys.exit(0)
+
+
+def _enable_faulthandler():
+    global _faulthandler_file
+    if not _env_true('SC4PIM_FAULTHANDLER'):
+        return
+    try:
+        _faulthandler_file = open('faulthandler.log', 'w')
+    except OSError:
+        _faulthandler_file = None
+    if _faulthandler_file is not None:
+        faulthandler.enable(file=_faulthandler_file, all_threads=True)
+        faulthandler.dump_traceback_later(60, repeat=True, file=_faulthandler_file)
+    else:
+        faulthandler.enable(all_threads=True)
+        faulthandler.dump_traceback_later(60, repeat=True)
 
 
 
@@ -2906,7 +2924,8 @@ class MainFrame(wx.Frame):
         self.tree = MyTreeCtrl(self.virtualDAT, leftPanel, self,
                                style=wx.TR_HAS_BUTTONS | wx.TR_ROW_LINES | wx.TAB_TRAVERSAL, size=(400,
                                                                                                    400))
-        self.tree.ExpandAll()
+        if not _env_true('SC4PIM_SAFE_MODE'):
+            self.tree.ExpandAll()
         self.virtualDAT.tree = self.tree
         dt = treeDnD.DropTarget(self.tree, self.OnDrop, self.OnDropFile)
         self.tree.SetDropTarget(dt)
@@ -2974,7 +2993,8 @@ class MainFrame(wx.Frame):
         splitterHoriz.SetMinimumPaneSize(200)
         splitter.SplitVertically(leftPanel, splitterHoriz, 300)
         splitter.SetMinimumPaneSize(300)
-        self.nb.LoadPics(self.virtualDAT)
+        if not _env_true('SC4PIM_SAFE_MODE'):
+            self.nb.LoadPics(self.virtualDAT)
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
         if self.PreLoadDatas():
             if _env_true('SC4PIM_SKIP_LOAD'):
@@ -3297,6 +3317,9 @@ class MainFrame(wx.Frame):
 
     def LoadDatas(self):
         _trace('loaddatas:start')
+        safe_mode = _env_true('SC4PIM_SAFE_MODE')
+        if safe_mode:
+            _trace('loaddatas:safe_mode')
         wx.BeginBusyCursor()
         bLoadMaxisModel = False
         bLoadMaxisDesc = False
@@ -3369,34 +3392,37 @@ class MainFrame(wx.Frame):
                 self.virtualDAT.addFolder(dlg, path, recurse)
 
         _trace('loaddatas:finalize')
-        if not _env_true('SC4PIM_SKIP_FINALIZE'):
+        if not safe_mode and not _env_true('SC4PIM_SKIP_FINALIZE'):
             self.virtualDAT.Finalize(dlg)
         else:
             _trace('loaddatas:finalize:skipped')
         _trace('loaddatas:textures')
-        if not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
+        if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
             texLoader = ImageListLoaderTexture(self.virtualDAT)
             texLoader.Start()
         else:
             _trace('loaddatas:textures:skipped')
         if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
-            _trace('loaddatas:missingpics')
-            dlg2 = ImageDBBuilder(self, -1, 'Builder')
-            dlg2.Show()
-            for data in self.virtualDAT.missing_pictures:
-                dlg2.Draw(data)
-                dlg.Increment()
+            if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
+                _trace('loaddatas:missingpics:skipped')
+            else:
+                _trace('loaddatas:missingpics')
+                dlg2 = ImageDBBuilder(self, -1, 'Builder')
+                dlg2.Show()
+                for data in self.virtualDAT.missing_pictures:
+                    dlg2.Draw(data)
+                    dlg.Increment()
 
-            dlg2.Destroy()
+                dlg2.Destroy()
         _trace('loaddatas:props')
-        if not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
+        if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
             propLoader = ImageListLoaderProps(self.virtualDAT)
             propLoader.Start()
         else:
             _trace('loaddatas:props:skipped')
         wx.EndBusyCursor()
         self.tree.EnsureVisible(self.tree.standard_models_item)
-        if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
+        if not safe_mode and not _env_true('SC4PIM_SKIP_TREE_SELECT'):
             wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
         else:
             _trace('loaddatas:treeselect:skipped')
@@ -3405,7 +3431,7 @@ class MainFrame(wx.Frame):
         self.tree.EnsureVisible(self.tree.root)
         InfoEx()
         dlg.Destroy()
-        if not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
+        if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
             self.t2 = wx.CallLater(500, self.RefreshEvent)
         _trace('loaddatas:done')
         _exit_after('loaddatas:done')
@@ -3632,6 +3658,7 @@ class App(wx.App):
 
 
 def main() -> None:
+    _enable_faulthandler()
     os.makedirs('ImageDB', exist_ok=True)
     os.makedirs('ImageDBLarge', exist_ok=True)
 

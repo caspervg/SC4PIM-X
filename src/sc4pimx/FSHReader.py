@@ -212,6 +212,16 @@ class FSHReader:
         if bitmap.width == 0 or bitmap.height == 0:
             raise ValueError("Invalid bitmap dimensions")
 
+        expected_size = FSHReader._expected_data_size(
+            bitmap.code, bitmap.width, bitmap.height
+        )
+        if expected_size == 0:
+            raise ValueError(f"Unsupported format code: {bitmap.code}")
+        if len(bitmap.data) != expected_size:
+            raise ValueError(
+                f"Bitmap data size mismatch (expected {expected_size}, got {len(bitmap.data)})"
+            )
+
         pixel_count = bitmap.width * bitmap.height
         rgba = bytearray(pixel_count * 4)
 
@@ -308,6 +318,14 @@ class FSHReader:
             flags = squish.DXT5
         else:
             raise ValueError(f"Invalid DXT format code: {bitmap.code}")
+
+        expected_size = FSHReader._expected_data_size(
+            bitmap.code, bitmap.width, bitmap.height
+        )
+        if len(bitmap.data) != expected_size:
+            raise ValueError(
+                f"DXT data size mismatch (expected {expected_size}, got {len(bitmap.data)})"
+            )
 
         decompressed = squish.DecompressImage(
             bitmap.data, bitmap.width, bitmap.height, flags

@@ -436,6 +436,11 @@ class ImageListLoaderTexture(object):
             return basic_cmp(tgi1[0], tgi2[0])
 
     def _AddTextureImage(self, rgb_bytes, size, trueAlpha, texEntry):
+        expected = size[0] * size[1] * 3
+        if len(rgb_bytes) != expected:
+            print('TextureLoader : Invalid RGB buffer size for %s (%d != %d)' %
+                  (texEntry.fileName, len(rgb_bytes), expected))
+            return
         image = wx.EmptyImage(size[0], size[1])
         image.SetData(rgb_bytes)
         if trueAlpha:
@@ -470,14 +475,33 @@ class ImageListLoaderTexture(object):
             if self.keepGoing == False:
                 break
             texEntry.read_file(None, True, True)
-            nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
+            try:
+                nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(
+                    texEntry.content
+                )
+            except Exception as exc:
+                print('TextureLoader : Failed to decode FSH from %s (%s)' %
+                      (texEntry.fileName, exc))
+                texEntry.content = None
+                texEntry.rawContent = None
+                continue
             texEntry.content = None
             texEntry.rawContent = None
-            pilz = Image.frombytes('RGB', size, img)
+            try:
+                pilz = Image.frombytes('RGB', size, img)
+            except Exception as exc:
+                print('TextureLoader : Failed to load RGB for %s (%s)' %
+                      (texEntry.fileName, exc))
+                continue
             if trueAlpha:
-                blank = Image.new('RGB', size, 16777215)
-                alpha = Image.frombytes('L', size, alpha)
-                pilz = Image.composite(pilz, blank, alpha)
+                try:
+                    blank = Image.new('RGB', size, 16777215)
+                    alpha = Image.frombytes('L', size, alpha)
+                    pilz = Image.composite(pilz, blank, alpha)
+                except Exception as exc:
+                    print('TextureLoader : Failed alpha composite for %s (%s)' %
+                          (texEntry.fileName, exc))
+                    continue
             pilz = pilz.resize((64, 64), Image.BICUBIC)
             if nbrLayers > 1:
                 try:
