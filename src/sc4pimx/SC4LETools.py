@@ -4,7 +4,13 @@ import io
 import random
 
 import wx
+import wx.lib.agw.balloontip as BT
 from PIL import Image, ImageDraw
+
+try:
+    import win32gui
+except ImportError:
+    win32gui = None
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
@@ -289,7 +295,8 @@ class ImageListCtrl(wx.ListCtrl):
         tipballoon = BT.BalloonTip(message='PIM')
         tipballoon.SetTarget(self)
         tipballoon.SetStartDelay(500)
-        win32gui.SendMessage(self.GetHandle(), 4096 + 53, 0, 64 + 10)
+        if win32gui is not None:
+            win32gui.SendMessage(self.GetHandle(), 4096 + 53, 0, 64 + 10)
 
     def OnRemoveItem(self, event):
         group = self.parent.IsItPersonalGroup(self.parent.currentItem)
