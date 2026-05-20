@@ -9,9 +9,11 @@ import os.path
 import re
 import struct
 import time
+
 import wx
 
-import QFS
+from . import QFS
+
 binEx = 0
 textEx = 0
 binProp = 0
@@ -73,10 +75,10 @@ class Prop():
     validFormat = {1792: 'i',2304: 'f',768: 'I',2816: 'b',256: 'B',2048: 'q',512: 'h'}
     format2String = {768: 'Uint32',3072: 'String',2304: 'Float32',2816: 'Bool',256: 'Uint8',2048: 'Sint64',1792: 'Sint32'}
 
-    def __init__(self, line, binary, examplar, initPos=0):
+    def __init__(self, line, binary, exemplar, initPos=0):
         global binProp
-        self.examplar = examplar
-        kind = examplar.GetProp(16)
+        self.exemplar = exemplar
+        kind = exemplar.GetProp(16)
         if kind is not None:
             if kind[0] not in [30, 2, 17, 15, 16]:
                 self.id = 0
@@ -108,10 +110,10 @@ class Prop():
                     nbr = 1
                 if self.typeValue not in Prop.validFormat.keys():
                     print('*' * 21, 'ERROR', '*' * 21)
-                    print('in examplar', hex(self.examplar.entry.TGI['t']), 
-                          hex(self.examplar.entry.TGI['g']), 
-                          hex(self.examplar.entry.TGI['i']))
-                    print('located in', self.examplar.entry.fileName)
+                    print('in exemplar', hex(self.exemplar.entry.TGI['t']),
+                          hex(self.exemplar.entry.TGI['g']),
+                          hex(self.exemplar.entry.TGI['i']))
+                    print('located in', self.exemplar.entry.fileName)
                     print('Unknown prop type')
                 s = struct.calcsize(Prop.validFormat[self.typeValue] * nbr)
                 self.values = list(struct.unpack(Prop.validFormat[self.typeValue] * nbr, line.read(s)))
@@ -122,7 +124,7 @@ class Prop():
                 initialLine = line[:]
                 self.values = []
                 comp = line.split('"')
-                IID = hex(self.examplar.entry.TGI['i'])
+                IID = hex(self.exemplar.entry.TGI['i'])
                 comp[1] = comp[1].replace(':', '_')
                 line = '"'.join(comp)
                 if line[-1] == ' ':
@@ -157,10 +159,10 @@ class Prop():
                         self.rawdata = tt
                         txtConv = tt.encode("latin-1", errors="replace").translate(translationTable).decode("latin-1")
                         self.values = [txtConv]
-                    if tv == 'Float32':
+                    elif tv == 'Float32':
                         if fields[3][1:-1].split(',') != ['']:
                             self.values = [ float(x) for x in fields[3][1:-1].split(',') ]
-                    if fields[3][1:-1].split(',') != ['']:
+                    elif fields[3][1:-1].split(',') != ['']:
 
                         def convH(s):
                             mul = 1
@@ -208,12 +210,12 @@ class Prop():
                             return v
 
                         self.values = [ convH(x) for x in fields[3][1:-1].split(',') ]
-            except Exception as e:
+            except Exception:
                 print('*' * 21, 'ERROR', '*' * 21)
-                print('in examplar', hex(self.examplar.entry.TGI['t']),
-                      hex(self.examplar.entry.TGI['g']),
-                      hex(self.examplar.entry.TGI['i']))
-                print('located in', self.examplar.entry.fileName)
+                print('in exemplar', hex(self.exemplar.entry.TGI['t']),
+                      hex(self.exemplar.entry.TGI['g']),
+                      hex(self.exemplar.entry.TGI['i']))
+                print('located in', self.exemplar.entry.fileName)
                 print(initialLine)
                 print('*' * 49)
                 raise
@@ -289,7 +291,7 @@ class Prop():
         if hasattr(self, 'named'):
             ret += ':{"%s"}=' % self.named
         else:
-            ret += ':{"%s"}=' % self.examplar.entry.virtual_dat.properties[self.id].Name
+            ret += ':{"%s"}=' % self.exemplar.entry.virtual_dat.properties[self.id].Name
         namedType = {768: 'Uint32',3072: 'String',2304: 'Float32',2816: 'Bool',256: 'Uint8',2048: 'Sint64',1792: 'Sint32'}
         ret += namedType[self.typeValue]
         ret += ':'
@@ -310,7 +312,7 @@ class Prop():
         try:
             ret = struct.pack('I', self.id)
             ret += struct.pack('H', self.typeValue)
-            if self.examplar.entry.virtual_dat.properties[self.id].Count == 1:
+            if self.exemplar.entry.virtual_dat.properties[self.id].Count == 1:
                 self.sizeOfCounter = 0
             else:
                 self.sizeOfCounter = 128
@@ -336,16 +338,16 @@ class Prop():
                     try:
                         ret += struct.pack(Prop.validFormat[self.typeValue], v)
                         continue
-                    except:
+                    except Exception:
                         raise
 
             return ret
         except Exception:
             print('*' * 21, 'ERROR', '*' * 21)
-            print('in examplar', hex(self.examplar.entry.TGI['t']),
-                  hex(self.examplar.entry.TGI['g']),
-                  hex(self.examplar.entry.TGI['i']))
-            print('located in', self.examplar.entry.fileName)
+            print('in exemplar', hex(self.exemplar.entry.TGI['t']),
+                  hex(self.exemplar.entry.TGI['g']),
+                  hex(self.exemplar.entry.TGI['i']))
+            print('located in', self.exemplar.entry.fileName)
             print('Prop', hex(self.id))
             print('*' * 49)
             raise
@@ -373,7 +375,7 @@ class SC4Exemplar():
         objectID = 0
         for id in range(2297284864, 2297286144):
             values = self.GetProp(id)
-            if values != None:
+            if values is not None:
                 lotObjects.append(values[:])
                 removeIds.append(id)
 
@@ -406,7 +408,7 @@ class SC4Exemplar():
         self.modified = True
         try:
             p = Prop(line, False, self)
-        except:
+        except Exception:
             raise
             return False
 
@@ -440,7 +442,7 @@ class SC4Exemplar():
         self.nbrProp = struct.unpack('I', buf.read(4))[0]
         try:
             self.props = list(map(lambda x: Prop(buf, True, self), range(self.nbrProp)))
-        except:
+        except Exception:
             raise
 
     def DecodeBuffer(self, bLazy=True):
@@ -477,11 +479,11 @@ class SC4Exemplar():
                 try:
                     prop = Prop(x, False, self)
                     self.props.append(prop)
-                except:
+                except Exception:
                     pass
 
     def FlattenProps(self):
-        raise NotImplemented
+        raise NotImplementedError
 
     def GetPropObject(self, key):
         for p in self.props:
@@ -509,7 +511,7 @@ class SC4Exemplar():
                  self.parentCohort[2], self.parentCohort[0], self.parentCohort[1])
             self.link = self.virtualDAT.getEntry(self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
             if self.link is not None:
-                if 'examplar' not in self.link.__dict__:
+                if 'exemplar' not in self.link.__dict__:
                     print('require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
                     self.link.read_file(None, True, True)
                     cohort = SC4Exemplar(self.link, self.virtualDAT)
@@ -535,7 +537,7 @@ class SC4Exemplar():
                     self.modified = True
                     break
 
-        except:
+        except Exception:
             pass
 
     def Rep(self):
@@ -557,7 +559,7 @@ class SC4Exemplar():
         return
 
     def SetProp(self, key, values):
-        raise NotImplemented
+        raise NotImplementedError
 
     def TextRep(self):
         lines = []
@@ -621,7 +623,7 @@ class SC4Entry():
         return
 
     def read_file(self, sc4, readWhole=True, decompress=False):
-        if self.rawContent != None:
+        if self.rawContent is not None:
             return False
         if self.tgi[0] == 1697917002 or self.tgi[0] == 87304289 or self.tgi[0] == 2289530369:
             readWhole = True
@@ -629,7 +631,7 @@ class SC4Entry():
         if readWhole:
             self.compressed = False
             bClose = False
-            if sc4 == None:
+            if sc4 is None:
                 bClose = True
                 sc4 = open(self.fileName, 'rb')
             sc4.seek(self.initialFileLocation)
@@ -641,7 +643,7 @@ class SC4Entry():
             if self.compressed:
                 self.lenContent = -1
                 uncompress = QFS.decode(self.rawContent[4:])
-                if uncompress == None:
+                if uncompress is None:
                     raise IOError
                 self.lenContent = len(uncompress)
                 self.content = uncompress
@@ -680,7 +682,7 @@ class DatFile():
         except IOError:
             if dlg:
                 dlg.LogError('error in file: %s' % self.fileName)
-        except:
+        except Exception:
             if dlg:
                 dlg.LogError('Unknown error while reading SC4 file : %s' % self.fileName)
             raise
@@ -730,7 +732,7 @@ class DatFile():
         compressedIncluded = False
         try:
             entries = list(map(lambda idx: SC4Entry(header.read(20), idx, self.fileName), range(self.indexRecordEntryCount)))
-        except:
+        except Exception:
             raise
 
         dirEntries = list(filter(lambda ent: ent.IsItThisTGI((3899334383, 3899334383, 678108931)), entries))
@@ -816,7 +818,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
             pass
         else:
             if bRecompress and not entry.compressed:
-                if entry.rawContent == None:
+                if entry.rawContent is None:
                     sc4In = open(entry.fileName, 'rb')
                     entry.read_file(sc4In)
                     sc4In.close()
@@ -889,7 +891,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         if dlg:
             dlg.g2.SetValue(i)
         wx.Yield()
-        if entry.rawContent == None:
+        if entry.rawContent is None:
             sc4In = open(entry.fileName, 'rb')
             entry.read_file(sc4In)
             sc4In.close()

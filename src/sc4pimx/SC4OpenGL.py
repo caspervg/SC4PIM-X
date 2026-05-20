@@ -46,6 +46,12 @@ class MyCanvasBase(glcanvas.GLCanvas):
     def on_erase_background(self, event):
         pass
 
+    def SetCurrent(self, context=None):
+        # wxPython 4 (Phoenix) requires a GLContext argument; classic allowed
+        # a no-arg call. Default to this canvas's own context so existing
+        # no-arg call sites keep working.
+        super().SetCurrent(context if context is not None else self.context)
+
     def text_2d(self, x, y, text, rot_2d, scaling):
         glPushMatrix()
         glTranslatef(x, y, 0)
@@ -77,7 +83,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
         dc = wx.PaintDC(self)
         if not self.init:
             if self.displayer:
-                self.displayer.InitGL()
+                self.displayer.init_gl()
                 self.init = True
         if self.init and self.displayer:
             self.displayer.on_draw()

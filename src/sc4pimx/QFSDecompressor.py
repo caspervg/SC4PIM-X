@@ -8,7 +8,9 @@ Based on the C++ implementation in QFSDecompressor.cpp.
 class QFSDecompressor:
     """Handles QFS (Refpack) compression/decompression."""
 
-    MAGIC_COMPRESSED = 0xFA00
+    # QFS/RefPack signature: byte 0 is {0x10, 0x11, ...} (bit 0 masked off),
+    # byte 1 is 0xFB -> ((b0 & 0xFE) << 8) | b1 == 0x10FB.
+    MAGIC_COMPRESSED = 0x10FB
 
     @staticmethod
     def is_qfs_compressed(buffer: bytes) -> bool:

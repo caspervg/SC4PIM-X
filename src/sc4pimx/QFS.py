@@ -1,4 +1,4 @@
-from QFSDecompressor import QFSDecompressor
+from .QFSDecompressor import QFSDecompressor
 
 
 def decode(buffer: bytes) -> bytes | None:

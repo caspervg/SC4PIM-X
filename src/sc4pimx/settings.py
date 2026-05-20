@@ -6,7 +6,7 @@ import configparser
 import os
 from pathlib import Path
 
-from paths import package_data_path
+from .paths import package_data_path
 
 ItemOrderForPloppable = 1
 ItemOrderForElementary = 2

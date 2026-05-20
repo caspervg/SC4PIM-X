@@ -6,18 +6,26 @@ lots, and virtual DAT file collections.
 import codecs
 import functools
 import os
-import threading
 import xml.dom.minidom
 
-from PIL import ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
-import FSHConverter
-from S3DReader import *
-from SC4DatTools import *
-from SC4DataFunctions import ToTile
-from paths import asset_path
-from translation import *
-from util import basic_cmp, DictWrapper
+from . import FSHConverter
+from .paths import asset_path
+from .S3DReader import *
+from .SC4DataFunctions import ToTile
+from .SC4DatTools import *
+from .translation import *
+from .util import basic_cmp
+
+
+def _text_size(font, text):
+    """Return the (width, height) of rendered text.
+
+    Replaces ``ImageFont.getsize()``, which was removed in Pillow 10.
+    """
+    left, top, right, bottom = font.getbbox(text)
+    return (right - left, bottom - top)
 
 
 class Family:
@@ -32,10 +40,10 @@ class Family:
                 try:
                     if cohort.exemplar.entry == cohort:
                         pass
-                except:
+                except Exception:
                     cohort.read_file(None, True, True)
-                    examplar = SC4Exemplar(cohort)
-                    cohort.exemplar = examplar
+                    exemplar = SC4Exemplar(cohort)
+                    cohort.exemplar = exemplar
                     cohort.rawContent = None
                     cohort.content = None
 
@@ -59,27 +67,27 @@ class Family:
 class FloraDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.exemplar
+        self.exemplar = entry.exemplar
         try:
             self.name = entry.exemplar.GetProp(32)[0]
-        except:
+        except Exception:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
         self.fileName = entry.fileName
         self.rtk = None
-        self.rtk = self.examplar.GetProp(662775840)
+        self.rtk = self.exemplar.GetProp(662775840)
         if self.rtk is not None:
             self.rtk = tuple(self.rtk)
         else:
-            self.rtk = self.examplar.GetProp(662775841)
+            self.rtk = self.exemplar.GetProp(662775841)
             if self.rtk is not None:
                 self.rtk = tuple(self.rtk)
             else:
-                self.rtk = self.examplar.GetProp(662775844)
+                self.rtk = self.exemplar.GetProp(662775844)
                 if self.rtk is not None:
                     self.rtk = tuple(self.rtk[5:8])
                 else:
-                    self.rtk = self.examplar.GetProp(662775843)
+                    self.rtk = self.exemplar.GetProp(662775843)
                     if self.rtk is not None:
                         self.rtk = tuple(self.rtk[0:2] + [self.rtk[-1]])
         return
@@ -88,7 +96,7 @@ class FloraDesc():
 class ATCProxy():
 
     def __init__(self, entry, atc):
-        if entry == None:
+        if entry is None:
             self.fileName = invisibleATC
             self.name = unknonwMsg
         else:
@@ -101,27 +109,27 @@ class ATCProxy():
 class FoundationDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.exemplar
+        self.exemplar = entry.exemplar
         try:
             self.name = entry.exemplar.GetProp(32)[0]
-        except:
+        except Exception:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
         self.fileName = entry.fileName
         self.rtk = None
-        self.rtk = self.examplar.GetProp(662775840)
+        self.rtk = self.exemplar.GetProp(662775840)
         if self.rtk is not None:
             self.rtk = tuple(self.rtk)
         else:
-            self.rtk = self.examplar.GetProp(662775841)
+            self.rtk = self.exemplar.GetProp(662775841)
             if self.rtk is not None:
                 self.rtk = tuple(self.rtk)
             else:
-                self.rtk = self.examplar.GetProp(662775844)
+                self.rtk = self.exemplar.GetProp(662775844)
                 if self.rtk is not None:
                     self.rtk = tuple(self.rtk[5:8])
                 else:
-                    self.rtk = self.examplar.GetProp(662775843)
+                    self.rtk = self.exemplar.GetProp(662775843)
                     if self.rtk is not None:
                         self.rtk = tuple(self.rtk[0:2] + [self.rtk[-1]])
         return
@@ -156,27 +164,27 @@ def GetCategories(root, desc):
 class BuildingDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.exemplar
+        self.exemplar = entry.exemplar
         try:
             self.name = entry.exemplar.GetProp(32)[0]
-        except:
+        except Exception:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
         self.fileName = entry.fileName
         self.rtk = None
-        self.rtk = self.examplar.GetProp(662775840)
+        self.rtk = self.exemplar.GetProp(662775840)
         if self.rtk is not None:
             self.rtk = tuple(self.rtk)
         else:
-            self.rtk = self.examplar.GetProp(662775841)
+            self.rtk = self.exemplar.GetProp(662775841)
             if self.rtk is not None:
                 self.rtk = tuple(self.rtk)
             else:
-                self.rtk = self.examplar.GetProp(662775844)
+                self.rtk = self.exemplar.GetProp(662775844)
                 if self.rtk is not None:
                     self.rtk = tuple(self.rtk[5:8])
                 else:
-                    self.rtk = self.examplar.GetProp(662775843)
+                    self.rtk = self.exemplar.GetProp(662775843)
                     if self.rtk is not None:
                         self.rtk = tuple(self.rtk[0:2] + [self.rtk[-1]])
         return
@@ -190,7 +198,7 @@ def Categorize(root, desc):
             root.descriptors.append(desc)
             try:
                 desc.cats.append(root.ID)
-            except:
+            except Exception:
                 desc.cats = [
                     root.ID]
 
@@ -205,31 +213,31 @@ def Categorize(root, desc):
     return False
 
 
-def CheckAgainstFilter(cat, examplar):
+def CheckAgainstFilter(cat, exemplar):
     needed = cat.filters.needed
     for f in needed:
         id = f[0]
         value = f[1]
-        examplarValue = examplar.GetProp(id)
-        if value == None and examplarValue is None:
+        exemplarValue = exemplar.GetProp(id)
+        if value is None and exemplarValue is None:
             return False
         if value is not None:
-            if examplarValue is None:
+            if exemplarValue is None:
                 return False
-            if value not in examplarValue:
+            if value not in exemplarValue:
                 return False
 
     notallowed = cat.filters.notallowed
     for f in notallowed:
         id = f[0]
         value = f[1]
-        examplarValue = examplar.GetProp(id)
-        if value == None and examplarValue is not None:
+        exemplarValue = exemplar.GetProp(id)
+        if value is None and exemplarValue is not None:
             return False
         if value is not None:
-            if examplarValue is None:
+            if exemplarValue is None:
                 pass
-            elif value in examplarValue:
+            elif value in exemplarValue:
                 return False
 
     return True
@@ -259,7 +267,7 @@ def ConvertAPropToReadable(prop, propFormat):
         resultat += ' - %s: ' % mapIdx[2]
         try:
             resultat += mapThirdVal[prop.values[2]]
-        except:
+        except Exception:
             resultat += hex2str(prop.values[2])
 
         for i, v in enumerate(prop.values):
@@ -276,7 +284,7 @@ def ConvertAPropToReadable(prop, propFormat):
             if i >= 10:
                 try:
                     resultat += ' - %s: ' % mapIdx[i]
-                except:
+                except Exception:
                     resultat += ' - unknown: '
 
                 resultat += hex2str(v)
@@ -301,9 +309,9 @@ def ConvertAPropToReadable(prop, propFormat):
                 resultat += codecs.decode(v, 'unicode_escape')
         elif prop.typeValue == 2304:
             resultat += '%.01f' % v
-        elif prop.typeValue == 2048 and propFormat.ShowAsHex == True:
+        elif prop.typeValue == 2048 and propFormat.ShowAsHex:
             resultat += '0x%016X' % v
-        elif propFormat.ShowAsHex == True:
+        elif propFormat.ShowAsHex:
             resultat += '0x%08X' % v
         else:
             resultat += '%d' % v
@@ -362,7 +370,7 @@ class ImageListLoaderProps(object):
 
     def LoadJPGToBitmap(self, fileName):
         pil = Image.open(fileName)
-        image = wx.EmptyImage(pil.size[0], pil.size[1])
+        image = wx.Image(pil.size[0], pil.size[1])
         image.SetData(pil.convert('RGB').tobytes())
         return image.ConvertToBitmap()
 
@@ -374,7 +382,9 @@ class ImageListLoaderProps(object):
             return
         idx = self.virtualDAT.ilStandardModels.Add(image)
         if idx == -1:
-            print('PropLoader : Error adding JPG file for'), file_name, image.GetWidth(), 'by', image.GetHeight(), 'nbr already loaded:', self.virtualDAT.ilStandardModels.GetImageCount()
+            print('PropLoader : Error adding JPG file for %s (%dx%d), nbr already loaded: %d' %
+                  (file_name, image.GetWidth(), image.GetHeight(),
+                   self.virtualDAT.ilStandardModels.GetImageCount()))
         elif tgi is not None:
             self.virtualDAT.s3dEntries[tgi] = idx
 
@@ -403,7 +413,7 @@ class ImageListLoaderTexture(object):
         self.virtualDAT = virtualDAT
         self.keepGoing = self.running = False
         self.font = ImageFont.truetype('arial.ttf', 12)
-        self.offset = self.font.getlength('R')
+        self.offset = _text_size(self.font, 'R')
 
     def Start(self):
         self.keepGoing = self.running = True
@@ -441,24 +451,22 @@ class ImageListLoaderTexture(object):
             print('TextureLoader : Invalid RGB buffer size for %s (%d != %d)' %
                   (texEntry.fileName, len(rgb_bytes), expected))
             return
-        image = wx.EmptyImage(size[0], size[1])
+        image = wx.Image(size[0], size[1])
         image.SetData(rgb_bytes)
         if trueAlpha:
             idx = self.virtualDAT.ilOver.Add(image.ConvertToBitmap())
             if idx == -1:
-                print('OverlayLoader : Error addind fsh %s-%s-%s from %s') % (hex2str(texEntry.tgi[0]),
-                                                                              hex2str(texEntry.tgi[1]),
-                                                                              hex2str(texEntry.tgi[2]),
-                                                                              texEntry.fileName)
+                print('OverlayLoader : Error adding fsh %s-%s-%s from %s' %
+                      (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
+                       hex2str(texEntry.tgi[2]), texEntry.fileName))
             self.virtualDAT.overTexEntriesDict[texEntry] = idx
             self.virtualDAT.overTexEntries.append(texEntry)
         else:
             idx = self.virtualDAT.ilBase.Add(image.ConvertToBitmap())
             if idx == -1:
-                print('BaseLoader : Error addind fsh %s-%s-%s from %s') % (hex2str(texEntry.tgi[0]),
-                                                                           hex2str(texEntry.tgi[1]),
-                                                                           hex2str(texEntry.tgi[2]),
-                                                                           texEntry.fileName)
+                print('BaseLoader : Error adding fsh %s-%s-%s from %s' %
+                      (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
+                       hex2str(texEntry.tgi[2]), texEntry.fileName))
             self.virtualDAT.baseTexEntriesDict[texEntry] = idx
             self.virtualDAT.baseTexEntries.append(texEntry)
 
@@ -472,7 +480,7 @@ class ImageListLoaderTexture(object):
             return
         allTex = self.virtualDAT.allTextures
         for texEntry in allTex:
-            if self.keepGoing == False:
+            if not self.keepGoing:
                 break
             texEntry.read_file(None, True, True)
             try:
@@ -513,14 +521,14 @@ class ImageListLoaderTexture(object):
                     draw.text((64 - self.offset[0] - 5, 64 - self.offset[1] - 2), 'R', font=self.font, fill=(0,
                                                                                                              0,
                                                                                                              0))
-                except:
+                except Exception:
                     print('blem')
                     raise
 
             IID = texEntry.tgi[2] & 61440
             if IID == 0 or IID == 4096 or IID == 8192 or IID == 12288:
                 signs = {0: '0', 4096: '$', 8192: '$$', 12288: '$$$'}
-                length = self.font.getsize(signs[IID])
+                length = _text_size(self.font, signs[IID])
                 draw = ImageDraw.Draw(pilz)
                 draw.ellipse((2, 64 - self.offset[1] - 2, length[0] + 7, 64 - self.offset[1] + 12), fill=(156,
                                                                                                           181,
@@ -537,7 +545,7 @@ class ImageListLoaderTexture(object):
 
 
 def IsAChild(cat, id):
-    if cat == None:
+    if cat is None:
         return False
     if cat.ID == id:
         return True
@@ -548,19 +556,19 @@ def IsFromCategoryDesc(cat, desc):
     return desc in cat.descriptors
 
 
-def IsFromCategory(cat, examplar):
-    if cat == None:
+def IsFromCategory(cat, exemplar):
+    if cat is None:
         return True
-    return CheckAgainstFilter(cat, examplar) and IsFromCategory(cat.parent, examplar)
+    return CheckAgainstFilter(cat, exemplar) and IsFromCategory(cat.parent, exemplar)
 
 
 class LotDesc():
 
     def __init__(self, entry):
-        self.examplar = entry.exemplar
+        self.exemplar = entry.exemplar
         try:
             self.name = entry.exemplar.GetProp(32)[0]
-        except:
+        except Exception:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
         self.fileName = entry.fileName
@@ -577,27 +585,27 @@ def PrintCat(cat, spaces=0):
 class PropDesc(object):
 
     def __init__(self, entry):
-        self.examplar = entry.exemplar
+        self.exemplar = entry.exemplar
         try:
             self.name = entry.exemplar.GetProp(32)[0]
-        except:
+        except Exception:
             self.name = 'Unnamed 0x%08X-0x%08X-0x%08X' % (entry.tgi[0], entry.tgi[1], entry.tgi[2])
 
         self.fileName = entry.fileName
         self.rtk = None
-        self.rtk = self.examplar.GetProp(662775840)
+        self.rtk = self.exemplar.GetProp(662775840)
         if self.rtk is not None:
             self.rtk = tuple(self.rtk)
         else:
-            self.rtk = self.examplar.GetProp(662775841)
+            self.rtk = self.exemplar.GetProp(662775841)
             if self.rtk is not None:
                 self.rtk = tuple(self.rtk)
             else:
-                self.rtk = self.examplar.GetProp(662775844)
+                self.rtk = self.exemplar.GetProp(662775844)
                 if self.rtk is not None:
                     self.rtk = tuple(self.rtk[5:8])
                 else:
-                    self.rtk = self.examplar.GetProp(662775843)
+                    self.rtk = self.exemplar.GetProp(662775843)
                     if self.rtk is not None:
                         self.rtk = tuple(self.rtk[0:2] + [self.rtk[-1]])
         return
@@ -630,7 +638,7 @@ class ResourceViewer():
                 self.viewingData.append(virtualDAT.otherModelsDict[rktData])
             else:
                 what = SC4ModelMesh(rktData[1], rktData[2], virtualDAT)
-                if what.is_valid == False:
+                if not what.is_valid:
                     return None
                 virtualDAT.otherModels.append(
                     StandardModel(virtualDAT.getEntry(rktData[0], rktData[1], rktData[2]), what))
@@ -669,7 +677,7 @@ class ResourceViewer():
                         self.viewingData.append(virtualDAT.otherModelsDict[data[5:]])
                     else:
                         what = SC4ModelMesh(data[6], data[7], virtualDAT)
-                        if what.is_valid == False:
+                        if not what.is_valid:
                             continue
                         else:
                             virtualDAT.otherModels.append(
@@ -700,32 +708,32 @@ class ResourceViewer():
         what._pre_load(virtualDAT, s3DTexturesHolder)
         return None
 
-    def Draw(self, viewer, fileNameStatic, zoom, rot, state):
-        if state == None:
+    def draw(self, viewer, fileNameStatic, zoom, rot, state):
+        if state is None:
             state = 0
         try:
             what = self.viewingData[state]
         except IndexError:
-            if viewer.s3d_mesh != None:
+            if viewer.s3d_mesh is not None:
                 viewer.s3d_mesh.free_3d(viewer.s3d_textures_holder)
                 viewer.s3d_mesh = None
             viewer.refresh(False)
             return
-        except:
+        except Exception:
             print(state)
             raise
 
         viewer = what.__class__.viewer
         self.mainFrame.viewer = viewer
-        viewer.InitGL()
+        viewer.init_gl()
         viewer.refresh(False)
         if what.__class__ == SC4Model:
             what.draw(viewer, fileNameStatic, zoom, rot)
-            if what.mainMesh.entry == None:
+            if what.mainMesh.entry is None:
                 fileNameStatic.SetLabel(invisibleModel)
             else:
                 fileNameStatic.SetLabel(what.mainMesh.entry.fileName)
-            fileNameStatic.refresh(False)
+            fileNameStatic.Refresh(False)
         else:
             what.draw(viewer, fileNameStatic, zoom, rot)
         return
@@ -743,7 +751,7 @@ class SC4Model1MeshPerZoom():
         self.bValid = True
         self.descName = self.name
         for mesh in self.s3dMeshes:
-            if mesh.entry == None:
+            if mesh.entry is None:
                 self.bValid = False
 
         return
@@ -752,28 +760,32 @@ class SC4Model1MeshPerZoom():
         for mesh in self.s3dMeshes:
             mesh.LEInit(virtualDAT, s3DTexturesHolder)
 
-    def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
+    def draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
         viewer.angle_mul = 1
         if nZoom == -1:
             viewer.use_best_fit = True
-            self.s3dMeshes[4].Initialize(self.virtualDAT, viewer)
+            self.s3dMeshes[4].initialize(self.virtualDAT, viewer)
         else:
             viewer.use_best_fit = False
             viewer.zoom = nZoom
-            self.s3dMeshes[nZoom].Initialize(self.virtualDAT, viewer)
+            self.s3dMeshes[nZoom].initialize(self.virtualDAT, viewer)
 
 
 class SC4ModelMesh():
 
     def __init__(self, GID, IID, virtualDAT):
         self.name = '0x%08X-0x%08X' % (GID, IID)
+        # Always define descName; an xml SC4PLUGINDESC entry overrides it below
+        # when present. Without this default, models lacking that xml raise
+        # AttributeError in StandardModel.__init__.
+        self.descName = self.name
         self.GID = GID
         self.IID = IID
         self.virtualDAT = virtualDAT
         self.mainMesh = S3D(virtualDAT.getEntry(1523640343, GID, IID + 0))
         self.is_valid = True
         self.descName = self.name
-        if self.mainMesh.entry == None:
+        if self.mainMesh.entry is None:
             self.is_valid = False
         xmlEntry = virtualDAT.getEntry(2289530369, GID, IID)
         if xmlEntry:
@@ -789,10 +801,9 @@ class SC4ModelMesh():
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 del xmlEntry
-            except:
-                print('Error reading the xml in'),
-                print(xmlEntry.fileName)
-                print('xml for model 0x%08X-0x%08X') % (GID, IID)
+            except Exception:
+                print('Error reading the xml in', xmlEntry.fileName)
+                print('xml for model 0x%08X-0x%08X' % (GID, IID))
                 print(xmlEntry.content)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
@@ -807,23 +818,27 @@ class SC4ModelMesh():
     def PreLoad(self, virtualDAT, s3DTexturesHolder):
         self.mainMesh.LEInit(virtualDAT, s3DTexturesHolder)
 
-    def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
+    def draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
         preAngle = [0, 90, 180, 270]
         viewer.pre_angle = preAngle[nRot]
         viewer.angle_mul = 1
         if nZoom == -1:
             viewer.use_best_fit = True
-            self.mainMesh.Initialize(self.virtualDAT, viewer)
+            self.mainMesh.initialize(self.virtualDAT, viewer)
         else:
             viewer.use_best_fit = False
             viewer.zoom = nZoom
-            self.mainMesh.Initialize(self.virtualDAT, viewer)
+            self.mainMesh.initialize(self.virtualDAT, viewer)
 
 
 class SC4Model():
 
     def __init__(self, GID, IID, virtualDAT):
         self.name = '0x%08X-0x%08X' % (GID, IID)
+        # Always define descName; an xml SC4PLUGINDESC entry overrides it below
+        # when present. Without this default, models lacking that xml raise
+        # AttributeError in StandardModel.__init__.
+        self.descName = self.name
         self.GID = GID
         self.IID = IID
         self.virtualDAT = virtualDAT
@@ -876,10 +891,9 @@ class SC4Model():
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 del xmlEntry
-            except:
-                print('Error reading the xml in'),
-                print(xmlEntry.fileName)
-                print('xml for model 0x%08X-0x%08X') % (GID, IID)
+            except Exception:
+                print('Error reading the xml in', xmlEntry.fileName)
+                print('xml for model 0x%08X-0x%08X' % (GID, IID))
                 print(xmlEntry.content)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
@@ -896,7 +910,7 @@ class SC4Model():
         self.mainMesh = self.s3dMeshes[0][0]
         return
 
-    def Draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
+    def draw(self, viewer, fileNameStatic, nZoom=-1, nRot=0, state=0):
         viewer.pre_angle = 0
         viewer.angle_mul = 1
         if nZoom == -1:
@@ -917,7 +931,7 @@ class StandardModel():
 
     def __init__(self, entry, sc4Model):
         self.name = sc4Model.descName
-        if entry == None:
+        if entry is None:
             self.fileName = invisibleModel
         else:
             self.fileName = entry.fileName

@@ -1,18 +1,19 @@
 """SC4 Lot Editor (LE) tools for editing building lots."""
-import wx
-import wx.lib.sized_controls as sc
-import FSHConverter
-from PIL import Image
-from PIL import ImageDraw
-import treeDnD
+import datetime
 import io
 import random
-import datetime
-from SC4OpenGL import *
-from translation import *
-from SC4Data import *
-from ATCReader import *
-from util import basic_cmp
+
+import wx
+from PIL import Image, ImageDraw
+
+from . import FSHConverter, treeDnD
+from .ATCReader import *
+from .paths import asset_path
+from .SC4Data import *
+from .SC4OpenGL import *
+from .translation import *
+from .util import basic_cmp
+
 
 def CmpTGI(tgi1, tgi2):
     if tgi1[0] == tgi2[0]:
@@ -108,7 +109,7 @@ class GroupProxy():
     def Save(self, fout):
         fout.write('group = GroupProxy( "%s" , %d )\n' % (self.name, self.kind))
         for item in self.items:
-            if type(item) == tuple:
+            if isinstance(item, tuple):
                 fout.write('group.AddItem( (%s) )\n' % ','.join([ hex2str(i) for i in item ]))
             elif self.kind == 0 or self.kind == 1:
                 fout.write('group.AddItem( %s )\n' % hex2str(item - 3))
@@ -133,7 +134,7 @@ class GroupProxy():
                 tree.SetPyData(self.itemIdx, self)
                 if self.kind == 2:
                     for item in self.items:
-                        if type(item) != tuple:
+                        if not isinstance(item, tuple):
                             try:
                                 sub = VirtualDat.this.categories[item]
                             except KeyError:
@@ -147,7 +148,7 @@ class GroupProxy():
     def RemoveItem(self, what):
         try:
             value = what.what
-        except:
+        except Exception:
             value = what
 
         if self.kind == 0 or self.kind == 1:
@@ -160,12 +161,12 @@ class GroupProxy():
             if what + 3 not in self.items:
                 self.items.append(what + 3)
         if self.kind == 2 or self.kind == 3:
-            if type(what) == tuple:
+            if isinstance(what, tuple):
                 if what not in self.items:
                     self.items.append(what)
             elif what not in self.items:
                 self.items.append(what)
-                if self.itemIdx != None and tree != None:
+                if self.itemIdx is not None and tree is not None:
                     try:
                         sub = VirtualDat.this.categories[what]
                     except KeyError:
@@ -173,9 +174,9 @@ class GroupProxy():
 
                     idx = tree.AppendItem(self.itemIdx, sub.Name)
                     tree.SetPyData(idx, sub.ID)
-                    tree.refresh(False)
+                    tree.Refresh(False)
         if self.kind == 4:
-            if type(what) == tuple:
+            if isinstance(what, tuple):
                 if what not in self.items:
                     self.items.append(what)
         return
@@ -194,7 +195,7 @@ class GroupProxy():
 
             def GetDescFromTGI(tgi):
                 selectedDesc = None
-                if type(tgi) == tuple:
+                if isinstance(tgi, tuple):
                     t = tgi[0]
                     g = tgi[1]
                     i = tgi[2]
@@ -212,7 +213,7 @@ class GroupProxy():
         return
 
 
-def BuildImageForProp(examplar):
+def BuildImageForProp(exemplar):
 
     def BuildImageForTGI(tgi):
         fileName = 'ImageDBLarge/%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2]))
@@ -222,15 +223,15 @@ def BuildImageForProp(examplar):
 
     def BitmapFromTGI(tgi):
         pilz = BuildImageForTGI(tgi)
-        image = wx.EmptyImage(pilz.size[0], pilz.size[1])
+        image = wx.Image(pilz.size[0], pilz.size[1])
         image.SetData(pilz.tobytes())
         return image.ConvertToBitmap()
 
-    rkt0 = examplar.GetProp(662775840)
-    rkt1 = examplar.GetProp(662775841)
-    rkt3 = examplar.GetProp(662775843)
-    rkt4 = examplar.GetProp(662775844)
-    rkt5 = examplar.GetProp(662775845)
+    rkt0 = exemplar.GetProp(662775840)
+    rkt1 = exemplar.GetProp(662775841)
+    rkt3 = exemplar.GetProp(662775843)
+    rkt4 = exemplar.GetProp(662775844)
+    rkt5 = exemplar.GetProp(662775845)
     tgi = (0, 0, 0)
     if rkt0 and rkt0[0] == 1523640343:
         tgi = tuple(rkt0)
@@ -262,7 +263,7 @@ def BuildImageForProp(examplar):
             draw = ImageDraw.Draw(fullImage)
             draw.rectangle((128 * cb, 0, 128 * cb + 127, 127), outline=(255, 255, 255))
 
-        image = wx.EmptyImage(128 * nbChoices, 128)
+        image = wx.Image(128 * nbChoices, 128)
         image.SetData(fullImage.tobytes())
         return (
          image.ConvertToBitmap(), nbChoices > 1)
@@ -292,7 +293,7 @@ class ImageListCtrl(wx.ListCtrl):
 
     def OnRemoveItem(self, event):
         group = self.parent.IsItPersonalGroup(self.parent.currentItem)
-        if group != None:
+        if group is not None:
             items = self.GetSelectedItems()
             for idx in items:
                 data = self.GetPyData(idx)
@@ -310,8 +311,8 @@ class ImageListCtrl(wx.ListCtrl):
         data = self.GetPyData(idx)
         if data.__class__ == PropProxy:
             entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
-            examplar = entry.exemplar
-            img, multi = BuildImageForProp(examplar)
+            exemplar = entry.exemplar
+            img, multi = BuildImageForProp(exemplar)
             tipballoon.SetBalloonIcon(img)
             if multi:
                 tipballoon.SetBalloonMessage('Seasonal/Timed prop\n' + os.path.split(entry.fileName)[1])
@@ -334,18 +335,18 @@ class ImageListCtrl(wx.ListCtrl):
                     break
                 thisId -= 1
 
-            img, multi = BuildImageForProp(thisDesc.examplar)
+            img, multi = BuildImageForProp(thisDesc.exemplar)
             tipballoon.SetBalloonIcon(img)
             if multi:
-                tipballoon.SetBalloonMessage('Seasonal/Timed prop\n' + os.path.split(thisDesc.examplar.entry.fileName)[1])
+                tipballoon.SetBalloonMessage('Seasonal/Timed prop\n' + os.path.split(thisDesc.exemplar.entry.fileName)[1])
             else:
-                tipballoon.SetBalloonMessage(os.path.split(thisDesc.examplar.entry.fileName)[1])
+                tipballoon.SetBalloonMessage(os.path.split(thisDesc.exemplar.entry.fileName)[1])
         elif data.__class__ == BaseProxy or data.__class__ == OverlayProxy:
 
             def LoadTexForTGI(tgi):
                 texEntry = VirtualDat.this.getEntry(2058686020, 159781726, tgi + 4)
-                if texEntry == None:
-                    return (Image.open('NoPreview.jpg').resize((128, 128), Image.BICUBIC), 0, '')
+                if texEntry is None:
+                    return (Image.open(asset_path('other', 'NoPreview.jpg')).resize((128, 128), Image.BICUBIC), 0, '')
                 texEntry.read_file(None, True, True)
                 nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
                 nbOfBytes = size[0] * size[1]
@@ -386,7 +387,7 @@ class ImageListCtrl(wx.ListCtrl):
                     for i, img in enumerate(imgs):
                         fullImage.paste(img.convert('RGB'), (0, 128 * i))
 
-            image = wx.EmptyImage(fullImage.size[0], fullImage.size[1])
+            image = wx.Image(fullImage.size[0], fullImage.size[1])
             image.SetData(fullImage.convert('RGB').tobytes())
             tipballoon.SetBalloonIcon(image.ConvertToBitmap())
             strMsg = os.path.split(fileName)[1]
@@ -397,7 +398,7 @@ class ImageListCtrl(wx.ListCtrl):
 
     def OnItemListSelected(self, event):
         item = event.GetItem()
-        idx = event.m_itemIndex
+        idx = event.GetIndex()
 
     def SetPyData(self, idx, what):
         self.pyDatas[idx] = what
@@ -405,7 +406,7 @@ class ImageListCtrl(wx.ListCtrl):
     def GetPyData(self, idx):
         try:
             return self.pyDatas[idx]
-        except:
+        except Exception:
             return None
 
         return None
@@ -418,7 +419,7 @@ class ImageListCtrl(wx.ListCtrl):
         self.InsertColumn(0, 'Image')
         self.il = il
         self.SetColumnWidth(0, 10)
-        if catID == None:
+        if catID is None:
             fnFill(self, entries, fnPrint)
         else:
             fnFill(self, entries, fnPrint, catID)
@@ -446,7 +447,7 @@ class ImageListCtrl(wx.ListCtrl):
             dd = treeDnD.DropData()
             for selected in selection:
                 py = self.GetPyData(selected)
-                if py != None:
+                if py is not None:
                     dd.setObject(py)
 
             comp.Add(dd)
@@ -475,11 +476,11 @@ def FillListForTex(self, entries, fnPrint):
         try:
             idx = VirtualDat.this.overTexEntriesDict[texEntry]
             ProxyClass = OverlayProxy
-        except:
+        except Exception:
             try:
                 idx = VirtualDat.this.baseTexEntriesDict[texEntry]
                 ProxyClass = BaseProxy
-            except:
+            except Exception:
                 continue
 
         index = self.InsertImageStringItem(self.GetItemCount(), fnPrint(texEntry), idx)
@@ -549,7 +550,7 @@ def FillListForProps(self, entries, fnPrint, catID=None):
                 pass
 
         if idx == -1:
-            self.InsertStringItem(self.GetItemCount(), fnPrint(desc))
+            self.InsertItem(self.GetItemCount(), fnPrint(desc))
         else:
             index = self.InsertImageStringItem(self.GetItemCount(), fnPrint(desc), idx)
             self.SetItemImage(index, idx, idx)
@@ -565,17 +566,17 @@ def DisplayNameForIcon(entry):
 
 def FillListForIcon(self, entries, fnPrint):
     for texEntry in entries:
-        if texEntry != None:
+        if texEntry is not None:
             try:
-                if texEntry.content == None:
+                if texEntry.content is None:
                     texEntry.read_file(None, True, True)
-            except:
+            except Exception:
                 texEntry.read_file(None, True, True)
 
             cIO = io.BytesIO(texEntry.content)
             pilz = Image.open(cIO).convert('RGB')
             cIO.close()
-            image = wx.EmptyImage(44 * 4, 44)
+            image = wx.Image(44 * 4, 44)
             image.SetData(pilz.convert('RGB').tobytes())
             VirtualDat.this.ilIcon.Replace(0, image.ConvertToBitmap())
             index = self.InsertImageStringItem(self.GetItemCount(), fnPrint(texEntry), 0)
@@ -748,7 +749,7 @@ class TextureDlg(wx.Frame):
 
     def OnDeleteKey(self, event):
         item = self.currentItem
-        if self.IsItPersonalGroup(item) != None:
+        if self.IsItPersonalGroup(item) is not None:
             dlg = wx.MessageDialog(self, LEConfirmDeletGroupMsg, LEConfirmDeletGroupTitle, wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION)
             if dlg.ShowModal() == wx.ID_YES:
                 self.OnDeleteGroup(event)
@@ -882,7 +883,7 @@ class TextureDlg(wx.Frame):
             self.propList.Reset(VirtualDat.this.ilIcon, [entry], FillListForIcon, DisplayNameForIcon)
         else:
             catID = tree.GetPyData(item)
-            if catID != None:
+            if catID is not None:
                 if catID.__class__ == GroupProxy:
                     catID.Display(self.propList)
                 else:
@@ -894,8 +895,8 @@ class TextureDlg(wx.Frame):
 
     def Save(self):
         fout = open('groups.ini', 'wt')
-        x, y = self.GetPositionTuple()
-        w, h = self.GetSizeTuple()
+        x, y = self.GetPosition()
+        w, h = self.GetSize()
         fout.write('self.Move( ( %d, %d ) )\n' % (x, y))
         fout.write('self.SetSize( ( %d, %d ) )\n' % (w, h))
         for group in self.groups:

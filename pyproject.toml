@@ -27,6 +27,9 @@ dependencies = [
     "pywin32>=306; sys_platform == 'win32'",
 ]
 
+[project.scripts]
+sc4pimx = "sc4pimx.SC4PIMApp:main"
+
 [project.optional-dependencies]
 dev = [
     "black>=23.0.0",
@@ -55,8 +58,14 @@ target-version = ['py311']
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]  # Line too long (handled by black)
+ignore = [
+    "E501",  # Line too long (handled by black)
+    "F403",  # `from module import *` used (legacy decompiled modules)
+    "F405",  # name may be undefined from star imports (legacy decompiled modules)
+]
 
 [tool.mypy]
 python_version = "3.11"
