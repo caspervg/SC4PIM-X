@@ -3,7 +3,9 @@ import wx
 import wx.lib.filebrowsebutton as filebrowse
 from PIL import Image
 from PIL.Image import Resampling
-from translation import IconDlgPicture, IconDlgTitle
+
+from .paths import asset_path
+from .translation import IconDlgPicture, IconDlgTitle
 
 
 class IconDlg(wx.Dialog):
@@ -32,8 +34,8 @@ class IconDlg(wx.Dialog):
         return
 
     def replace_img(self, icon_image):
-        wx_image = wx.EmptyImage(44 * 4, 44)
-        wx_image.SetData(icon_image.convert('RGB').tostring())
+        wx_image = wx.Image(44 * 4, 44)
+        wx_image.SetData(icon_image.convert('RGB').tobytes())
         self.bitmap1.SetBitmap(wx_image.ConvertToBitmap())
 
     def fbb_callback(self, event):
@@ -44,8 +46,8 @@ class IconDlg(wx.Dialog):
             return
 
         image = image.resize((44, 44), Resampling.BICUBIC)
-        template = Image.open('IconTpl.png')
-        mask = Image.open('IconMaskTpl.png').convert('L')
+        template = Image.open(asset_path('templates', 'IconTpl.png'))
+        mask = Image.open(asset_path('templates', 'IconMaskTpl.png')).convert('L')
         icon_image = Image.new('RGBA', (44 * 4, 44))
         icon_image.paste(image, (0, 0))
         icon_image.paste(image, (44, 0))

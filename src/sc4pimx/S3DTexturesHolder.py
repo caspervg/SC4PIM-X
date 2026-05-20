@@ -1,7 +1,36 @@
 """S3D textures holder for OpenGL rendering."""
+from OpenGL.GL import (
+    GL_CLAMP,
+    GL_LINEAR,
+    GL_RGBA,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_WRAP_S,
+    GL_TEXTURE_WRAP_T,
+    GL_UNPACK_ALIGNMENT,
+    GL_UNSIGNED_BYTE,
+    glBindTexture,
+    glColor3f,
+    glDeleteTextures,
+    glDisable,
+    glEnable,
+    glGenTextures,
+    glPixelStorei,
+    glTexImage2D,
+    glTexParameterf,
+)
 from PIL import Image
 
-import FSHConverter
+from . import FSHConverter
+
+
+def _texture_name(value):
+    return int(value)
+
+
+def _delete_texture(value):
+    glDeleteTextures([_texture_name(value)])
 
 
 class S3DTexturesHolder(object):
@@ -14,9 +43,9 @@ class S3DTexturesHolder(object):
     def Free(self):
         self.glCanvas.SetCurrent()
         for texID, texture in self.textures.items():
-            if texture[1] != None:
+            if texture[1] is not None:
                 for layer in texture[1]:
-                    glDeleteTextures(layer)
+                    _delete_texture(layer)
 
                 texture[1] = None
 
@@ -26,9 +55,9 @@ class S3DTexturesHolder(object):
         try:
             self.glCanvas.SetCurrent()
             texture = self.textures[textureID]
-            if texture[1] != None:
+            if texture[1] is not None:
                 for layer in texture[1]:
-                    glDeleteTextures(layer)
+                    _delete_texture(layer)
 
             texture[0] = None
             texture[1] = None
@@ -46,11 +75,11 @@ class S3DTexturesHolder(object):
             return
         self.glCanvas.SetCurrent()
         texture = self.textures[textureID]
-        if texture[0] == None:
+        if texture[0] is None:
             glColor3f(1, 0, 0)
             glDisable(GL_TEXTURE_2D)
             return
-        if texture[1] == None:
+        if texture[1] is None:
             try:
                 texture[0].read_file(None, True, True)
                 nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texture[0].content)
@@ -77,7 +106,7 @@ class S3DTexturesHolder(object):
                     imAlpha = Image.frombytes('L', size, alpha[start_a:end_a])
                     im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
                     im = im.tobytes('raw', 'RGBA')
-                    texName = glGenTextures(1)
+                    texName = _texture_name(glGenTextures(1))
                     texture[1].append(texName)
                     glBindTexture(GL_TEXTURE_2D, texName)
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)

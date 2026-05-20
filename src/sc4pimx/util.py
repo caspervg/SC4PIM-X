@@ -1,3 +1,7 @@
+"""Small numeric and container helpers used across SC4PIM."""
+from math import fmod
+
+
 def basic_cmp(x, y) -> int:
     return (x > y) - (x < y)
 

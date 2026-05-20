@@ -5,7 +5,8 @@ Pure Python implementation replacing the original FSHConverter.pyd binary extens
 """
 
 from typing import Tuple
-from FSHReader import FSHReader
+
+from .FSHReader import FSHReader
 
 
 def decodeFSH(buffer: bytes) -> Tuple[int, bool, bytes, bytes, Tuple[int, int]]:

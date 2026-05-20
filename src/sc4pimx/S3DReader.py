@@ -3,8 +3,9 @@ import struct
 
 import numpy
 import numpy as np
+from OpenGL.GL import *  # noqa: F403  (GL names used in draw())
 
-from S3DViewer import *
+from .S3DViewer import *
 
 
 class S3D(object):
@@ -154,7 +155,7 @@ class S3D(object):
                     self.maxz = max(self.maxz, coordz)
                 buffer = buffer[stride:]
 
-            self.vertexBuffers.append((vertices.tostring(), uvs.tostring()))
+            self.vertexBuffers.append((vertices.tobytes(), uvs.tobytes()))
 
         return buffer
 
@@ -281,14 +282,14 @@ class S3D(object):
 
         return buffer
 
-    def Draw(self, s3DTexturesHolder):
-        if self.entry == None:
+    def draw(self, s3DTexturesHolder):
+        if self.entry is None:
             return
         glColor3f(1.0, 1.0, 1.0)
         glEnable(GL_TEXTURE_2D)
         try:
             meshes = self.anims['animatedMeshes']
-        except:
+        except Exception:
             return
 
         self.currentFrame += 1
@@ -362,15 +363,15 @@ class S3D(object):
         del self.anims
         return
 
-    def Free3D(self, s3DTexturesHolder):
+    def free_3d(self, s3DTexturesHolder):
         s3DTexturesHolder.Free()
 
-    def Initialize(self, virtualDAT, viewer):
+    def initialize(self, virtualDAT, viewer):
         if viewer.s3d_mesh == self:
             return
-        if viewer.s3d_mesh != None:
-            viewer.s3d_mesh.Free3D(viewer.s3d_textures_holder)
-        if self.entry == None:
+        if viewer.s3d_mesh is not None:
+            viewer.s3d_mesh.free_3d(viewer.s3d_textures_holder)
+        if self.entry is None:
             viewer.reinitialize()
             viewer.refresh(False)
             return
@@ -381,7 +382,7 @@ class S3D(object):
         return
 
     def LEInit(self, virtualDAT, s3DTexturesHolder):
-        if self.entry == None:
+        if self.entry is None:
             return
         self.ReadFile()
         meshes = self.anims['animatedMeshes']

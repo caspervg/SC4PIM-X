@@ -1,13 +1,20 @@
 import os
 import sys
 import time
-import xml
+import xml.dom.minidom
 
 import wx
 
-from SC4DatTools import BuildSortedFilesList, DatFile, hex2str
-from SC4DataFunctions import readPropertyDef, readCategoryDef, ReadZoning, ReadStageVsDensity, DuplicateProp, \
-    FinalizeCategory
+from .paths import package_data_path
+from .SC4DataFunctions import (
+    DuplicateProp,
+    FinalizeCategory,
+    ReadStageVsDensity,
+    ReadZoning,
+    readCategoryDef,
+    readPropertyDef,
+)
+from .SC4DatTools import BuildSortedFilesList, DatFile, hex2str
 
 
 class VirtualDat(object):
@@ -20,7 +27,7 @@ class VirtualDat(object):
         self.ilBase = wx.ImageList(64, 64, True)
         self.ilStandardModels = wx.ImageList(64, 64, True)
         self.ilIcon = wx.ImageList(44 * 4, 44, True)
-        image = wx.EmptyImage(44 * 4, 44)
+        image = wx.Image(44 * 4, 44)
         self.ilIcon.Add(image.ConvertToBitmap())
         self.baseTexEntries = []
         self.overTexEntries = []
@@ -71,13 +78,13 @@ class VirtualDat(object):
         buildingID = None
         for lcp in range(2297284864, 2297286144):
             values = lotExamplar.GetProp(lcp)
-            if values == None:
+            if values is None:
                 return
             if values[0] == 0:
                 buildingID = values[12]
                 break
 
-        if buildingID == None:
+        if buildingID is None:
             return
         return self.FindBuildingFromID(buildingID)
 
@@ -91,7 +98,7 @@ class VirtualDat(object):
         def UseThisIID(desc):
             for lcp in range(2297284864, 2297286143):
                 values = desc.exemplar.GetProp(lcp)
-                if values == None:
+                if values is None:
                     return False
                 if values[0] == 0 and values[12] in possibles:
                     return True
@@ -113,7 +120,7 @@ class VirtualDat(object):
         def UseThisIID(desc):
             for lcp in range(2297284864, 2297286143):
                 values = desc.exemplar.GetProp(lcp)
-                if values == None:
+                if values is None:
                     return False
                 if values[0] == 0 and values[12] in possibles:
                     return True
@@ -138,7 +145,7 @@ class VirtualDat(object):
         return [entry for entry in self.allEntries if entry.fileName == fileName]
 
     def ReadProperties(self):
-        propertiesXML = xml.dom.minidom.parse('new_properties.xml')
+        propertiesXML = xml.dom.minidom.parse(str(package_data_path('new_properties.xml')))
         for node in propertiesXML.documentElement.childNodes:
             if node.nodeType == node.ELEMENT_NODE and node.tagName == 'PROPERTIES':
                 for subNode in node.childNodes:
@@ -184,7 +191,7 @@ class VirtualDat(object):
 
         return
 
-    def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):       
+    def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):
         if os.environ.get('SC4PIM_TRACE', '').strip():
             print('[TRACE] addFolder:%s' % folderName)
             sys.stdout.flush()
@@ -195,7 +202,7 @@ class VirtualDat(object):
                 continue
             self.addFile(dlg, fileName, bStandard)
 
-    def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):      
+    def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):
         if os.environ.get('SC4PIM_TRACE', '').strip():
             print('[TRACE] addFile:%s' % fileName)
             sys.stdout.flush()

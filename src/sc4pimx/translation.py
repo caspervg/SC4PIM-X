@@ -153,7 +153,7 @@ itemColumFilename = "File"
 itemColumDate = "Date"
 
 descCreationDialogMsg = "Enter name of the building"
-descCreationDialogTitle = "Creation of a building examplar"
+descCreationDialogTitle = "Creation of a building exemplar"
 
 loadingDialogMsg = "Initialising"
 

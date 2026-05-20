@@ -1,13 +1,16 @@
 """Dependencies dialog for SC4 building lots."""
+import io
+import os.path
+
 import wx.html
 import wx.lib.sized_controls as sc
-import CustomTreeCtrl as CT
-import os.path
-from translation import *
-from SC4DatTools import *
-from SC4Data import *
 from PIL import Image
-import io
+
+from . import CustomTreeCtrl as CT
+from .SC4Data import *
+from .SC4DatTools import *
+from .translation import *
+
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
 
 class MyHtmlListBox(wx.html.HtmlListBox):
@@ -40,21 +43,21 @@ class MyHtmlListBox(wx.html.HtmlListBox):
 
 class DependenciesDlg(sc.SizedDialog):
 
-    def __init__(self, parent, examplar):
+    def __init__(self, parent, exemplar):
         sc.SizedDialog.__init__(self, parent, -1, title=DependenciesDlgTitleMsg, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         pane = self.GetContentsPane()
         pane.SetSizerType('vertical')
-        self.examplar = examplar
+        self.exemplar = exemplar
         self.virtualDAT = parent.virtual_dat
         self.tree = CT.CustomTreeCtrl(pane, -1, style=wx.SUNKEN_BORDER | CT.TR_HAS_VARIABLE_ROW_HEIGHT | CT.TR_FULL_ROW_HIGHLIGHT | CT.TR_SINGLE, size=(300,
                                                                                                                                                         300))
-        self.root = self.tree.AddRoot(examplar.GetProp(32)[0])
+        self.root = self.tree.AddRoot(exemplar.GetProp(32)[0])
         self.tree.SetMinSize((500, 300))
         self.tree.SetIndent(10)
         self.tree.EnableSelectionGradient(True)
         self.tree.SetGradientStyle(False)
         self.tree.SetSizerProps(expand=True)
-        self.files = [examplar.entry.fileName]
+        self.files = [exemplar.entry.fileName]
         self.lb = MyHtmlListBox(pane, -1, style=wx.BORDER_SUNKEN | wx.LB_SINGLE, size=(500,
                                                                                        200))
         self.lb.SetSizerProps(expand=True)
@@ -177,7 +180,7 @@ class DependenciesDlg(sc.SizedDialog):
                 item = self.tree.AppendItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (UVNK[0], UVNK[1], UVNK[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                 self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
                 self.lb.Missing(DepDlgMissing)
-        IDK = self.examplar.GetProp(3393284789)
+        IDK = self.exemplar.GetProp(3393284789)
         if IDK:
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
             bFound = False
@@ -202,7 +205,7 @@ class DependenciesDlg(sc.SizedDialog):
         texIDs = []
         propIDs = []
         floraIDs = []
-        buildingFoundation = self.examplar.GetProp(2298271863)
+        buildingFoundation = self.exemplar.GetProp(2298271863)
         if buildingFoundation:
             self.buildFound = self.tree.AppendItem(self.root, DepDlgBuildingFoundation)
             self.tree.SetItemBold(self.buildFound)
@@ -217,12 +220,12 @@ class DependenciesDlg(sc.SizedDialog):
                 self.lb.Missing(DepDlgMissing)
             self.tree.Expand(self.buildFound)
         for lcp in range(2297284864, 2297286144):
-            values = self.examplar.GetProp(lcp)
-            if values == None:
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
                 break
             if values[0] == 0:
                 bAdded = False
-                if self.buildingsItem == None:
+                if self.buildingsItem is None:
                     self.buildingsItem = self.tree.AppendItem(self.root, DepDlgBuilding)
                     self.tree.SetItemBold(self.buildingsItem, True)
                 buildingID = values[12]
@@ -242,7 +245,7 @@ class DependenciesDlg(sc.SizedDialog):
                     item = self.tree.AppendItem(self.buildingsItem, hex2str(buildingID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                     self.lb.Missing(DepDlgMissing)
             if values[0] == 1:
-                if self.propsItem == None:
+                if self.propsItem is None:
                     self.propsItem = self.tree.AppendItem(self.root, DepDlgProps)
                     self.tree.SetItemBold(self.propsItem, True)
                 propID = values[12]
@@ -265,13 +268,13 @@ class DependenciesDlg(sc.SizedDialog):
                         item = self.tree.AppendItem(self.propsItem, hex2str(propID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                         self.lb.Missing(DepDlgMissing)
             if values[0] == 2:
-                if self.texturesItem == None:
+                if self.texturesItem is None:
                     self.texturesItem = self.tree.AppendItem(self.root, DepDlgTextures)
                     self.tree.SetItemBold(self.texturesItem, True)
                 texID = values[12]
                 if texID not in texIDs:
                     texEntry = self.virtualDAT.getEntry(2058686020, 159781726, texID)
-                    if texEntry == None:
+                    if texEntry is None:
                         item = self.tree.AppendItem(self.texturesItem, hex2str(texID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
                         self.lb.Missing(DepDlgMissing)
                     else:
@@ -280,7 +283,7 @@ class DependenciesDlg(sc.SizedDialog):
                         self.tree.CheckItem(item, True)
                     texIDs.append(texID)
             if values[0] == 4:
-                if self.florasItem == None:
+                if self.florasItem is None:
                     self.florasItem = self.tree.AppendItem(self.root, DepDlgFlora)
                     self.tree.SetItemBold(self.florasItem)
                 floraID = values[12]
@@ -321,7 +324,7 @@ class ImageListCtrl(wx.ListCtrl):
             c = io.BytesIO(iconEntry.content)
             pil = Image.open(c)
             pilz = pil.crop((3 * 44, 0, 4 * 44, 44)).copy()
-            image = wx.EmptyImage(88, 88)
+            image = wx.Image(88, 88)
             try:
                 pilz = pilz.resize((88, 88), Image.BICUBIC)
                 image.SetData(pilz.convert('RGB').tobytes())
@@ -339,7 +342,7 @@ class ImageListCtrl(wx.ListCtrl):
 
 class IconsDlg(sc.SizedDialog):
 
-    def __init__(self, parent, examplar):
+    def __init__(self, parent, exemplar):
         sc.SizedDialog.__init__(self, parent, -1, title='Icons', style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         pane = self.GetContentsPane()
         pane.SetSizerType('vertical')

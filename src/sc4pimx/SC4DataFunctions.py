@@ -1,8 +1,8 @@
 import functools
 import struct
 
-from util import DictWrapper, basic_cmp
-from translation import categoryLocalized
+from .translation import categoryLocalized
+from .util import DictWrapper, basic_cmp
 
 
 def ReadStageVsDensity(node):
@@ -94,7 +94,7 @@ def readPropertyDef(node):
 def ToUnsigned(val):
     try:
         return struct.unpack('L', struct.pack('l', val))[0]
-    except:
+    except Exception:
         print(type(val), val)
         raise
 
@@ -102,7 +102,7 @@ def ToUnsigned(val):
 def ToTile(val):
     try:
         return float(struct.unpack('l', struct.pack('L', int(val)))[0]) / float(1048576)
-    except:
+    except Exception:
         print(type(val), val)
         raise
 

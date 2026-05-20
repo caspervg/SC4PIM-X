@@ -1,19 +1,18 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
+import math
+
+import numpy
 import wx
 import wx.lib.sized_controls as sc
-import FSHConverter
 from PIL import Image
-from PIL import ImageDraw
-import treeDnD
-import random
-import datetime
-import types
-import math
-from SC4OpenGL import *
-from translation import *
-from SC4Data import *
-from ATCReader import *
-from SC4LETools import *
+
+from . import FSHConverter, treeDnD
+from .ATCReader import *
+from .SC4Data import *
+from .SC4LETools import *
+from .SC4OpenGL import *
+from .translation import *
+
 MODE_PROP_ONLY = 1
 MODE_BASETEX_ONLY = 2
 MODE_OVERTEX_ONLY = 4
@@ -31,24 +30,32 @@ MODE_EDIT_OVERTEX = 2
 MODE_EDIT_PROP = 4
 MODE_EDIT_BUILDING = 8
 MODE_EDIT_FLORA = 16
-ID_PAN = wx.NewId()
-ID_PROP = wx.NewId()
-ID_BUILDING = wx.NewId()
-ID_BASETEX = wx.NewId()
-ID_OVERTEX = wx.NewId()
-ID_FLORA = wx.NewId()
-ID_FAMILY = wx.NewId()
-ID_DISPLAY = wx.NewId()
-ID_VIEW = wx.NewId()
-ID_ZOOM = wx.NewId()
-ID_UNZOOM = wx.NewId()
-ID_ZOOM1 = wx.NewId()
-ID_ZOOM2 = wx.NewId()
-ID_ZOOM3 = wx.NewId()
-ID_ZOOM4 = wx.NewId()
-ID_ZOOM5 = wx.NewId()
-ID_ROTCW = wx.NewId()
-ID_ROTCCW = wx.NewId()
+ID_PAN = wx.NewIdRef()
+ID_PROP = wx.NewIdRef()
+ID_BUILDING = wx.NewIdRef()
+ID_BASETEX = wx.NewIdRef()
+ID_OVERTEX = wx.NewIdRef()
+ID_FLORA = wx.NewIdRef()
+ID_FAMILY = wx.NewIdRef()
+ID_DISPLAY = wx.NewIdRef()
+ID_VIEW = wx.NewIdRef()
+ID_ZOOM = wx.NewIdRef()
+ID_UNZOOM = wx.NewIdRef()
+ID_ZOOM1 = wx.NewIdRef()
+ID_ZOOM2 = wx.NewIdRef()
+ID_ZOOM3 = wx.NewIdRef()
+ID_ZOOM4 = wx.NewIdRef()
+ID_ZOOM5 = wx.NewIdRef()
+ID_ROTCW = wx.NewIdRef()
+ID_ROTCCW = wx.NewIdRef()
+
+def gl_texture_name(value):
+    return int(value)
+
+
+def delete_gl_texture(value):
+    glDeleteTextures([gl_texture_name(value)])
+
 
 def minmax(a, b):
     if a < b:
@@ -116,7 +123,7 @@ class LEDropTarget(wx.PyDropTarget):
             lastIDProp = 2297284864
             for lcp in range(2297284864, 2297286144):
                 values = self.frame.exemplar.GetProp(lcp)
-                if values == None:
+                if values is None:
                     break
                 if values[11] > currentID:
                     currentID = values[11]
@@ -147,33 +154,33 @@ class LEDropTarget(wx.PyDropTarget):
                 bOk = True
             elif data.__class__ == PropProxy:
                 entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
-                examplar = entry.exemplar
+                exemplar = entry.exemplar
                 try:
-                    width = examplar.GetProp(662775824)[0] / 16.0
-                    depth = examplar.GetProp(662775824)[2] / 16.0
-                except:
+                    width = exemplar.GetProp(662775824)[0] / 16.0
+                    depth = exemplar.GetProp(662775824)[2] / 16.0
+                except Exception:
                     width = 0.5
                     depth = 0.5
 
                 v12 = data.what[2]
-                if examplar.GetProp(16)[0] == 15:
+                if exemplar.GetProp(16)[0] == 15:
                     vType = 4
                 else:
                     vType = 1
                 bOk = True
             elif data.__class__ == FamilyProxy:
                 catID = data.what
-                examplar = None
+                exemplar = None
                 for desc in VirtualDat.this.categories[catID].descriptors:
                     if desc.exemplar.entry.tgi[0] != 1697917002:
                         continue
                     if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
                         continue
-                    examplar = desc.exemplar
-                    width = max(width, examplar.GetProp(662775824)[0] / 16.0)
-                    depth = max(depth, examplar.GetProp(662775824)[2] / 16.0)
+                    exemplar = desc.exemplar
+                    width = max(width, exemplar.GetProp(662775824)[0] / 16.0)
+                    depth = max(depth, exemplar.GetProp(662775824)[2] / 16.0)
 
-                if examplar is not None:
+                if exemplar is not None:
                     v12 = data.what
                     vType = 1
                     bOk = True
@@ -246,7 +253,7 @@ class LotEditorWin(wx.Frame):
         dt = LEDropTarget(self.glCanvas2D)
         self.glCanvas2D.SetDropTarget(dt)
         self.s3DTexturesHolder = S3DTexturesHolder(self.glCanvas2D)
-        self.SetCursor(wx.StockCursor(wx.CURSOR_HAND))
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.zoom = 3
         self.rotation = 0
         self.panel = 3
@@ -279,7 +286,7 @@ class LotEditorWin(wx.Frame):
 
     def OnModePan(self, event):
         self.modeEdit = MODE_EDIT_PAN
-        self.SetCursor(wx.StockCursor(wx.CURSOR_HAND))
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.sb.SetStatusText(LEXPAN, 3)
 
     def OnModeProp(self, event):
@@ -288,7 +295,7 @@ class LotEditorWin(wx.Frame):
             self.newIds = []
             self.quadSelected = []
         self.modeEdit = MODE_EDIT_PROP
-        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXProps, 3)
 
     def OnModeBuilding(self, event):
@@ -297,7 +304,7 @@ class LotEditorWin(wx.Frame):
             self.newIds = []
             self.quadSelected = []
         self.modeEdit = MODE_EDIT_BUILDING
-        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBuilding, 3)
 
     def OnModeBaseTex(self, event):
@@ -305,7 +312,7 @@ class LotEditorWin(wx.Frame):
             self.selected = []
             self.quadSelected = []
         self.modeEdit = MODE_EDIT_BASETEX
-        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBaseTexture, 3)
 
     def OnModeOverTex(self, event):
@@ -314,7 +321,7 @@ class LotEditorWin(wx.Frame):
             self.newIds = []
             self.quadSelected = []
         self.modeEdit = MODE_EDIT_OVERTEX
-        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXOverlayTexture, 3)
 
     def OnModeFlora(self, event):
@@ -323,7 +330,7 @@ class LotEditorWin(wx.Frame):
             self.newIds = []
             self.quadSelected = []
         self.modeEdit = MODE_EDIT_FLORA
-        self.SetCursor(wx.StockCursor(wx.CURSOR_ARROW))
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXFlora, 3)
 
     def OnCycleFamily(self, event):
@@ -388,8 +395,8 @@ class LotEditorWin(wx.Frame):
     def Rotate(self, rotOrder, rotFunc):
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
                     flag = values[2]
@@ -458,23 +465,23 @@ class LotEditorWin(wx.Frame):
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
-                    if xMin == None:
+                    if xMin is None:
                         xMin = ToCoord(values[6])
                     else:
                         xMin = min(xMin, ToCoord(values[6]))
-                    if xMax == None:
+                    if xMax is None:
                         xMax = ToCoord(values[8])
                     else:
                         xMax = max(xMax, ToCoord(values[8]))
-                    if yMin == None:
+                    if yMin is None:
                         yMin = ToCoord(values[7])
                     else:
                         yMin = min(yMin, ToCoord(values[7]))
-                    if yMax == None:
+                    if yMax is None:
                         yMax = ToCoord(values[9])
                     else:
                         yMax = max(yMax, ToCoord(values[9]))
@@ -484,8 +491,8 @@ class LotEditorWin(wx.Frame):
         yCenter = (yMin + yMax) / 2
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
                     flag = values[2]
@@ -591,8 +598,8 @@ class LotEditorWin(wx.Frame):
         if self.modeEdit == MODE_EDIT_BASETEX or self.modeEdit == MODE_EDIT_OVERTEX:
             for id, q in zip(self.selected, self.quadSelected):
                 for lcp in range(2297284864, 2297286144):
-                    values = self.examplar.GetProp(lcp)
-                    if values == None:
+                    values = self.exemplar.GetProp(lcp)
+                    if values is None:
                         break
                     if values[11] == id:
                         flag = values[2]
@@ -628,8 +635,8 @@ class LotEditorWin(wx.Frame):
         prop2Remove = []
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
                     prop2Remove.append(lcp)
@@ -665,9 +672,9 @@ class LotEditorWin(wx.Frame):
         self.quadSelected = []
         self.newIds = []
         for id in prop2Remove:
-            self.examplar.RemoveProp(id)
+            self.exemplar.RemoveProp(id)
 
-        self.examplar.ReindexLotConfig()
+        self.exemplar.ReindexLotConfig()
         self.UpdatePIM()
         self.RebuildVars()
         return
@@ -683,8 +690,8 @@ class LotEditorWin(wx.Frame):
         selection = {}
         lastIDProp = 2297284864
         for lcp in range(2297284864, 2297286144):
-            values = self.examplar.GetProp(lcp)
-            if values == None:
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
                 break
             if values[11] > currentID:
                 currentID = values[11]
@@ -701,7 +708,7 @@ class LotEditorWin(wx.Frame):
             newSelection.append(currentID)
             v = selection[id]
             v[11] = currentID
-            self.examplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], v[:]))
+            self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], v[:]))
             self.PreCacheObject(v)
             self.newIds.append(lastIDProp)
             lastIDProp += 1
@@ -719,23 +726,23 @@ class LotEditorWin(wx.Frame):
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
-                    if xMin == None:
+                    if xMin is None:
                         xMin = ToCoord(values[6])
                     else:
                         xMin = min(xMin, ToCoord(values[6]))
-                    if xMax == None:
+                    if xMax is None:
                         xMax = ToCoord(values[8])
                     else:
                         xMax = max(xMax, ToCoord(values[8]))
-                    if yMin == None:
+                    if yMin is None:
                         yMin = ToCoord(values[7])
                     else:
                         yMin = min(yMin, ToCoord(values[7]))
-                    if yMax == None:
+                    if yMax is None:
                         yMax = ToCoord(values[9])
                     else:
                         yMax = max(yMax, ToCoord(values[9]))
@@ -747,8 +754,8 @@ class LotEditorWin(wx.Frame):
     def Align(self, ids, val):
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
                     delta = val - ToCoord(values[ids[1]])
@@ -810,15 +817,15 @@ class LotEditorWin(wx.Frame):
         func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon}
         if key in func2call.keys():
             func2call[key](event)
-            self.OnDraw()
+            self.on_draw()
 
     def OnUpdateIcon(self, event):
-        if self.examplar.GetProp(16)[0] == 16:
-            desc = self.virtualDAT.FindBuildingFromLot(self.examplar)
+        if self.exemplar.GetProp(16)[0] == 16:
+            desc = self.virtualDAT.FindBuildingFromLot(self.exemplar)
             if desc.exemplar.entry.tgi[0] == 1697917002:
                 if desc in self.virtualDAT.categories[3431971885].descriptors:
-                    self.OnDraw()
-                    self.OnDraw()
+                    self.on_draw()
+                    self.on_draw()
                     img = self.Save()
                     self.descPage.OnUpdateIcon(img)
                     self.UpdatePIM()
@@ -852,7 +859,7 @@ class LotEditorWin(wx.Frame):
                     break
 
             self.nbSnapLines = len(snapGrids)
-            self.snapGrids = Numeric.asarray(snapGrids, 'f').tostring()
+            self.snapGrids = numpy.asarray(snapGrids, 'f').tobytes()
         else:
             self.snapSize = 0
 
@@ -887,7 +894,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetCurrent()
         for k, tex in self.textures.items():
             for t in tex[0]:
-                glDeleteTextures(t)
+                delete_gl_texture(t)
 
         self.s3DTexturesHolder.Free()
         self.glCanvas2D.displayer = None
@@ -897,11 +904,11 @@ class LotEditorWin(wx.Frame):
     def Img2OGL(self, im, bAlpha):
         size = im.size
         if bAlpha:
-            im = im.tostring('raw', 'RGBA')
+            im = im.tobytes('raw', 'RGBA')
         else:
-            im = im.tostring('raw', 'RGB')
+            im = im.tobytes('raw', 'RGB')
         glEnable(GL_TEXTURE_2D)
-        texName = glGenTextures(1)
+        texName = gl_texture_name(glGenTextures(1))
         glBindTexture(GL_TEXTURE_2D, texName)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
         if bAlpha:
@@ -942,7 +949,7 @@ class LotEditorWin(wx.Frame):
         for i, tex in enumerate(texs):
             try:
                 im = Image.open(tex)
-            except:
+            except Exception:
                 continue
 
             im = Image.merge('RGBA', im.split() + (im.split()[0],))
@@ -963,14 +970,14 @@ class LotEditorWin(wx.Frame):
                 if trueAlpha:
                     if zLevel == 0:
                         bBase = False
-                    imBmp = bBase or Image.fromstring('RGB', size, img)
-                    imAlpha = Image.fromstring('L', size, alpha)
+                    imBmp = bBase or Image.frombytes('RGB', size, img)
+                    imAlpha = Image.frombytes('L', size, alpha)
                     im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
                     textures.append(self.Img2OGL(im, True))
                     if zLevel == 3:
                         self.lotOverTextures.append(texID + zLevel)
                 else:
-                    im = Image.fromstring('RGB', size, img)
+                    im = Image.frombytes('RGB', size, img)
                     textures.append(self.Img2OGL(im, False))
                     if zLevel == 3:
                         self.lotBaseTextures.append(texID + zLevel)
@@ -989,8 +996,8 @@ class LotEditorWin(wx.Frame):
             nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texEntry.content)
             texEntry.content = None
             texEntry.rawContent = None
-            imBmp = Image.fromstring('RGB', size, img)
-            imAlpha = Image.fromstring('L', size, alpha)
+            imBmp = Image.frombytes('RGB', size, img)
+            imAlpha = Image.frombytes('L', size, alpha)
             im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
             texOGL = self.Img2OGL(im, True)
             textures = [texOGL, texOGL, texOGL, texOGL, texOGL]
@@ -1040,8 +1047,8 @@ class LotEditorWin(wx.Frame):
             try:
                 self.buildingViewer[-1]._pre_load(self.virtualDAT, self.s3DTexturesHolder)
                 continue
-            except:
-                if buildingViewer == None:
+            except Exception:
+                if buildingViewer is None:
                     pass
                 else:
                     print("Can't load model")
@@ -1065,8 +1072,8 @@ class LotEditorWin(wx.Frame):
                 self.lotOverTextures.remove(id)
 
         for lcp in range(2297284864, 2297286144):
-            values = self.examplar.GetProp(lcp)
-            if values == None:
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
                 break
             values = values[:]
             if values[0] == 1 or values[0] == 4:
@@ -1088,14 +1095,14 @@ class LotEditorWin(wx.Frame):
 
                     if not bOk:
                         continue
-                if selectedDesc == None:
+                if selectedDesc is None:
                     possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
                     for desc in possibles:
                         selectedDesc = desc
                         name = selectedDesc.name
                         continue
 
-                if selectedDesc == None:
+                if selectedDesc is None:
                     continue
                 if values[0] == 1:
                     if selectedDesc not in self.lotPropDescs:
@@ -1120,19 +1127,19 @@ class LotEditorWin(wx.Frame):
 
             if not bOk:
                 return (None, 'not found')
-        if selectedDesc == None:
+        if selectedDesc is None:
             possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
             for desc in possibles:
                 selectedDesc = desc
                 name = selectedDesc.name
                 break
 
-        if selectedDesc == None:
+        if selectedDesc is None:
             return (None, 'not found')
-        rkt0 = selectedDesc.examplar.GetProp(662775840)
-        rkt1 = selectedDesc.examplar.GetProp(662775841)
-        rkt3 = selectedDesc.examplar.GetProp(662775843)
-        rkt4 = selectedDesc.examplar.GetProp(662775844)
+        rkt0 = selectedDesc.exemplar.GetProp(662775840)
+        rkt1 = selectedDesc.exemplar.GetProp(662775841)
+        rkt3 = selectedDesc.exemplar.GetProp(662775843)
+        rkt4 = selectedDesc.exemplar.GetProp(662775844)
         rkt5 = desc.exemplar.GetProp(662775845)
         self.lotPropDescs.append(selectedDesc)
         propViewer = None
@@ -1150,8 +1157,8 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
-        except:
-            if propViewer == None:
+        except Exception:
+            if propViewer is None:
                 pass
             else:
                 print("Can't load model")
@@ -1163,21 +1170,21 @@ class LotEditorWin(wx.Frame):
 
     def LoadFloraModel(self, propID):
         selectedDesc = None
-        if selectedDesc == None:
+        if selectedDesc is None:
             possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[1830116951].descriptors)
             for desc in possibles:
                 selectedDesc = desc
                 name = selectedDesc.name
                 break
 
-        if selectedDesc == None:
+        if selectedDesc is None:
             return (None, 'not found')
         self.lotFloraDescs.append(selectedDesc)
-        rkt0 = selectedDesc.examplar.GetProp(662775840)
-        rkt1 = selectedDesc.examplar.GetProp(662775841)
-        rkt3 = selectedDesc.examplar.GetProp(662775843)
-        rkt4 = selectedDesc.examplar.GetProp(662775844)
-        rkt5 = selectedDesc.examplar.GetProp(662775845)
+        rkt0 = selectedDesc.exemplar.GetProp(662775840)
+        rkt1 = selectedDesc.exemplar.GetProp(662775841)
+        rkt3 = selectedDesc.exemplar.GetProp(662775843)
+        rkt4 = selectedDesc.exemplar.GetProp(662775844)
+        rkt5 = selectedDesc.exemplar.GetProp(662775845)
         propViewer = None
         if rkt0:
             propViewer = ResourceViewer(662775840, rkt0, self.virtualDAT, None)
@@ -1193,8 +1200,8 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
-        except:
-            if propViewer == None:
+        except Exception:
+            if propViewer is None:
                 pass
             else:
                 print("Can't load model")
@@ -1289,24 +1296,24 @@ class LotEditorWin(wx.Frame):
         self.lotBaseTextures = []
         self.Preload_TE_Tex()
         for lcp in range(2297284864, 2297286144):
-            values = self.examplar.GetProp(lcp)
-            if values == None:
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
                 break
             values = values[:]
             self.PreCacheObject(values)
 
         return
 
-    def Display(self, examplar, virtualDAT, bForIcon=False):
+    def Display(self, exemplar, virtualDAT, bForIcon=False):
         wx.BeginBusyCursor()
         self.bBackAligned = bForIcon
-        self.examplar = examplar
-        self.lotSizeX = self.examplar.GetProp(2297284496)[0]
-        self.lotSizeY = self.examplar.GetProp(2297284496)[1]
-        self.lotSizeXOver = self.examplar.GetProp(2297284496)[0] * 16
-        self.lotSizeYOver = self.examplar.GetProp(2297284496)[1] * 16
-        self.lotSizeXOffset = self.examplar.GetProp(2297284496)[0] * 8
-        self.lotSizeYOffset = self.examplar.GetProp(2297284496)[1] * 8
+        self.exemplar = exemplar
+        self.lotSizeX = self.exemplar.GetProp(2297284496)[0]
+        self.lotSizeY = self.exemplar.GetProp(2297284496)[1]
+        self.lotSizeXOver = self.exemplar.GetProp(2297284496)[0] * 16
+        self.lotSizeYOver = self.exemplar.GetProp(2297284496)[1] * 16
+        self.lotSizeXOffset = self.exemplar.GetProp(2297284496)[0] * 8
+        self.lotSizeYOffset = self.exemplar.GetProp(2297284496)[1] * 8
         self.virtualDAT = virtualDAT
         self.PreCache()
         self.posy = 0
@@ -1320,9 +1327,9 @@ class LotEditorWin(wx.Frame):
             dlg.Show()
             self.LETools = dlg
         wx.EndBusyCursor()
-        self.t2 = wx.CallLater(500, self.OnDraw)
+        self.t2 = wx.CallLater(500, self.on_draw)
 
-    def InitGL(self):
+    def init_gl(self):
         self.glCanvas2D.displayer = self
         self.glCanvas2D.SetCurrent()
         glClearColor(0.5, 0.5, 0.5, 0.0)
@@ -1331,7 +1338,7 @@ class LotEditorWin(wx.Frame):
         glMatrixMode(GL_MODELVIEW)
         glDisable(GL_CULL_FACE)
 
-    def OnDraw(self):
+    def on_draw(self):
         self.glCanvas2D.SetCurrent()
         if self.modeEdit == MODE_EDIT_PAN:
             if self.panel == 3:
@@ -1364,7 +1371,7 @@ class LotEditorWin(wx.Frame):
         bTex = True
         try:
             glBindTexture(GL_TEXTURE_2D, self.textures[texID][0][zoom])
-        except:
+        except Exception:
             bTex = False
 
         if bAlpha:
@@ -1492,7 +1499,7 @@ class LotEditorWin(wx.Frame):
             glTexCoord2f(1, 1)
             glVertex3i(maxx, maxy, 0)
             glEnd()
-        except:
+        except Exception:
             pass
 
         glDisable(GL_TEXTURE_2D)
@@ -1558,10 +1565,10 @@ class LotEditorWin(wx.Frame):
                     miny = texData[1] * 16
                     maxx = texData[0] * 16 + 16
                     maxy = texData[1] * 16 + 16
-                    if self.dragSelect == True and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
                         self.highlighted.append(texData[4])
                         self.quadHighs.append([minx, miny, maxx, maxy])
-                    if self.dragSelect == False and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
                         self.SetStatusText(hex2str(texData[3]), 5)
                         self.quadHighs = [[minx, miny, maxx, maxy]]
@@ -1575,10 +1582,10 @@ class LotEditorWin(wx.Frame):
                     miny = texData[1] * 16
                     maxx = texData[0] * 16 + 16
                     maxy = texData[1] * 16 + 16
-                    if self.dragSelect == True and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
                         self.highlighted.append(texData[4])
                         self.quadHighs.append([minx, miny, maxx, maxy])
-                    if self.dragSelect == False and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
                         self.SetStatusText(hex2str(texData[3]), 5)
                         self.highlighted = [texData[4]]
@@ -1624,17 +1631,17 @@ class LotEditorWin(wx.Frame):
                     self.DrawQuad(texData[0], texData[1], (texData[2] + 1) % 4, 1802442183, True)
 
         glColor3f(1, 1, 1)
-        if self.examplar.GetProp(1246398704)[0] & 8:
-            for x in range(self.examplar.GetProp(2297284496)[0]):
-                self.DrawQuad(x, self.examplar.GetProp(2297284496)[1], 1, 641146880, True)
+        if self.exemplar.GetProp(1246398704)[0] & 8:
+            for x in range(self.exemplar.GetProp(2297284496)[0]):
+                self.DrawQuad(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
 
-        if self.examplar.GetProp(1246398704)[0] & 1:
-            for y in range(self.examplar.GetProp(2297284496)[1]):
+        if self.exemplar.GetProp(1246398704)[0] & 1:
+            for y in range(self.exemplar.GetProp(2297284496)[1]):
                 self.DrawQuad(-1, y, 0, 641146880, True)
 
-        if self.examplar.GetProp(1246398704)[0] & 4:
-            for y in range(self.examplar.GetProp(2297284496)[1]):
-                self.DrawQuad(self.examplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+        if self.exemplar.GetProp(1246398704)[0] & 4:
+            for y in range(self.exemplar.GetProp(2297284496)[1]):
+                self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
         if self.snapSize != 0:
             glPushMatrix()
@@ -1652,10 +1659,10 @@ class LotEditorWin(wx.Frame):
                 maxx = ToCoord(self.building[8])
                 maxy = ToCoord(self.building[9])
                 if self.modeEdit == MODE_EDIT_BUILDING:
-                    if self.dragSelect == True and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
                         self.highlighted.append(self.building[11])
                         self.quadHighs.append([minx, miny, maxx, maxy])
-                    if self.dragSelect == False and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
                         self.highlighted = [self.building[11]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
@@ -1663,7 +1670,7 @@ class LotEditorWin(wx.Frame):
                 alphaValue = 0.1
                 if self.modeEdit == MODE_EDIT_BUILDING:
                     alphaValue = 0.9
-                self.DrawQuadColor(self.building[2], minx, miny, maxx, maxy, (0, 0, 1, alphaValue), self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] == None)
+                self.DrawQuadColor(self.building[2], minx, miny, maxx, maxy, (0, 0, 1, alphaValue), self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] is None)
                 if self.building[4] != 0 and self.building[11] in self.selected:
                     self.glCanvas2D.text_2d(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly, '%.02f' % ToCoord(self.building[4]), rot2D, scaling)
         if self.modeDisplay & MODE_PROP_ONLY:
@@ -1673,10 +1680,10 @@ class LotEditorWin(wx.Frame):
                 maxx = ToCoord(prop[8])
                 maxy = ToCoord(prop[9])
                 if self.modeEdit == MODE_EDIT_PROP:
-                    if self.dragSelect == True and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
                         self.highlighted.append(prop[11])
                         self.quadHighs.append([minx, miny, maxx, maxy])
-                    if self.dragSelect == False and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
                         self.highlighted = [prop[11]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
@@ -1684,7 +1691,7 @@ class LotEditorWin(wx.Frame):
                 alphaValue = 0.1
                 if self.modeEdit == MODE_EDIT_PROP:
                     alphaValue = 0.5
-                self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (1, 1, 0, alphaValue), propViewer == None)
+                self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (1, 1, 0, alphaValue), propViewer is None)
                 if prop[4] != 0 and prop[11] in self.selected:
                     self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
 
@@ -1695,10 +1702,10 @@ class LotEditorWin(wx.Frame):
                 maxx = ToCoord(prop[8])
                 maxy = ToCoord(prop[9])
                 if self.modeEdit == MODE_EDIT_FLORA:
-                    if self.dragSelect == True and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
                         self.highlighted.append(prop[11])
                         self.quadHighs.append([minx, miny, maxx, maxy])
-                    if self.dragSelect == False and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
                         self.SetStatusText(hex2str(prop[12]) + ':' + prop[-1], 5)
                         self.quadHighs = [[minx, miny, maxx, maxy]]
@@ -1709,7 +1716,7 @@ class LotEditorWin(wx.Frame):
 
         self.DrawQuadsHighLight(self.quadHighs)
         self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
-        if self.dragQuad != None:
+        if self.dragQuad is not None:
             self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1,
                                                                                                         1,
                                                                                                         1))
@@ -1717,7 +1724,7 @@ class LotEditorWin(wx.Frame):
         glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
         glColor3f(1, 0, 0)
         glEnableClientState(GL_VERTEX_ARRAY)
-        glVertexPointer(2, GL_FLOAT, 0, Numeric.asarray(self.missingLines, 'f').tostring())
+        glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
         glDrawArrays(GL_LINES, 0, len(self.missingLines))
         glDisableClientState(GL_VERTEX_ARRAY)
         glPopMatrix()
@@ -1734,7 +1741,7 @@ class LotEditorWin(wx.Frame):
         scaling = LotEditorWin.zoomScale3D[zoom]
         if zoom == 5:
             zoom = 4
-        if self.BackTextures[zoom] != None:
+        if self.BackTextures[zoom] is not None:
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_TEXTURE_2D)
             glBindTexture(GL_TEXTURE_2D, self.BackTextures[zoom])
@@ -1775,7 +1782,7 @@ class LotEditorWin(wx.Frame):
             zoom = 4
         try:
             glBindTexture(GL_TEXTURE_2D, self.textures[texID][0][zoom])
-        except:
+        except Exception:
             return
 
         if bAlpha:
@@ -1812,7 +1819,7 @@ class LotEditorWin(wx.Frame):
         glPopMatrix()
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom):
-        if resource == None:
+        if resource is None:
             return
         if resource.viewingData == []:
             return
@@ -1905,17 +1912,17 @@ class LotEditorWin(wx.Frame):
                 for texData in self.texOverlays:
                     self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
 
-                if self.examplar.GetProp(1246398704)[0] & 8:
-                    for x in range(self.examplar.GetProp(2297284496)[0]):
-                        self.DrawQuad3D(x, self.examplar.GetProp(2297284496)[1], 1, 641146880, True)
+                if self.exemplar.GetProp(1246398704)[0] & 8:
+                    for x in range(self.exemplar.GetProp(2297284496)[0]):
+                        self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
 
-                if self.examplar.GetProp(1246398704)[0] & 1:
-                    for y in range(self.examplar.GetProp(2297284496)[1]):
+                if self.exemplar.GetProp(1246398704)[0] & 1:
+                    for y in range(self.exemplar.GetProp(2297284496)[1]):
                         self.DrawQuad3D(-1, y, 0, 641146880, True)
 
-                if self.examplar.GetProp(1246398704)[0] & 4:
-                    for y in range(self.examplar.GetProp(2297284496)[1]):
-                        self.DrawQuad3D(self.examplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+                if self.exemplar.GetProp(1246398704)[0] & 4:
+                    for y in range(self.exemplar.GetProp(2297284496)[1]):
+                        self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
                 glMatrixMode(GL_TEXTURE)
                 glLoadIdentity()
@@ -1947,7 +1954,7 @@ class LotEditorWin(wx.Frame):
                 afterViewers = []
                 for prop, propViewer in zip(self.props, self.propViewers):
                     tempViewer = propViewer
-                    if tempViewer == None:
+                    if tempViewer is None:
                         tempViewer = self.LEAnimMissing
                     if tempViewer.viewingData == []:
                         pass
@@ -1971,7 +1978,7 @@ class LotEditorWin(wx.Frame):
 
                 for prop, propViewer in zip(self.floras, self.floraViewers):
                     tempViewer = propViewer
-                    if tempViewer == None:
+                    if tempViewer is None:
                         tempViewer = self.LEAnimMissing
                     if tempViewer.viewingData == []:
                         pass
@@ -2018,7 +2025,7 @@ class LotEditorWin(wx.Frame):
         decal = len(data) - w * h * 3
         if decal == h * 2:
             data = data[3:]
-        image = Image.fromstring('RGB', (w, h), data)
+        image = Image.frombytes('RGB', (w, h), data)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.resize((44, 44))
         return image
@@ -2151,23 +2158,23 @@ class LotEditorWin(wx.Frame):
         yMax = None
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
-                    if xMin == None:
+                    if xMin is None:
                         xMin = ToCoord(values[6])
                     else:
                         xMin = min(xMin, ToCoord(values[6]))
-                    if xMax == None:
+                    if xMax is None:
                         xMax = ToCoord(values[8])
                     else:
                         xMax = max(xMax, ToCoord(values[8]))
-                    if yMin == None:
+                    if yMin is None:
                         yMin = ToCoord(values[7])
                     else:
                         yMin = min(yMin, ToCoord(values[7]))
-                    if yMax == None:
+                    if yMax is None:
                         yMax = ToCoord(values[9])
                     else:
                         yMax = max(yMax, ToCoord(values[9]))
@@ -2179,8 +2186,8 @@ class LotEditorWin(wx.Frame):
          xCenter, 0, yCenter, xMin, yMin, xMax, yMax]
 
     def MoveByAmount(self, dx, dy, dz):
-        lotSizeXOver = self.examplar.GetProp(2297284496)[0]
-        lotSizeYOver = self.examplar.GetProp(2297284496)[1]
+        lotSizeXOver = self.exemplar.GetProp(2297284496)[0]
+        lotSizeYOver = self.exemplar.GetProp(2297284496)[1]
         bbox = []
         dSx = 0
         dSy = 0
@@ -2204,8 +2211,8 @@ class LotEditorWin(wx.Frame):
                 q[1] += dy
                 q[3] += dy
             for lcp in range(2297284864, 2297286144):
-                values = self.examplar.GetProp(lcp)
-                if values == None:
+                values = self.exemplar.GetProp(lcp)
+                if values is None:
                     break
                 if values[11] == id:
                     oldValues = values[:]
@@ -2305,7 +2312,7 @@ class LotEditorWin(wx.Frame):
                             return None
 
                         z = UpdateTexData(self.texBases)
-                        if z == None:
+                        if z is None:
                             q[0], q[1], q[2], q[3] = UpdateTexData(self.texOverlays)
                         else:
                             q[0], q[1], q[2], q[3] = z
@@ -2315,7 +2322,7 @@ class LotEditorWin(wx.Frame):
 
     def OnMouseMotion(self, evt):
         self.glCanvas2D.on_mouse_motion(evt)
-        if evt.ControlDown() and self.dragSelect == False:
+        if evt.ControlDown() and not self.dragSelect:
             return
         if evt.Dragging() and evt.LeftIsDown():
             if evt.ShiftDown():
@@ -2332,7 +2339,7 @@ class LotEditorWin(wx.Frame):
                     self.BackPosy -= self.glCanvas2D.dy * 0.25
                 self.glCanvas2D.dx = 0
                 self.glCanvas2D.dy = 0
-                self.OnDraw()
+                self.on_draw()
                 return
             if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING]:
                 return
@@ -2344,12 +2351,12 @@ class LotEditorWin(wx.Frame):
             cx, cy, dz = gluUnProject(cx, h - cy, 0)
             dx = cx - lx
             dy = cy - ly
-            if self.dragSelect == True:
+            if self.dragSelect:
                 self.dragQuad[2] = cx + self.lotSizeXOffset
                 self.dragQuad[3] = cy + self.lotSizeYOffset
             else:
                 self.MoveByAmount(dx, dy, 0)
-        self.OnDraw()
+        self.on_draw()
 
     def OnMouseDown(self, evt):
         self.glCanvas2D.on_mouse_down(evt)
@@ -2362,7 +2369,7 @@ class LotEditorWin(wx.Frame):
         if not evt.ControlDown():
             for quad in self.quadSelected:
                 if px >= quad[0] and px <= quad[2] and py >= quad[1] and py <= quad[3]:
-                    self.OnDraw()
+                    self.on_draw()
                     return
 
             self.selected = []
@@ -2382,10 +2389,10 @@ class LotEditorWin(wx.Frame):
                     else:
                         id2remove = self.selected.index(id)
 
-            if id2remove != None:
+            if id2remove is not None:
                 self.selected = self.selected[:id2remove] + self.selected[id2remove + 1:]
                 self.quadSelected = self.quadSelected[:id2remove] + self.quadSelected[id2remove + 1:]
-        self.OnDraw()
+        self.on_draw()
         return
 
     def OnMouseUp(self, evt):
@@ -2405,8 +2412,8 @@ class LotEditorWin(wx.Frame):
         elif self.modeEdit in [MODE_EDIT_BUILDING, MODE_EDIT_FLORA, MODE_EDIT_PROP]:
             for id, q in zip(self.selected, self.quadSelected):
                 for lcp in range(2297284864, 2297286144):
-                    values = self.examplar.GetProp(lcp)
-                    if values == None:
+                    values = self.exemplar.GetProp(lcp)
+                    if values is None:
                         break
                     if values[11] == id:
                         values[3] = ToUnsigned((q[0] + q[2]) / 2 * 65536)
@@ -2442,8 +2449,8 @@ class LotEditorWin(wx.Frame):
                                 objectIds.append(texData[4])
 
                 for lcp in range(2297284864, 2297286144):
-                    values = self.examplar.GetProp(lcp)
-                    if values == None:
+                    values = self.exemplar.GetProp(lcp)
+                    if values is None:
                         break
                     if values[11] in objectIds:
                         prop2Remove.append(lcp)
@@ -2456,12 +2463,12 @@ class LotEditorWin(wx.Frame):
                         values[9] = ToUnsigned(q[3] * 65536)
 
                 for id in prop2Remove:
-                    self.examplar.RemoveProp(id)
+                    self.exemplar.RemoveProp(id)
 
-                self.examplar.ReindexLotConfig()
+                self.exemplar.ReindexLotConfig()
 
             self.UpdatePIM()
-        self.OnDraw()
+        self.on_draw()
         return
 
     def UpdatePIM(self):
@@ -2473,9 +2480,9 @@ class LotEditorWin(wx.Frame):
 
 class LotCreatorDlg(sc.SizedDialog):
 
-    def __init__(self, parent, examplar, virtualDAT, bGrowable, bRebuild=False, sizeLot=(0, 0)):
+    def __init__(self, parent, exemplar, virtualDAT, bGrowable, bRebuild=False, sizeLot=(0, 0)):
         sc.SizedDialog.__init__(self, parent, -1, title=LotCreationDlgMsg, style=wx.DEFAULT_DIALOG_STYLE)
-        self.examplar = examplar
+        self.exemplar = exemplar
         self.virtualDAT = virtualDAT
         self.bGrowable = bGrowable
         pane = self.GetContentsPane()
@@ -2514,8 +2521,8 @@ class LotCreatorDlg(sc.SizedDialog):
             self.stageCtrl.SetValue(str(s))
 
     def ComputeMinDimension(self):
-        minx = 1 + int(self.examplar.GetProp(662775824)[0]) / 16
-        minz = 1 + int(self.examplar.GetProp(662775824)[2]) / 16
+        minx = 1 + int(self.exemplar.GetProp(662775824)[0]) // 16
+        minz = 1 + int(self.exemplar.GetProp(662775824)[2]) // 16
         return (
          minx, minz)
 
@@ -2524,47 +2531,47 @@ class LotCreatorDlg(sc.SizedDialog):
         minz = depth
         purpose = 'IR'
         wealth = 0
-        if self.examplar.GetProp(2854081430) is not None:
-            if 4096 in self.examplar.GetProp(2854081430):
+        if self.exemplar.GetProp(2854081430) is not None:
+            if 4096 in self.exemplar.GetProp(2854081430):
                 purpose = 'R'
-            if 69648 in self.examplar.GetProp(2854081430):
+            if 69648 in self.exemplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 0
-            if 69664 in self.examplar.GetProp(2854081430):
+            if 69664 in self.exemplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 1
-            if 69680 in self.examplar.GetProp(2854081430):
+            if 69680 in self.exemplar.GetProp(2854081430):
                 purpose = 'R'
                 wealth = 2
-            if 4097 in self.examplar.GetProp(2854081430):
+            if 4097 in self.exemplar.GetProp(2854081430):
                 purpose = 'C'
-            if 78096 in self.examplar.GetProp(2854081430):
+            if 78096 in self.exemplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 0
-            if 78112 in self.examplar.GetProp(2854081430):
+            if 78112 in self.exemplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 1
-            if 78128 in self.examplar.GetProp(2854081430):
+            if 78128 in self.exemplar.GetProp(2854081430):
                 purpose = 'CS'
                 wealth = 2
-            if 78624 in self.examplar.GetProp(2854081430):
+            if 78624 in self.exemplar.GetProp(2854081430):
                 purpose = 'CO'
                 wealth = 1
-            if 78640 in self.examplar.GetProp(2854081430):
+            if 78640 in self.exemplar.GetProp(2854081430):
                 purpose = 'CO'
                 wealth = 2
-            if 4098 in self.examplar.GetProp(2854081430):
+            if 4098 in self.exemplar.GetProp(2854081430):
                 purpose = 'I'
-            if 82176 in self.examplar.GetProp(2854081430):
+            if 82176 in self.exemplar.GetProp(2854081430):
                 purpose = 'IR'
                 wealth = 0
-            if 82432 in self.examplar.GetProp(2854081430):
+            if 82432 in self.exemplar.GetProp(2854081430):
                 purpose = 'ID'
                 wealth = 1
-            if 82688 in self.examplar.GetProp(2854081430):
+            if 82688 in self.exemplar.GetProp(2854081430):
                 purpose = 'IM'
                 wealth = 1
-            if 82944 in self.examplar.GetProp(2854081430):
+            if 82944 in self.exemplar.GetProp(2854081430):
                 purpose = 'IHT'
                 wealth = 2
         else:
@@ -2591,7 +2598,7 @@ class LotCreatorDlg(sc.SizedDialog):
                 raise
 
         capacities = {('R', 0): 4112,('R', 1): 4128,('R', 2): 4144,('CS', 0): 12560,('CS', 1): 12576,('CS', 2): 12592,('CO', 1): 13088,('CO', 2): 13104,('IR', 0): 16640,('ID', 1): 16896,('IM', 1): 17152,('IHT', 2): 17408}
-        capacity = getKeyedValue(self.examplar.GetProp(662775860), capacities[purpose, wealth])
+        capacity = getKeyedValue(self.exemplar.GetProp(662775860), capacities[purpose, wealth])
         ratios = self.virtualDAT.lotStages[purpose, wealth]
         ratio = capacity / tiles
         if purpose == 'IR':
@@ -2701,11 +2708,11 @@ class ImageDBBuilder(wx.Frame):
         return
 
     def Draw(self, sc4data):
-        self.viewer.InitGL()
+        self.viewer.init_gl()
         glClearColor(0.5, 0.5, 0.5, 0.0)
         self.viewer.s3d_mesh = None
-        self.viewer.Refresh(False)
-        self.viewer.useBestFit = True
+        self.viewer.refresh(False)
+        self.viewer.use_best_fit = True
         self.viewer.drawAxis = False
         sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
         wx.Yield()
@@ -2715,7 +2722,7 @@ class ImageDBBuilder(wx.Frame):
         size = self.viewer.openGLCanvas.GetClientSize()
         glReadBuffer(GL_FRONT)
         data = glReadPixels(0, 0, size[0], size[1], GL_RGB, GL_UNSIGNED_BYTE)
-        image = Image.fromstring('RGB', (size[0], size[1]), data)
+        image = Image.frombytes('RGB', (size[0], size[1]), data)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image.resize((128, 128)).save(os.path.join(os.path.split(sc4data[0])[0] + 'Large', os.path.split(sc4data[0])[1]))
         image = image.resize((64, 64))

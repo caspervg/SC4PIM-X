@@ -1,11 +1,10 @@
 """Custom tree control for SC4PIM with checkbox and icon support."""
-from typing import Tuple, Any
+import io
+import zlib
+from typing import Any, Tuple
 
 import wx
-import zlib
-import io
-
-from wx import Size, Image
+from wx import Image, Size
 
 _NO_IMAGE = -1
 _PIXELS_PER_UNIT = 10
@@ -119,12 +118,12 @@ def get_flagged_data():
 
 
 def get_flagged_bitmap():
-    return wx.BitmapFromImage(get_flagged_image())
+    return wx.Bitmap(get_flagged_image())
 
 
 def get_flagged_image():
     stream = io.BytesIO(get_flagged_data())
-    return wx.ImageFromStream(stream)
+    return wx.Image(stream)
 
 
 def get_not_flagged_data():
@@ -133,12 +132,12 @@ def get_not_flagged_data():
 
 
 def get_not_flagged_bitmap():
-    return wx.BitmapFromImage(get_not_flagged_image())
+    return wx.Bitmap(get_not_flagged_image())
 
 
 def get_not_flagged_image():
     stream = io.BytesIO(get_not_flagged_data())
-    return wx.ImageFromStream(stream)
+    return wx.Image(stream)
 
 
 def get_checked_data():
@@ -147,12 +146,12 @@ def get_checked_data():
 
 
 def get_checked_bitmap():
-    return wx.BitmapFromImage(get_checked_image())
+    return wx.Bitmap(get_checked_image())
 
 
 def get_checked_image():
     stream = io.BytesIO(get_checked_data())
-    return wx.ImageFromStream(stream)
+    return wx.Image(stream)
 
 
 def get_not_checked_data():
@@ -161,12 +160,12 @@ def get_not_checked_data():
 
 
 def get_not_checked_bitmap():
-    return wx.BitmapFromImage(get_not_checked_image())
+    return wx.Bitmap(get_not_checked_image())
 
 
 def get_not_checked_image():
     stream = io.BytesIO(get_not_checked_data())
-    return wx.ImageFromStream(stream)
+    return wx.Image(stream)
 
 
 def gray_out(img: Image):
@@ -288,7 +287,7 @@ class DragImage(wx.DragImage):
 
     def CreateBitmap(self):
         memory = wx.MemoryDC()
-        bitmap = wx.EmptyBitmap(self._total_w, self._total_h)
+        bitmap = wx.Bitmap(self._total_w, self._total_h)
         memory.SelectObject(bitmap)
         memory.SetTextBackground(self._background_colour)
         memory.SetBackground(wx.Brush(self._background_colour))
@@ -887,7 +886,7 @@ def EventFlagsToSelType(style, shiftDown=False, ctrlDown=False):
 
 
 # noinspection PyPep8Naming
-class CustomTreeCtrl(wx.PyScrolledWindow):
+class CustomTreeCtrl(wx.ScrolledWindow):
 
     def __init__(self, parent, id=wx.ID_ANY, pos=wx.DefaultPosition, size=wx.DefaultSize, style=TR_DEFAULT_STYLE,
                  control_style=0, validator=wx.DefaultValidator, name='CustomTreeCtrl'):
@@ -947,7 +946,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         else:
             self._dotted_pen = wx.Pen('grey', 1)
         self._border_pen = wx.BLACK_PEN
-        self._cursor = wx.StockCursor(wx.CURSOR_ARROW)
+        self._cursor = wx.Cursor(wx.CURSOR_ARROW)
         self._hasWindows = False
         self._item_with_window = []
         if wx.Platform == '__WXMAC__':
@@ -962,7 +961,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             self._drawing_function = draw_tree_item_button
         else:
             self._drawing_function = wx.RendererNative.Get().DrawTreeItemButton
-        wx.PyScrolledWindow.__init__(self, parent, id, pos, size, style | wx.HSCROLL | wx.VSCROLL, name)
+        wx.ScrolledWindow.__init__(self, parent, id, pos, size, style | wx.HSCROLL | wx.VSCROLL, name)
         if not self.HasButtons() and not self.HasFlag(TR_NO_LINES):
             self._indent = 10
             self._spacing = 10
@@ -1767,7 +1766,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if idPrevious:
             try:
                 index = parent.GetChildren().index(idPrevious)
-            except:
+            except Exception:
                 raise Exception('ERROR: Previous Item In CustomTreeCtrl.InsertItem() Is Not A Sibling')
 
         return self.DoInsertItem(parentId, index + 1, text, ct_type, wnd, image, selImage, data)
@@ -1791,7 +1790,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
         if text.find('\n') >= 0 and not self._windowStyle & TR_HAS_VARIABLE_ROW_HEIGHT:
             raise Exception(
                 '\nERROR: In Order To Append/Insert A MultiLine Text You Have To Use The Style TR_HAS_VARIABLE_ROW_HEIGHT')
-        if type(input) == type(1):
+        if isinstance(input, int):
             return self.InsertItemByIndex(parentId, input, text, ct_type, wnd, image, selImage, data)
         else:
             return self.InsertItemByItem(parentId, input, text, ct_type, wnd, image, selImage, data)
@@ -2199,7 +2198,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
                 bmp = imageList.GetBitmap(ii)
                 image = wx.ImageFromBitmap(bmp)
                 image = gray_out(image)
-                new_bitmap = wx.BitmapFromImage(image)
+                new_bitmap = wx.Bitmap(image)
                 self._image_list_grayed.Add(new_bitmap)
 
     def SetStateImageList(self, imageList):
@@ -2231,7 +2230,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             bmp = self._image_list_check.GetBitmap(ii)
             image = wx.ImageFromBitmap(bmp)
             image = gray_out(image)
-            newbmp = wx.BitmapFromImage(image)
+            newbmp = wx.Bitmap(image)
             self._grayedCheckList.Add(newbmp)
 
         self._dirty = True
@@ -2403,7 +2402,7 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             if item.IsSelected():
                 if wx.Platform == '__WXMAC__':
                     self._hasFocus or dc.SetBrush(wx.TRANSPARENT_BRUSH)
-                    dc.SetPen(wx.Pen(wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHT), 1, wx.SOLID))
+                    dc.SetPen(wx.Pen(wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT), 1, wx.SOLID))
                 else:
                     dc.SetBrush(self._hilightBrush)
             else:
@@ -2545,9 +2544,9 @@ class CustomTreeCtrl(wx.PyScrolledWindow):
             pen = self._border_pen
         if item.IsSelected():
             if wx.Platform == '__WXMAC__' and self._hasFocus:
-                colText = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
+                colText = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
             else:
-                colText = wx.SystemSettings_GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
+                colText = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT)
         else:
             attr = item.GetAttributes()
             if attr:

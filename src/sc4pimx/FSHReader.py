@@ -4,11 +4,11 @@ This module handles reading and parsing of FSH texture files used in SimCity 4.
 Based on the C++ implementation in FSHReader.cpp.
 """
 
-from typing import Tuple, List, NamedTuple
-from dataclasses import dataclass
 import struct
+from dataclasses import dataclass
+from typing import List, NamedTuple, Tuple
 
-from QFSDecompressor import QFSDecompressor
+from .QFSDecompressor import QFSDecompressor
 
 
 class Bitmap(NamedTuple):
@@ -45,7 +45,12 @@ class FileHeader:
 
     def is_valid(self) -> bool:
         """Check if header is valid."""
-        return self.magic == 0x00324853  # "SH2" in little-endian
+        return self.magic in {
+            0x49504853,  # 'SHPI'
+            0x34363247,  # 'G264'
+            0x36363247,  # 'G266'
+            0x34353347,  # 'G354'
+        }
 
 
 @dataclass
@@ -60,13 +65,13 @@ class FSHReader:
     """Reader for FSH (Maxis Texture) files."""
 
     # Format codes
-    CODE_32BIT = 0x07
-    CODE_24BIT = 0x06
-    CODE_4444 = 0x04
-    CODE_0565 = 0x02
-    CODE_1555 = 0x03
-    CODE_DXT1 = 0x61
-    CODE_DXT3 = 0x60
+    CODE_32BIT = 0x7D
+    CODE_24BIT = 0x7F
+    CODE_4444 = 0x6D
+    CODE_0565 = 0x78
+    CODE_1555 = 0x7E
+    CODE_DXT1 = 0x60
+    CODE_DXT3 = 0x61
     CODE_DXT5 = 0x62
 
     @staticmethod
@@ -303,20 +308,7 @@ class FSHReader:
     @staticmethod
     def _convert_dxt(bitmap: Bitmap, dst: bytearray) -> None:
         """Convert DXT compressed format to RGBA8."""
-        try:
-            import squish
-        except ImportError:
-            raise ValueError(
-                "DXT decompression requires 'squish' library. Install with: pip install squish"
-            )
-
-        if bitmap.code == FSHReader.CODE_DXT1:
-            flags = squish.DXT1
-        elif bitmap.code == FSHReader.CODE_DXT3:
-            flags = squish.DXT3
-        elif bitmap.code == FSHReader.CODE_DXT5:
-            flags = squish.DXT5
-        else:
+        if bitmap.code not in (FSHReader.CODE_DXT1, FSHReader.CODE_DXT3, FSHReader.CODE_DXT5):
             raise ValueError(f"Invalid DXT format code: {bitmap.code}")
 
         expected_size = FSHReader._expected_data_size(
@@ -327,10 +319,95 @@ class FSHReader:
                 f"DXT data size mismatch (expected {expected_size}, got {len(bitmap.data)})"
             )
 
-        decompressed = squish.DecompressImage(
-            bitmap.data, bitmap.width, bitmap.height, flags
-        )
-        dst[:] = bytearray(decompressed)
+        src = bitmap.data
+        src_pos = 0
+        blocks_wide = (bitmap.width + 3) // 4
+        blocks_high = (bitmap.height + 3) // 4
+        for block_y in range(blocks_high):
+            for block_x in range(blocks_wide):
+                if bitmap.code == FSHReader.CODE_DXT1:
+                    colors = FSHReader._decode_dxt_color_block(src[src_pos:src_pos + 8], False)
+                    src_pos += 8
+                    alphas = None
+                elif bitmap.code == FSHReader.CODE_DXT3:
+                    alphas = FSHReader._decode_dxt3_alpha(src[src_pos:src_pos + 8])
+                    src_pos += 8
+                    colors = FSHReader._decode_dxt_color_block(src[src_pos:src_pos + 8], True)
+                    src_pos += 8
+                else:
+                    alphas = FSHReader._decode_dxt5_alpha(src[src_pos:src_pos + 8])
+                    src_pos += 8
+                    colors = FSHReader._decode_dxt_color_block(src[src_pos:src_pos + 8], True)
+                    src_pos += 8
+
+                codes = struct.unpack("<I", src[src_pos - 4:src_pos])[0]
+                for py in range(4):
+                    for px in range(4):
+                        x = block_x * 4 + px
+                        y = block_y * 4 + py
+                        if x >= bitmap.width or y >= bitmap.height:
+                            continue
+                        color = colors[(codes >> (2 * (py * 4 + px))) & 0x03]
+                        dst_idx = (y * bitmap.width + x) * 4
+                        dst[dst_idx] = color[0]
+                        dst[dst_idx + 1] = color[1]
+                        dst[dst_idx + 2] = color[2]
+                        dst[dst_idx + 3] = color[3] if alphas is None else alphas[py * 4 + px]
+
+    @staticmethod
+    def _decode_dxt_color_block(block: bytes, force_four_color: bool) -> list[tuple[int, int, int, int]]:
+        color0, color1 = struct.unpack("<HH", block[:4])
+        r0, g0, b0 = FSHReader._rgb565_components(color0)
+        r1, g1, b1 = FSHReader._rgb565_components(color1)
+        colors = [
+            (r0, g0, b0, 255),
+            (r1, g1, b1, 255),
+        ]
+        if force_four_color or color0 > color1:
+            colors.append(((2 * r0 + r1) // 3, (2 * g0 + g1) // 3, (2 * b0 + b1) // 3, 255))
+            colors.append(((r0 + 2 * r1) // 3, (g0 + 2 * g1) // 3, (b0 + 2 * b1) // 3, 255))
+        else:
+            colors.append(((r0 + r1) // 2, (g0 + g1) // 2, (b0 + b1) // 2, 255))
+            colors.append((0, 0, 0, 0))
+        return colors
+
+    @staticmethod
+    def _decode_dxt3_alpha(block: bytes) -> list[int]:
+        value = int.from_bytes(block, "little")
+        return [(((value >> (4 * i)) & 0xF) * 17) for i in range(16)]
+
+    @staticmethod
+    def _decode_dxt5_alpha(block: bytes) -> list[int]:
+        alpha0 = block[0]
+        alpha1 = block[1]
+        palette = [alpha0, alpha1]
+        if alpha0 > alpha1:
+            palette.extend([
+                (6 * alpha0 + alpha1) // 7,
+                (5 * alpha0 + 2 * alpha1) // 7,
+                (4 * alpha0 + 3 * alpha1) // 7,
+                (3 * alpha0 + 4 * alpha1) // 7,
+                (2 * alpha0 + 5 * alpha1) // 7,
+                (alpha0 + 6 * alpha1) // 7,
+            ])
+        else:
+            palette.extend([
+                (4 * alpha0 + alpha1) // 5,
+                (3 * alpha0 + 2 * alpha1) // 5,
+                (2 * alpha0 + 3 * alpha1) // 5,
+                (alpha0 + 4 * alpha1) // 5,
+                0,
+                255,
+            ])
+        bits = int.from_bytes(block[2:8], "little")
+        return [palette[(bits >> (3 * i)) & 0x07] for i in range(16)]
+
+    @staticmethod
+    def _rgb565_components(color: int) -> tuple[int, int, int]:
+        r = (color >> 11) & 0x1F
+        g = (color >> 5) & 0x3F
+        b = color & 0x1F
+        return (r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)
 
     @staticmethod
     def _argb4444_to_rgba8(color: int, rgba: bytearray, offset: int) -> None:
@@ -398,11 +475,11 @@ def _make_name(name_bytes: bytes) -> str:
 
 
 def _read_u24le(reader: "_SpanReader") -> int:
-    """Read a 24-bit little-endian integer."""
+    """Read a 24-bit FSH block size."""
     byte0 = reader.read_u8()
     byte1 = reader.read_u8()
     byte2 = reader.read_u8()
-    return (byte2 << 16) | (byte1 << 8) | byte0
+    return (byte0 << 16) | (byte1 << 8) | byte2
 
 
 class _SpanReader:

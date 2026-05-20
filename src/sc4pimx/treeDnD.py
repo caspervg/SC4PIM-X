@@ -1,11 +1,13 @@
 """Drag and drop support for tree controls in SC4PIM."""
 import pickle
+
 import wx
+
 
 class DropData(wx.CustomDataObject):
 
     def __init__(self):
-        wx.CustomDataObject.__init__(self, wx.CustomDataFormat('SC4FilterDropData'))
+        wx.CustomDataObject.__init__(self, wx.DataFormat('SC4FilterDropData'))
         self.setObject(None)
         return
 
@@ -77,9 +79,9 @@ class DropTarget(wx.DropTarget):
         if self.GetData():
             filenames = self.fileObject.GetFilenames()
             data = self.data.getObject()
-            if filenames and self.callbackFile != None:
+            if filenames and self.callbackFile is not None:
                 self.callbackFile(filenames, self.item)
-            elif data is not None and self.callbackItem != None:
+            elif data is not None and self.callbackItem is not None:
                 self.callbackItem(data, self.item)
             self._makeObjects()
         return d
