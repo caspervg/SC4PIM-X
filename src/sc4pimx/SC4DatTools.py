@@ -672,6 +672,7 @@ class DatFile():
         self.fileName = fileName
         self.entries = []
         self.cohorts = []
+        self.sc4 = None
         try:
             self.sc4 = open(self.fileName, 'rb')
             self.ReadHeader(dlg)
@@ -683,6 +684,12 @@ class DatFile():
             if dlg:
                 dlg.LogError('Unknown error while reading SC4 file : %s' % self.fileName)
             raise
+        finally:
+            if self.sc4 is not None:
+                try:
+                    self.sc4.close()
+                except Exception:
+                    pass
 
     def ReadHeader(self, dlg):
         self.header = self.sc4.read(96)

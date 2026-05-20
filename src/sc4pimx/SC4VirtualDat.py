@@ -184,20 +184,37 @@ class VirtualDat(object):
 
         return
 
-    def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):
+    def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):       
         if os.environ.get('SC4PIM_TRACE', '').strip():
             print('[TRACE] addFolder:%s' % folderName)
             sys.stdout.flush()
         filesName = BuildSortedFilesList(folderName, bRecurse)
         for fileName in filesName:
+            # Skip non-DBPF/SC4 container files early to avoid unnecessary reads.
+            if not self._is_sc4_container(fileName):
+                continue
             self.addFile(dlg, fileName, bStandard)
 
-    def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):
+    def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):      
         if os.environ.get('SC4PIM_TRACE', '').strip():
             print('[TRACE] addFile:%s' % fileName)
             sys.stdout.flush()
+        if not self._is_sc4_container(fileName):
+            return
         sc4File = DatFile(fileName, dlg, True)
         self.addEntries(sc4File.entries, dlg, bStandard, bForceUpdate)
+
+    @staticmethod
+    def _is_sc4_container(file_name):
+        ext = os.path.splitext(file_name)[1].lower()
+        if ext in {'.dat', '.sc4model', '.sc4lot', '.sc4desc'}:
+            return True
+        # Fall back to a quick header check for non-standard extensions.
+        try:
+            with open(file_name, 'rb') as handle:
+                return handle.read(4) == b'DBPF'
+        except OSError:
+            return False
 
     def addEntries(self, entries, dlg, bStandard, bForceUpdate):
         for entry in entries:

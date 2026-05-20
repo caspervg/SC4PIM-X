@@ -51,26 +51,43 @@ class S3DTexturesHolder(object):
             glDisable(GL_TEXTURE_2D)
             return
         if texture[1] == None:
-            texture[0].read_file(None, True, True)
-            nbrLayers, trueAlpa, img, alpha, size = FSHConverter.decodeFSH(texture[0].content)
+            try:
+                texture[0].read_file(None, True, True)
+                nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texture[0].content)
+            except Exception:
+                texture[0].content = None
+                texture[0].rawContent = None
+                glDisable(GL_TEXTURE_2D)
+                return
             nbOfBytes = size[0] * size[1]
+            expected_img = nbOfBytes * 3 * nbrLayers
+            expected_alpha = nbOfBytes * nbrLayers
+            if len(img) < expected_img or len(alpha) < expected_alpha:
+                nbrLayers = 1
             texture[0].content = None
             texture[0].rawContent = None
             texture[1] = []
             for layerIdx in range(nbrLayers):
-                imBmp = Image.frombytes('RGB', size, img[nbOfBytes * 3 * layerIdx:nbOfBytes * 3 * (layerIdx + 1)])
-                imAlpha = Image.frombytes('L', size, alpha[nbOfBytes * layerIdx:nbOfBytes * (layerIdx + 1)])
-                im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
-                im = im.tobytes('raw', 'RGBA')
-                texName = glGenTextures(1)
-                texture[1].append(texName)
-                glBindTexture(GL_TEXTURE_2D, texName)
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                try:
+                    start_rgb = nbOfBytes * 3 * layerIdx
+                    end_rgb = nbOfBytes * 3 * (layerIdx + 1)
+                    start_a = nbOfBytes * layerIdx
+                    end_a = nbOfBytes * (layerIdx + 1)
+                    imBmp = Image.frombytes('RGB', size, img[start_rgb:end_rgb])
+                    imAlpha = Image.frombytes('L', size, alpha[start_a:end_a])
+                    im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
+                    im = im.tobytes('raw', 'RGBA')
+                    texName = glGenTextures(1)
+                    texture[1].append(texName)
+                    glBindTexture(GL_TEXTURE_2D, texName)
+                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                except Exception:
+                    continue
 
         if texture[1] == []:
             glDisable(GL_TEXTURE_2D)

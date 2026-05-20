@@ -30,6 +30,7 @@ class ATC(object):
         self.tgi = entry.tgi
         self.virtual_dat = virtual_dat
         self.current_frame = 0
+        self.type = self.fsh_tgi = self.avp_tid = self.avp_gid = self.avp_iids = self.num_frames = self.hotspot = None
 
     def read_file(self):
         if hasattr(self, "fsh_tgi"):
