@@ -146,7 +146,7 @@ viewerRotEast = "East"
 viewerRotNorth = "North"
 viewerRotWest = "West"
 
-viewerModel = "For RKT4"
+viewerModel = "Model state"
 
 itemColumName = "Name"
 itemColumFilename = "File"

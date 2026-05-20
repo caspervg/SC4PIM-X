@@ -33,7 +33,7 @@ class ATC(object):
         self.type = self.fsh_tgi = self.avp_tid = self.avp_gid = self.avp_iids = self.num_frames = self.hotspot = None
 
     def read_file(self):
-        if hasattr(self, "fsh_tgi"):
+        if self.fsh_tgi is not None:
             return
         if self.entry is None:
             return
@@ -60,6 +60,8 @@ class ATC(object):
 
     def _pre_load(self, virtual_dat, s3d_textures_holder):
         self.read_file()
+        if self.fsh_tgi is None:
+            return
         fsh_entry = virtual_dat.getEntry(self.fsh_tgi[0], self.fsh_tgi[1], self.fsh_tgi[2])
         s3d_textures_holder.PrecacheTex((self.fsh_tgi[1], self.fsh_tgi[2]), fsh_entry)
         if fsh_entry:

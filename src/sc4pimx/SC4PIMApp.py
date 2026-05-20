@@ -51,6 +51,61 @@ def _exit_after(stage):
         sys.exit(0)
 
 
+def _existing_unique_paths(paths):
+    seen = set()
+    result = []
+    for path in paths:
+        if not path or not os.path.isdir(path):
+            continue
+        normalised = os.path.normcase(os.path.normpath(path))
+        if normalised in seen:
+            continue
+        seen.add(normalised)
+        result.append(os.path.normpath(path))
+    return result
+
+
+def _common_sc4_install_folders():
+    install_roots = []
+    for env_name in ('ProgramFiles(x86)', 'ProgramFiles', 'ProgramW6432'):
+        root = os.environ.get(env_name)
+        if root:
+            install_roots.append(root)
+
+    relative_paths = [
+        os.path.join('Maxis', 'SimCity 4'),
+        os.path.join('Maxis', 'SimCity 4 Deluxe'),
+        'SimCity 4 Deluxe Edition',
+        'SimCity 4 Deluxe',
+        os.path.join('Steam', 'steamapps', 'common', 'SimCity 4 Deluxe'),
+        os.path.join('GOG Galaxy', 'Games', 'SimCity 4 Deluxe Edition'),
+        os.path.join('GOG Galaxy', 'Games', 'SimCity 4 Deluxe'),
+        os.path.join('GOG Games', 'SimCity 4 Deluxe Edition'),
+        os.path.join('GOG Games', 'SimCity 4 Deluxe'),
+    ]
+    return _existing_unique_paths(os.path.join(root, rel) for root in install_roots for rel in relative_paths)
+
+
+def _read_sc4_install_folder_from_registry():
+    if not HAS_WIN32:
+        return ''
+    access_modes = [0]
+    for flag_name in ('KEY_WOW64_32KEY', 'KEY_WOW64_64KEY'):
+        flag = getattr(win32con, flag_name, None)
+        if flag is not None:
+            access_modes.append(win32con.KEY_READ | flag)
+
+    for access in access_modes:
+        try:
+            key = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4', 0, access)
+            install_folder = str(win32api.RegQueryValueEx(key, 'Install Dir')[0])
+            if install_folder and os.path.isdir(install_folder):
+                return os.path.normpath(install_folder)
+        except Exception:
+            pass
+    return ''
+
+
 def _enable_faulthandler():
     global _faulthandler_file
     if not _env_true('SC4PIM_FAULTHANDLER'):
@@ -2660,17 +2715,14 @@ class SC4NoteBook(wx.Notebook):
         descriptor = self.descriptors[newPage]
         exemplar = descriptor.exemplar
         rkt4 = exemplar.GetProp(662775844)
-        self.parent.cbStateChoice.Clear()
-        self.parent.cbStateChoice.SetValue('')
         if rkt4 is not None:
             choices = []
             for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
-            for ch in choices:
-                self.parent.cbStateChoice.Append(ch[0], ch[1])
-
-            self.parent.cbStateChoice.SetValue(choices[0][0])
+            self.parent.SetModelStateChoices(choices)
+        else:
+            self.parent.SetModelStateChoices([])
         try:
             self.GetPage(newPage).RebuildViewer()
             view = self.GetPage(newPage).view
@@ -2797,23 +2849,33 @@ class ConfigureDialog(sc.SizedDialog):
         self.rootFolder = parent.rootFolder
         self.listFolder = []
         to_check = []
-        default_folders = [
-            (parent.maxisFolder, False),
-            (parent.maxisPluginsFolder, True),
-            (parent.rootFolder, True),
-        ]
+        game_folders = _existing_unique_paths([parent.maxisFolder] + getattr(parent, 'gameFolders', []))
+        default_folders = []
+        for game_folder in game_folders:
+            default_folders.append((game_folder, False))
+            default_folders.append((os.path.join(game_folder, 'Plugins'), True))
+            default_folders.append((os.path.join(game_folder, 'plugins'), True))
+        default_folders.append((parent.rootFolder, True))
+        seen_folders = set()
         for folder, recurse_by_default in default_folders:
-            if folder and folder not in self.listFolder:
-                self.listFolder.append(folder)
-                if recurse_by_default or self._normalise_path(folder) in self.pathToScan:
-                    to_check.append(len(self.listFolder) - 1)
+            if not folder or not os.path.isdir(folder):
+                continue
+            normalised = self._normalise_path(folder)
+            if normalised in seen_folders:
+                continue
+            seen_folders.add(normalised)
+            self.listFolder.append(os.path.normpath(folder))
+            if recurse_by_default or normalised in self.pathToScan:
+                to_check.append(len(self.listFolder) - 1)
         for root, dirs, files in os.walk(parent.rootFolder):
             for folder in dirs:
                 path = os.path.join(parent.rootFolder, folder)
-                if path in self.listFolder:
+                normalised = self._normalise_path(path)
+                if normalised in seen_folders:
                     continue
-                self.listFolder.append(path)
-                if self._normalise_path(path) in self.pathToScan:
+                seen_folders.add(normalised)
+                self.listFolder.append(os.path.normpath(path))
+                if normalised in self.pathToScan:
                     to_check.append(len(self.listFolder) - 1)
 
             break
@@ -2988,6 +3050,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_COMBOBOX, self.EvtComboBoxRotation, self.cbRotation)
         self.cbStateChoice = wx.ComboBox(leftPanel, -1, viewerModel, style=wx.CB_READONLY)
         self.Bind(wx.EVT_COMBOBOX, self.EvtComboBoxState, self.cbStateChoice)
+        self.SetModelStateChoices([])
         self.staticFileName = wx.StaticText(leftPanel, -1, '??')
         self.listItems = VirtualListCtrl(rightUpPanel)
         self.listItems.InsertColumn(0, itemColumName)
@@ -3313,17 +3376,10 @@ class MainFrame(wx.Frame):
             return _preload_config_result
         _trace('preload:start')
         self.pathToScan = []
-        try:
-            if not HAS_WIN32:
-                raise ImportError("win32api not available")
-            maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4')
-            self.maxisFolder = str(win32api.RegQueryValueEx(maxisKey, 'Install Dir')[0])
-        except Exception:
-            self.maxisFolder = ''
-            self.maxisPluginsFolder = ''
-
-        if self.maxisFolder != '':
-            self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'plugins')
+        registry_folder = _read_sc4_install_folder_from_registry()
+        self.gameFolders = _existing_unique_paths([registry_folder] + _common_sc4_install_folders())
+        self.maxisFolder = self.gameFolders[0] if self.gameFolders else ''
+        self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'Plugins') if self.maxisFolder else ''
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
         self.rootFolder = os.path.join(self.mydocs, 'SimCity 4\\Plugins')
         _trace('preload:dialog')
@@ -3568,20 +3624,28 @@ class MainFrame(wx.Frame):
         self.listItems.SetItemCount(len(what))
         return
 
+    def SetModelStateChoices(self, choices):
+        self.cbStateChoice.Clear()
+        if choices:
+            for label, data in choices:
+                self.cbStateChoice.Append(label, data)
+            self.cbStateChoice.SetSelection(0)
+        else:
+            self.cbStateChoice.Append(viewerModel, 0)
+            self.cbStateChoice.SetSelection(0)
+        return
+
     def FillPropList(self, descriptor, bAdd):
         exemplar = descriptor.exemplar
-        self.cbStateChoice.Clear()
-        self.cbStateChoice.SetValue('')
         rkt4 = exemplar.GetProp(662775844)
         if rkt4 is not None:
             choices = []
             for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
-            for ch in choices:
-                self.cbStateChoice.Append(ch[0], ch[1])
-
-            self.cbStateChoice.SetValue(choices[0][0])
+            self.SetModelStateChoices(choices)
+        else:
+            self.SetModelStateChoices([])
         self.nb.AddNewDesc(descriptor, self.virtualDAT, bAdd)
         return
 
@@ -3594,8 +3658,7 @@ class MainFrame(wx.Frame):
             self.viewer.refresh(False)
         if self.listItemsCat is not None:
             if self.listItemsCat.__class__.__name__ == 'list':
-                self.cbStateChoice.Clear()
-                self.cbStateChoice.SetValue('')
+                self.SetModelStateChoices([])
                 data = self.listItemsCat[idx].sc4Model
                 zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
                 rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
