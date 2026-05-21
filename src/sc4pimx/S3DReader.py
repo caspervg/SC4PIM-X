@@ -300,6 +300,7 @@ class S3D(object):
          GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS]
         funcTableReverse = [GL_ALWAYS, GL_GEQUAL, GL_NOTEQUAL, GL_GREATER, GL_LEQUAL, GL_EQUAL, GL_LESS, GL_NEVER]
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
+        sample_alpha_to_coverage = globals().get('GL_SAMPLE_ALPHA_TO_COVERAGE')
         for mesh in meshes:
             frameInfo = mesh['frames'][self.currentFrame]
             try:
@@ -322,8 +323,12 @@ class S3D(object):
             if flags & 1:
                 glEnable(GL_ALPHA_TEST)
                 glAlphaFunc(funcTable[material['alphaFunc']], material['alphaThreshold'])
+                if sample_alpha_to_coverage is not None:
+                    glEnable(sample_alpha_to_coverage)
             else:
                 glDisable(GL_ALPHA_TEST)
+                if sample_alpha_to_coverage is not None:
+                    glDisable(sample_alpha_to_coverage)
             if flags & 2:
                 glEnable(GL_DEPTH_TEST)
                 glDepthFunc(funcTable[material['depthFunc']])
@@ -348,6 +353,8 @@ class S3D(object):
             glDisableClientState(GL_VERTEX_ARRAY)
             glDisableClientState(GL_TEXTURE_COORD_ARRAY)
 
+        if sample_alpha_to_coverage is not None:
+            glDisable(sample_alpha_to_coverage)
         return
 
     def FreeAll(self, s3DTexturesHolder):

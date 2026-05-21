@@ -1,8 +1,7 @@
 """S3D textures holder for OpenGL rendering."""
 from OpenGL.GL import (
-    GL_CLAMP,
+    GL_CLAMP_TO_EDGE,
     GL_LINEAR,
-    GL_LINEAR_MIPMAP_LINEAR,
     GL_RGBA,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -19,8 +18,8 @@ from OpenGL.GL import (
     glGenTextures,
     glPixelStorei,
     glTexParameterf,
+    glTexImage2D,
 )
-from OpenGL.GLU import gluBuild2DMipmaps
 from PIL import Image
 
 from . import FSHConverter
@@ -111,15 +110,14 @@ class S3DTexturesHolder(object):
                     texture[1].append(texName)
                     glBindTexture(GL_TEXTURE_2D, texName)
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-                    # Build a full mipmap chain so model textures stay smooth
-                    # (no shimmering/aliasing) when the model is small or
-                    # zoomed out, instead of a single GL_LINEAR level.
-                    gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, size[0], size[1],
-                                      GL_RGBA, GL_UNSIGNED_BYTE, im)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
+                    # S3D buildings are often split across several FSH tiles.
+                    # Per-tile mipmaps can average dark padding into tile edges.
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1],
+                                 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
                 except Exception:
                     continue
 

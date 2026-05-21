@@ -1,8 +1,11 @@
 """S3D 3D model viewer with OpenGL rendering."""
 from OpenGL.GL import (
+    GL_ALPHA_TEST,
     GL_COLOR_BUFFER_BIT,
+    GL_BLEND,
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
     GL_FILL,
     GL_FRONT_AND_BACK,
     GL_LINE,
@@ -10,6 +13,7 @@ from OpenGL.GL import (
     GL_MODELVIEW,
     GL_MULTISAMPLE,
     GL_PROJECTION,
+    GL_QUADS,
     GL_SMOOTH,
     GL_TEXTURE_2D,
     glBegin,
@@ -83,7 +87,7 @@ class S3DViewer(object):
         self.openGLCanvas.displayer = self
         self.openGLCanvas.SetCurrent()
         self.drawAxis = True
-        glClearColor(0.0, 0.0, 0.0, 0.0)
+        glClearColor(0.23, 0.25, 0.28, 0.0)
         glClearDepth(1.0)
         glShadeModel(GL_SMOOTH)
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
@@ -101,6 +105,7 @@ class S3DViewer(object):
 
     def on_draw(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.draw_background()
         if self.s3d_mesh is None:
             self.openGLCanvas.SwapBuffers()
             return
@@ -241,3 +246,26 @@ class S3DViewer(object):
         self.s3d_mesh.draw(self.s3d_textures_holder)
         self.openGLCanvas.SwapBuffers()
         return
+
+    def draw_background(self):
+        size = self.openGLCanvas.GetClientSize()
+        w = max(size[0], 1)
+        h = max(size[1], 1)
+        glViewport(0, 0, w, h)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, 1, 0, 1, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glDisable(GL_ALPHA_TEST)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_TEXTURE_2D)
+        glDisable(GL_BLEND)
+        glBegin(GL_QUADS)
+        glColor3f(0.15, 0.17, 0.20)
+        glVertex3f(0, 0, 0)
+        glVertex3f(1, 0, 0)
+        glColor3f(0.36, 0.39, 0.42)
+        glVertex3f(1, 1, 0)
+        glVertex3f(0, 1, 0)
+        glEnd()
