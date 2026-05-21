@@ -3345,7 +3345,7 @@ class MainFrame(wx.Frame):
         self.maxisFolder = self.gameFolders[0] if self.gameFolders else ''
         self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'Plugins') if self.maxisFolder else ''
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
-        self.rootFolder = os.path.join(self.mydocs, 'SimCity 4\\Plugins')
+        self.rootFolder = os.path.join(self.mydocs, 'SimCity 4', 'Plugins')
         logger.debug('Showing configuration dialog')
         dlg = ConfigureDialog(parent=self)
         if dlg.ShowModal() == wx.ID_OK:
