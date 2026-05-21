@@ -27,6 +27,8 @@ DEFAULT_LOT_EDITOR = {
     "AssetFilter": "all",
     "AssetSearch": "",
     "AssetCompact": False,
+    "BackgroundEnabled": False,
+    "BackgroundSet": "Default",
 }
 
 

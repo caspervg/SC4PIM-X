@@ -35,6 +35,50 @@ def data_file_path(name: str) -> Path:
     return asset_path(name)
 
 
+def background_path(name: str) -> Path:
+    """Locate an LE-view background image.
+
+    A user-supplied override in ``<user_data_dir>/backgrounds`` takes
+    precedence, so custom backgrounds can be used without modifying the
+    (read-only, in a packaged build) bundled ``assets/backgrounds`` folder.
+    """
+    user_path = user_data_dir() / "backgrounds" / name
+    if user_path.exists():
+        return user_path
+    return asset_path("backgrounds", name)
+
+
+def background_sets() -> list:
+    """Available LE-view background sets as ``(name, directory)`` pairs.
+
+    'Default' is the bundled ``assets/backgrounds`` folder. Any subfolder of
+    ``assets/backgrounds`` or ``<user_data_dir>/backgrounds`` that contains a
+    ``Back01.jpg`` is offered as an extra named set, letting users drop in
+    their own background packs without modifying the bundle.
+    """
+    sets = [("Default", asset_path("backgrounds"))]
+    seen = {"default"}
+    for root in (asset_path("backgrounds"), user_data_dir() / "backgrounds"):
+        try:
+            children = sorted(p for p in root.iterdir() if p.is_dir())
+        except OSError:
+            continue
+        for child in children:
+            key = child.name.lower()
+            if key not in seen and (child / "Back01.jpg").exists():
+                seen.add(key)
+                sets.append((child.name, child))
+    return sets
+
+
+def background_set_dir(name: str) -> Path:
+    """Directory for the named background set; falls back to the Default set."""
+    for set_name, directory in background_sets():
+        if set_name == name:
+            return directory
+    return asset_path("backgrounds")
+
+
 def user_data_dir() -> Path:
     """Per-user writable directory for config and runtime state.
 
