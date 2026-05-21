@@ -634,8 +634,14 @@ class LEAssetThumbnailProvider(object):
         self.cache = {}
         self.state_counts = {}
         self.state_strips = {}
-        self.pending = set()
         self.placeholder = self._build_placeholder('...')
+        # Pending thumbnail loads. The grid rebuilds this via RestrictTo()
+        # after every repaint, so a fast scroll never leaves a backlog of
+        # off-screen thumbnails queued ahead of the ones now on screen.
+        self._queue = []            # keys; the end is processed first
+        self._queue_item = {}       # key -> item
+        self._queue_cb = {}         # key -> on_loaded callback
+        self._draining = False
 
     def _build_placeholder(self, label):
         bmp = wx.Bitmap(72, 72)
@@ -811,24 +817,59 @@ class LEAssetThumbnailProvider(object):
             bmp = self._build_placeholder('I')
         return bmp
 
-    def _load_pending(self, item, key, on_loaded):
-        try:
-            self.cache[key] = self._build_bitmap(item)
-        finally:
-            self.pending.discard(key)
-        if on_loaded:
+    def _drain(self):
+        if not self._queue:
+            self._draining = False
+            return
+        key = self._queue.pop()
+        item = self._queue_item.pop(key, None)
+        on_loaded = self._queue_cb.pop(key, None)
+        if item is not None and key not in self.cache:
             try:
-                on_loaded(False)
-            except RuntimeError:
-                pass
+                self.cache[key] = self._build_bitmap(item)
+            except Exception:
+                self.cache[key] = self._build_placeholder('!')
+            if on_loaded:
+                try:
+                    on_loaded(False)
+                except RuntimeError:
+                    pass
+        wx.CallLater(1, self._drain)
+
+    def RestrictTo(self, items):
+        """Limit pending loads to *items* (the currently visible cards).
+
+        Called by the grid after every repaint: requests for cards scrolled
+        past are dropped, and the queue is ordered so the visible cards
+        decode top-to-bottom instead of behind a stale backlog.
+        """
+        keep = []
+        seen = set()
+        for it in items:
+            key = self._cache_key(it)
+            if key in self._queue_item and key not in seen:
+                seen.add(key)
+                keep.append(key)
+                self._queue_item[key] = it
+        for key in list(self._queue_item.keys()):
+            if key not in seen:
+                self._queue_item.pop(key, None)
+                self._queue_cb.pop(key, None)
+        # _drain() pops from the end, so reverse for top-down decode order.
+        self._queue = list(reversed(keep))
 
     def GetBitmap(self, item, on_loaded=None):
         key = self._cache_key(item)
         if key in self.cache:
             return self.cache[key]
-        if on_loaded and key not in self.pending:
-            self.pending.add(key)
-            wx.CallLater(1, self._load_pending, item, key, on_loaded)
+        if on_loaded is not None:
+            self._queue_item[key] = item
+            self._queue_cb[key] = on_loaded
+            if key not in self._queue:
+                self._queue.append(key)
+            if not self._draining:
+                self._draining = True
+                wx.CallLater(1, self._drain)
         return self.placeholder
 
     def GetBitmapNow(self, item):
@@ -929,12 +970,17 @@ class LEAssetGrid(wx.ScrolledWindow):
         cols = self._columns()
         start_row = max(0, view_y // (self.CARD_H + self.GAP))
         end_row = min((len(self.items) + cols - 1) // cols, end_y // (self.CARD_H + self.GAP) + 2)
+        visible = []
         for row in range(int(start_row), int(end_row)):
             for col in range(cols):
                 idx = row * cols + col
                 if idx >= len(self.items):
                     break
                 self._draw_card(dc, idx, self._item_rect(idx))
+                visible.append(self.items[idx])
+        # Drop thumbnail loads for cards no longer on screen so the cards we
+        # scrolled TO decode immediately instead of behind a stale backlog.
+        self.thumbnail_provider.RestrictTo(visible)
 
     def _draw_card(self, dc, idx, rect):
         item = self.items[idx]

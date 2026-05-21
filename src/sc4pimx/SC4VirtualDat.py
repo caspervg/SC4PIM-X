@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import xml.dom.minidom
+from concurrent.futures import ThreadPoolExecutor
 
 import wx
 
@@ -194,13 +195,78 @@ class VirtualDat(object):
 
     def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):
         logger.debug('Scanning folder %s (recurse=%s, standard=%s)', folderName, bool(bRecurse), bool(bStandard))
+        can_report = dlg is not None and hasattr(dlg, 'SetStatus')
+        if can_report:
+            dlg.SetStatus('Scanning folder: %s' % folderName, 'Building file list...')
         filesName = BuildSortedFilesList(folderName, bRecurse)
-        logger.debug('Found %d candidate files in %s', len(filesName), folderName)
-        for fileName in filesName:
+        total = len(filesName)
+        logger.debug('Found %d candidate files in %s', total, folderName)
+        folderLabel = os.path.basename(folderName.rstrip('\\/')) or folderName
+        for index, fileName in enumerate(filesName, 1):
             # Skip non-DBPF/SC4 container files early to avoid unnecessary reads.
             if not self._is_sc4_container(fileName):
                 continue
-            self.addFile(dlg, fileName, bStandard)
+            # Refresh the progress text periodically so large scans look alive.
+            if can_report and (index % 10 == 0 or index == total):
+                dlg.SetStatus('Loading %s  (%d / %d files)' % (folderLabel, index, total),
+                              os.path.basename(fileName))
+            try:
+                self.addFile(dlg, fileName, bStandard)
+            except Exception:
+                # A single corrupt lot/model must not abort the whole scan.
+                logger.warning('Skipping unreadable file %s', fileName, exc_info=True)
+                if dlg:
+                    dlg.LogError('Skipped unreadable file : %s' % fileName)
+
+    def gather_container_files(self, folderName, bRecurse=True):
+        """Return the SC4/DBPF container files under *folderName*, in load order.
+
+        Used by the threaded loader to build a flat work list before parsing
+        files in parallel. Safe to call from a background thread (no wx calls).
+        """
+        files = BuildSortedFilesList(folderName, bRecurse)
+        return [f for f in files if self._is_sc4_container(f)]
+
+    def load_files_parallel(self, file_list, progress_cb=None):
+        """Parse *file_list* in parallel, then merge the results in order.
+
+        *file_list* is an ordered sequence of ``(fileName, bStandard)`` tuples.
+        DBPF parsing (file I/O + index decoding) runs in a thread pool; merging
+        into the shared entry tables stays single-threaded on the calling
+        thread, so load order -- and therefore plugin override order -- is
+        preserved (``ThreadPoolExecutor.map`` yields results in input order).
+
+        Must NOT be called on the GUI thread: ``DatFile`` parsing performs no
+        wx calls, but this method blocks until every file is parsed.
+        """
+        file_list = list(file_list)
+        total = len(file_list)
+        workers = max(2, min(8, (os.cpu_count() or 4)))
+        logger.debug('Parsing %d files with %d worker threads', total, workers)
+
+        def _parse(item):
+            fileName, bStandard = item
+            try:
+                # dlg=None -> no wx calls happen inside the worker thread.
+                return DatFile(fileName, None, True), bStandard, fileName, None
+            except Exception as exc:  # noqa: BLE001 - reported per file below
+                return None, bStandard, fileName, exc
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix='sc4-loader') as pool:
+            for datFile, bStandard, fileName, exc in pool.map(_parse, file_list):
+                done += 1
+                if datFile is None:
+                    logger.warning('Skipping unreadable file %s', fileName, exc_info=exc)
+                else:
+                    try:
+                        self.addEntries(datFile.entries, None, bStandard, False)
+                    except Exception:
+                        logger.warning('Failed to merge entries from %s', fileName,
+                                       exc_info=True)
+                if progress_cb is not None:
+                    progress_cb(done, total, fileName)
 
     def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):
         logger.debug('Loading DAT file %s (standard=%s, force_update=%s)',
@@ -260,6 +326,9 @@ class VirtualDat(object):
     def Finalize(self, dlg):
         start = time.time()
         logger.debug('Finalizing virtual DAT with %d entries', len(self.allEntries))
+        if dlg is not None and hasattr(dlg, 'SetStatus'):
+            dlg.SetStatus('Finalizing data...',
+                          '%d entries loaded' % len(self.allEntries))
         self.cohorts = filter(lambda ent: ent.tgi[0] == 87304289, self.allEntries)
         for entry in self.cohorts:
             self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)

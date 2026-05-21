@@ -99,6 +99,12 @@ Filename = "sc4pimx.log"
 MaxBytes = 2000000
 BackupCount = 3
 
+# --- Paths ---
+[Paths]
+# Optional override for the user's SimCity 4 Plugins root. Empty uses the
+# platform default Documents\SimCity 4\Plugins path.
+UserPluginsRoot = ""
+
 # --- LotEditor workbench ---
 [LotEditor]
 BrowserWidth = 330

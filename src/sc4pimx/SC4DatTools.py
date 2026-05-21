@@ -139,7 +139,19 @@ class Prop():
                 line = '"'.join(comp)
                 if line[-1] == ' ':
                     line = line[:-1]
-                fields = line.split(':')
+                # Limit the split so colons inside the value section -- e.g.
+                # sc4pac-style labelled values "{Width: 0}" or strings that
+                # contain ':' -- aren't mistaken for field separators.
+                fields = line.split(':', 3)
+
+                def stripLabel(token):
+                    # Labelled text exemplars write each value as "Name: x";
+                    # keep only the value part. Plain "0", "0x0A" pass through.
+                    token = token.strip()
+                    if ':' in token:
+                        token = token.rsplit(':', 1)[-1].strip()
+                    return token
+
                 self.id = int(fields[0], 16)
                 self.count = int(fields[2])
                 if self.count == 0:
@@ -158,7 +170,7 @@ class Prop():
                     values = fields[3][1:-1].split(',')
                     self.values = []
                     for v in values:
-                        if v == 'True':
+                        if stripLabel(v) == 'True':
                             self.values.append(True)
                         else:
                             self.values.append(False)
@@ -171,7 +183,7 @@ class Prop():
                         self.values = [txtConv]
                     elif tv == 'Float32':
                         if fields[3][1:-1].split(',') != ['']:
-                            self.values = [ float(x) for x in fields[3][1:-1].split(',') ]
+                            self.values = [ float(stripLabel(x)) for x in fields[3][1:-1].split(',') ]
                     elif fields[3][1:-1].split(',') != ['']:
 
                         def convH(s):
@@ -219,7 +231,7 @@ class Prop():
                                         return 255
                             return v
 
-                        self.values = [ convH(x) for x in fields[3][1:-1].split(',') ]
+                        self.values = [ convH(stripLabel(x)) for x in fields[3][1:-1].split(',') ]
             except Exception:
                 logger.exception('Error parsing exemplar 0x%X-0x%X-0x%X located in %s\n  line: %s',
                                  self.exemplar.entry.TGI['t'], self.exemplar.entry.TGI['g'],
@@ -586,9 +598,9 @@ class SC4Exemplar():
 def BuildSortedFilesList(folder, bRecurse=True):
     fileNames = []
     subFolders = []
+    # NB: no wx calls here -- this runs on the background loader thread.
     for root, dirs, files in os.walk(folder):
         for fileName in files:
-            wx.Yield()
             fileNames.append(os.path.join(root, fileName))
 
         fileNames.sort(key=str.lower)
@@ -622,8 +634,9 @@ class SC4Entry():
             self.rawContent = None
             self.dateCreated = int(time.time())
             self.dateUpdated = int(time.time())
-        except Exception:
-            logger.exception('Unexpected error in %s, entry number %s', fileName, idx)
+        except Exception as exc:
+            # Logged as debug only; the caller logs a single warning per file.
+            logger.debug('Unreadable entry %s in %s: %s', idx, fileName, exc)
             raise
 
         return
@@ -730,7 +743,7 @@ class DatFile():
         header.close()
 
     def ReadEntries(self, bOnlyCohort, dlg, lowerRam):
-        wx.Yield()
+        # NB: no wx calls here -- this runs inside background worker threads.
         self.sc4.seek(self.indexRecordPosition)
         header = io.BytesIO(self.sc4.read(self.indexRecordLength))
         dirEntry = None

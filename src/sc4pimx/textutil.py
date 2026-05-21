@@ -2,7 +2,17 @@ import codecs
 
 
 def decode_sc4_text(data: bytes) -> str:
-    return data.decode("utf-16-le")
+    """Decode an SC4 text payload to a string, never raising.
+
+    LTEXT / UVNK / IDK payloads are normally UTF-16-LE. Some legacy or
+    corrupt entries are not (odd length, illegal surrogates, 8-bit text).
+    Rather than crashing the caller, fall back to Latin-1 -- which maps every
+    byte -- so a malformed string is shown as best-effort text instead.
+    """
+    try:
+        return data.decode("utf-16-le")
+    except UnicodeDecodeError:
+        return data.decode("latin-1", errors="replace")
 
 
 def encode_sc4_text(text: str) -> bytes:

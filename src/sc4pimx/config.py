@@ -67,6 +67,15 @@ def load_folders() -> list[tuple[str, int]]:
     return folders
 
 
+def load_user_plugins_root(default: str = "") -> str:
+    """Configured root of the user's Plugins folder."""
+    paths = load().get("Paths", {})
+    if not isinstance(paths, dict):
+        return default
+    value = str(paths.get("UserPluginsRoot", "")).strip()
+    return value or default
+
+
 def load_lot_editor() -> dict:
     """Persisted LotEditor workbench preferences."""
     value = load().get("LotEditor", {})
@@ -101,6 +110,22 @@ def save_folders(folders) -> Path:
             array_of_tables.append(table)
     doc["Folders"] = array_of_tables
 
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
+
+
+def save_user_plugins_root(path: str) -> Path:
+    """Persist the user Plugins root in config.toml."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    table = doc.get("Paths")
+    if table is None or not hasattr(table, "update"):
+        table = tomlkit.table()
+    path = str(path).strip()
+    table["UserPluginsRoot"] = tomlkit.string(path, literal="'" not in path and "\n" not in path)
+    doc["Paths"] = table
     target = ensure_user_data_dir() / CONFIG_FILENAME
     target.write_text(tomlkit.dumps(doc), encoding="utf-8")
     return target
