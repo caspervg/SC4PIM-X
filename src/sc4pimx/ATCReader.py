@@ -56,9 +56,9 @@ class ATC(object):
         s3d_textures_holder.Free()
 
     def initialize(self, virtual_dat, viewer):
-        self._pre_load(virtual_dat, viewer.s3d_textures_holder)
+        self.PreLoad(virtual_dat, viewer.s3d_textures_holder)
 
-    def _pre_load(self, virtual_dat, s3d_textures_holder):
+    def PreLoad(self, virtual_dat, s3d_textures_holder):
         self.read_file()
         if self.fsh_tgi is None:
             return

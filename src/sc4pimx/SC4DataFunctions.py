@@ -92,8 +92,11 @@ def readPropertyDef(node):
 
 
 def ToUnsigned(val):
+    # Many callers pass float results of coordinate maths; struct.pack('l')
+    # required an int even in Python 2 only by truncation, so coerce here
+    # (matches ToTile, which already does int(val)).
     try:
-        return struct.unpack('L', struct.pack('l', val))[0]
+        return struct.unpack('L', struct.pack('l', int(val)))[0]
     except Exception:
         print(type(val), val)
         raise
