@@ -47,7 +47,6 @@ datas = [
 # PyOpenGL loads its platform and array backends dynamically; PyInstaller
 # cannot see those imports statically, so list them explicitly.
 hiddenimports = [
-    'OpenGL.platform.win32',
     'OpenGL.arrays.ctypesarrays',
     'OpenGL.arrays.ctypesparameters',
     'OpenGL.arrays.ctypespointers',
@@ -58,6 +57,26 @@ hiddenimports = [
     'OpenGL.arrays.strings',
     'OpenGL_accelerate',
 ]
+if _sys.platform == 'win32':
+    hiddenimports.append('OpenGL.platform.win32')
+elif _sys.platform == 'darwin':
+    hiddenimports.append('OpenGL.platform.darwin')
+else:
+    hiddenimports.append('OpenGL.platform.glx')
+
+
+def _drop_obsolete_opengl_vc9_dlls(toc):
+    """Drop PyOpenGL DLLs for unsupported pre-Python-3.5 Windows runtimes."""
+    if _sys.platform != 'win32':
+        return toc
+    filtered = []
+    for entry in toc:
+        dest = entry[0].replace('\\', '/').lower()
+        name = dest.rsplit('/', 1)[-1]
+        if dest.startswith('OpenGL/DLLS/'.lower()) and name.endswith('.vc9.dll'):
+            continue
+        filtered.append(entry)
+    return filtered
 
 a = Analysis(
     ['scripts/run_sc4pimx.py'],
@@ -65,13 +84,15 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
     optimize=1,
 )
+a.binaries = _drop_obsolete_opengl_vc9_dlls(a.binaries)
+a.datas = _drop_obsolete_opengl_vc9_dlls(a.datas)
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
