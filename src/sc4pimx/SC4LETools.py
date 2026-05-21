@@ -551,10 +551,8 @@ def FillListForProps(self, entries, fnPrint, catID=None):
         tgi = GetTGIForProp(desc)
         idx = 0
         if tgi != (0, 0, 0):
-            try:
-                idx = VirtualDat.this.s3dEntries[tgi]
-            except KeyError:
-                pass
+            # Lazily decode + register this model's thumbnail on first use.
+            idx = EnsureStandardModelImage(VirtualDat.this, tgi)
 
         if idx == -1:
             self.InsertItem(self.GetItemCount(), fnPrint(desc))

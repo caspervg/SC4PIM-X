@@ -342,6 +342,30 @@ def _env_true(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def EnsureStandardModelImage(virtual_dat, tgi):
+    """Return the ilStandardModels index for a model's thumbnail.
+
+    The thumbnail JPG is decoded and added to the image list on first use
+    (lazy loading), so the LE picker only pays for the models it actually
+    shows. The result -- including index 0 (the NoPreview placeholder) when
+    the thumbnail is missing or unreadable -- is cached in s3dEntries, so each
+    model is decoded at most once per session.
+    """
+    idx = virtual_dat.s3dEntries.get(tgi)
+    if idx is not None:
+        return idx
+    idx = 0
+    file_name = 'ImageDB/%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2]))
+    if os.path.exists(file_name):
+        image = wx.Bitmap(file_name, wx.BITMAP_TYPE_JPEG)
+        if image.IsOk():
+            added = virtual_dat.ilStandardModels.Add(image)
+            if added != -1:
+                idx = added
+    virtual_dat.s3dEntries[tgi] = idx
+    return idx
+
+
 class ImageListLoaderProps(object):
 
     def __init__(self, virtualDAT):
@@ -392,25 +416,17 @@ class ImageListLoaderProps(object):
         if _env_true('SC4PIM_SKIP_PROP_IMAGES'):
             self.running = False
             return
-        # wx.ImageList grows its internal master bitmap whenever Add() runs
-        # past capacity, which is O(n) per call -> O(n^2) overall and several
-        # seconds of UI freeze for a large model set. Pre-size it to the known
-        # count so every Add() is cheap. Safe to recreate here: nothing has
-        # SetImageList'd it yet (the LE tools fetch it lazily when opened).
+        # Model thumbnails used to be decoded up front -- thousands of JPG
+        # decodes + wx.ImageList.Add calls that froze the UI for seconds right
+        # after load. They are now loaded lazily by EnsureStandardModelImage()
+        # the first time each model is shown in an LE picker. Here we only
+        # build the pre-sized image list (so later Add() calls stay O(1) --
+        # an unsized wx.ImageList regrows its master bitmap on every Add) and
+        # register the NoPreview placeholder at index 0.
         self.virtualDAT.ilStandardModels = wx.ImageList(
             64, 64, True, len(self.virtualDAT.standardModels) + 2)
-        file_name = str(asset_path('other', 'NoPreview.jpg'))
-        wx.CallAfter(self._AddStandardModelImage, file_name, None)
-        for s3d in self.virtualDAT.standardModels:
-            if not self.keepGoing:
-                break
-            file_name = 'ImageDB/%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))
-            if dlg:
-                dlg.Increment()
-            if os.path.exists(file_name):
-                time.sleep(0)
-                wx.CallAfter(self._AddStandardModelImage, file_name, s3d.entry.tgi)
-
+        self.virtualDAT.s3dEntries = {}
+        self._AddStandardModelImage(str(asset_path('other', 'NoPreview.jpg')), None)
         self.running = False
 
 
