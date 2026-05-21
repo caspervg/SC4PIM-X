@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "wxPython>=4.2.0",
     "Pillow>=10.0.0",
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,!=2.4.0",
     "PyOpenGL>=3.1.0",
     "PyOpenGL-accelerate>=3.1.0",
     "pywin32>=306; sys_platform == 'win32'",
@@ -31,11 +31,15 @@ dependencies = [
 [project.scripts]
 sc4pimx = "sc4pimx.SC4PIMApp:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "pytest>=8.0",
+]
+build = [
+    "pyinstaller>=6.14",
 ]
 
 [build-system]
@@ -44,13 +48,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sc4pimx"]
-
-[tool.uv]
-dev-dependencies = [
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-]
 
 [tool.black]
 line-length = 120

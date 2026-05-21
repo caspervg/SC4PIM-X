@@ -5,7 +5,7 @@ import xml.dom.minidom
 
 import wx
 
-from .paths import package_data_path
+from .paths import data_file_path, image_db_path
 from .SC4DataFunctions import (
     DuplicateProp,
     FinalizeCategory,
@@ -144,7 +144,7 @@ class VirtualDat(object):
         return [entry for entry in self.allEntries if entry.fileName == fileName]
 
     def ReadProperties(self):
-        propertiesXML = xml.dom.minidom.parse(str(package_data_path('new_properties.xml')))
+        propertiesXML = xml.dom.minidom.parse(str(data_file_path('new_properties.xml')))
         for node in propertiesXML.documentElement.childNodes:
             if node.nodeType == node.ELEMENT_NODE and node.tagName == 'PROPERTIES':
                 for subNode in node.childNodes:
@@ -263,6 +263,6 @@ class VirtualDat(object):
         FinalizeCategory(self.rootCategory)
         self.missing_pictures = []
         for s3d in self.standardModels:
-            file_name = 'ImageDB/%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))
+            file_name = str(image_db_path('%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))))
             if not os.path.exists(file_name):
                 self.missing_pictures.append((file_name, s3d))

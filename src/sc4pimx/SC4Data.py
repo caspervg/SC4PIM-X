@@ -11,7 +11,7 @@ import xml.dom.minidom
 from PIL import Image, ImageDraw, ImageFont
 
 from . import FSHConverter
-from .paths import asset_path
+from .paths import asset_path, image_db_path
 from .S3DReader import *
 from .SC4DataFunctions import ToTile
 from .SC4DatTools import *
@@ -355,7 +355,7 @@ def EnsureStandardModelImage(virtual_dat, tgi):
     if idx is not None:
         return idx
     idx = 0
-    file_name = 'ImageDB/%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2]))
+    file_name = str(image_db_path('%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2]))))
     if os.path.exists(file_name):
         image = wx.Bitmap(file_name, wx.BITMAP_TYPE_JPEG)
         if image.IsOk():
