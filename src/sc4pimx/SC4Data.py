@@ -392,6 +392,13 @@ class ImageListLoaderProps(object):
         if _env_true('SC4PIM_SKIP_PROP_IMAGES'):
             self.running = False
             return
+        # wx.ImageList grows its internal master bitmap whenever Add() runs
+        # past capacity, which is O(n) per call -> O(n^2) overall and several
+        # seconds of UI freeze for a large model set. Pre-size it to the known
+        # count so every Add() is cheap. Safe to recreate here: nothing has
+        # SetImageList'd it yet (the LE tools fetch it lazily when opened).
+        self.virtualDAT.ilStandardModels = wx.ImageList(
+            64, 64, True, len(self.virtualDAT.standardModels) + 2)
         file_name = str(asset_path('other', 'NoPreview.jpg'))
         wx.CallAfter(self._AddStandardModelImage, file_name, None)
         for s3d in self.virtualDAT.standardModels:
@@ -479,6 +486,11 @@ class ImageListLoaderTexture(object):
             self.running = False
             return
         allTex = self.virtualDAT.allTextures
+        # Pre-size both texture image lists (see ImageListLoaderProps.Run):
+        # an unsized wx.ImageList makes every Add() O(n). The base/overlay
+        # split is unknown up front, so size each to the total.
+        self.virtualDAT.ilBase = wx.ImageList(64, 64, True, len(allTex) + 2)
+        self.virtualDAT.ilOver = wx.ImageList(64, 64, True, len(allTex) + 2)
         for texEntry in allTex:
             if not self.keepGoing:
                 break
