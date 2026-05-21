@@ -13,7 +13,7 @@ from PIL import Image
 from . import FSHConverter, treeDnD
 from .ATCReader import *
 from .config import load_lot_editor, save_lot_editor
-from .paths import asset_path
+from .paths import asset_path, background_path, background_set_dir, background_sets
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
 from .SC4LETools import *
@@ -328,6 +328,8 @@ class LotEditorWin(wx.Frame):
         root = wx.BoxSizer(wx.VERTICAL)
         command_bar = wx.Panel(panel, -1)
         settings = load_lot_editor()
+        self.bDrawBack = bool(settings.get('BackgroundEnabled', False))
+        self.backgroundSet = str(settings.get('BackgroundSet', 'Default'))
         command_bar.SetBackgroundColour(wx.Colour(244, 246, 248))
         command_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.lotContextLabel = wx.StaticText(command_bar, -1, LEXNoLotLoaded)
@@ -350,6 +352,20 @@ class LotEditorWin(wx.Frame):
             btn = wx.Button(command_bar, -1, label, size=(-1, 28))
             btn.Bind(wx.EVT_BUTTON, handler)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        # Background display: a toggle (also Ctrl+B) plus a set picker.
+        self.backgroundToggle = wx.ToggleButton(command_bar, -1, 'Background', size=(-1, 28))
+        self.backgroundToggle.SetValue(self.bDrawBack)
+        self.backgroundToggle.Bind(wx.EVT_TOGGLEBUTTON, self.OnToggleBackground)
+        command_sizer.Add(self.backgroundToggle, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        set_names = [name for name, _ in background_sets()]
+        self.backgroundChoice = wx.Choice(command_bar, -1, choices=set_names, size=(-1, 28))
+        if self.backgroundSet in set_names:
+            self.backgroundChoice.SetStringSelection(self.backgroundSet)
+        else:
+            self.backgroundChoice.SetSelection(0)
+        self.backgroundChoice.Bind(wx.EVT_CHOICE, self.OnChooseBackgroundSet)
+        command_sizer.Add(self.backgroundChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         command_bar.SetSizer(command_sizer)
         root.Add(command_bar, 0, wx.EXPAND)
@@ -387,6 +403,8 @@ class LotEditorWin(wx.Frame):
             width = self.rightSplitter.GetClientSize()[0]
             sash = self.rightSplitter.GetSashPosition()
             state['InspectorWidth'] = max(220, int(width - sash))
+        state['BackgroundEnabled'] = bool(getattr(self, 'bDrawBack', False))
+        state['BackgroundSet'] = str(getattr(self, 'backgroundSet', 'Default'))
         return state
 
     def SaveEditorState(self):
@@ -1052,6 +1070,12 @@ class LotEditorWin(wx.Frame):
         return True
 
     def _HandleShortcut(self, event):
+        # Shift+B toggles the background; handled before the numeric keymap so
+        # it isn't confused with plain 'b' (building mode).
+        if (event.ShiftDown() and not event.ControlDown()
+                and event.GetKeyCode() in (ord('B'), ord('b'))):
+            self.OnToggleBackground(event)
+            return True
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
@@ -1084,6 +1108,31 @@ class LotEditorWin(wx.Frame):
                     self.UpdatePIM()
                     self.RebuildVars()
                     return
+
+    def OnToggleBackground(self, event=None):
+        """Toggle the LE-view background (Ctrl+B or the toolbar button)."""
+        toggle = getattr(self, 'backgroundToggle', None)
+        if event is not None and toggle is not None and event.GetEventObject() is toggle:
+            self.bDrawBack = bool(toggle.GetValue())
+        else:
+            self.bDrawBack = not self.bDrawBack
+            if toggle is not None:
+                toggle.SetValue(self.bDrawBack)
+        self.on_draw()
+
+    def OnChooseBackgroundSet(self, event):
+        """Switch to a different background set and reload its textures."""
+        name = self.backgroundChoice.GetStringSelection()
+        if not name:
+            return
+        self.backgroundSet = name
+        if self.glCanvas2D is not None:
+            try:
+                self.glCanvas2D.SetCurrent()
+                self.Preload_Background_Tex2()
+            except Exception:
+                logger.exception('Failed to load background set %s', name)
+        self.on_draw()
 
     def OnToggleSnap(self, event):
         if self.snapSize == 0:
@@ -1181,9 +1230,10 @@ class LotEditorWin(wx.Frame):
          'Back01.jpg', 'Back02.jpg', 'Back03.jpg', 'Back04.jpg', 'Back05.jpg']
         self.BackTextures = [None, None, None, None, None]
         self.BackTextureSizes = [None, None, None, None, None]
+        set_dir = background_set_dir(getattr(self, 'backgroundSet', 'Default'))
         for i, tex in enumerate(texs):
             try:
-                im = Image.open(asset_path('backgrounds', tex))
+                im = Image.open(set_dir / tex)
             except Exception:
                 logger.exception("Can't load background texture %s", tex)
                 continue
@@ -1203,7 +1253,7 @@ class LotEditorWin(wx.Frame):
          'TE_Road.jpg', 'TE_Train.jpg', 'TE_ElevatedHighway.jpg', 'TE_Street.jpg', '', '', 'TE_Avenue.jpg', '', 'TE_ElTrain.jpg', 'TE_Monorail.jpg', 'TE_OneWay.jpg', '', 'TE_GroundHighway.jpg']
         for i, tex in enumerate(texs):
             try:
-                im = Image.open(asset_path('backgrounds', tex))
+                im = Image.open(background_path(tex))
             except Exception:
                 continue
 
@@ -1555,6 +1605,7 @@ class LotEditorWin(wx.Frame):
         self.lotOverTextures = []
         self.lotBaseTextures = []
         self.Preload_TE_Tex()
+        self.Preload_Background_Tex2()
         for lcp in range(2297284864, 2297286144):
             values = self.exemplar.GetProp(lcp)
             if values is None:
@@ -1982,13 +2033,15 @@ class LotEditorWin(wx.Frame):
         return
 
     def DrawBackGround2(self, x=0, y=0):
-        if not self.bDrawBack:
+        if not getattr(self, 'bDrawBack', False):
+            return
+        if not getattr(self, 'BackTextures', None):
             return
         zoom = self.zoom
         scaling = LotEditorWin.zoomScale3D[zoom]
         if zoom == 5:
             zoom = 4
-        if self.BackTextures[zoom] is not None:
+        if self.BackTextures[zoom] is not None and self.BackTextureSizes[zoom] is not None:
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_TEXTURE_2D)
             glBindTexture(GL_TEXTURE_2D, self.BackTextures[zoom])
@@ -2157,6 +2210,10 @@ class LotEditorWin(wx.Frame):
         glRotatef(self.ry, 0.0, 1.0, 0.0)
         glColor3f(1.0, 1.0, 1.0)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        # Draw the optional ground background (offset by the user's Shift+drag
+        # position), then re-enable depth testing -- DrawBackGround2 disables
+        # it -- for the lot's own texture quads.
+        self.DrawBackGround2(self.BackPosx, self.BackPosy)
         glEnable(GL_DEPTH_TEST)
         for texData in self.texBases:
             self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
@@ -2164,17 +2221,20 @@ class LotEditorWin(wx.Frame):
         for texData in self.texOverlays:
             self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
 
-        if self.exemplar.GetProp(1246398704)[0] & 8:
-            for x in range(self.exemplar.GetProp(2297284496)[0]):
-                self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
+        # Road edge overlays clash with a custom ground background, so skip
+        # drawing them while background mode is on.
+        if not getattr(self, 'bDrawBack', False):
+            if self.exemplar.GetProp(1246398704)[0] & 8:
+                for x in range(self.exemplar.GetProp(2297284496)[0]):
+                    self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
 
-        if self.exemplar.GetProp(1246398704)[0] & 1:
-            for y in range(self.exemplar.GetProp(2297284496)[1]):
-                self.DrawQuad3D(-1, y, 0, 641146880, True)
+            if self.exemplar.GetProp(1246398704)[0] & 1:
+                for y in range(self.exemplar.GetProp(2297284496)[1]):
+                    self.DrawQuad3D(-1, y, 0, 641146880, True)
 
-        if self.exemplar.GetProp(1246398704)[0] & 4:
-            for y in range(self.exemplar.GetProp(2297284496)[1]):
-                self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+            if self.exemplar.GetProp(1246398704)[0] & 4:
+                for y in range(self.exemplar.GetProp(2297284496)[1]):
+                    self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
@@ -2583,7 +2643,7 @@ class LotEditorWin(wx.Frame):
         if evt.ControlDown() and not self.dragSelect:
             return
         if evt.Dragging() and evt.LeftIsDown():
-            if evt.ShiftDown():
+            if evt.ShiftDown() and self.modeEdit == MODE_EDIT_PAN:
                 if self.panel == 3:
                     if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:
                         pass
