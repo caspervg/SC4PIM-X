@@ -808,7 +808,7 @@ class NoteBookPanel(wx.Panel):
         msg = 'Enter the family ID you want this building/prop to be part of\n\nPlease make sure you get your own family range\nTo get your own range go to \n   http://www.sc4devotion.com\n   http://www.simtropolis.com'
         dlg = wx.TextEntryDialog(self, msg, title, value)
         if dlg.ShowModal() == wx.ID_OK:
-            newValue = dlg.GetValue().encode('utf8')
+            newValue = dlg.GetValue()
             try:
                 newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775920], newValue)
                 if not self.exemplar.AddTextProp(newPropStr):
@@ -909,7 +909,7 @@ class NoteBookPanel(wx.Panel):
         msg = valuePropertyMsg % name
         dlg = wx.TextEntryDialog(self, msg, title, value)
         if dlg.ShowModal() == wx.ID_OK:
-            newValue = dlg.GetValue().encode('utf8')
+            newValue = dlg.GetValue()
             newPropStr = CreateAPropFromString(self.virtual_dat.properties[prop.id], newValue)
             try:
                 newProp = Prop(newPropStr, False, self.exemplar)
@@ -1004,8 +1004,8 @@ class NoteBookPanel(wx.Panel):
         self.InternalSave(self.exemplar.entry.fileName)
         self.bSave.Enable(False)
         IID = self.exemplar.entry.tgi[2]
-        texEntry = self.getEntry(2238569388, 1782082854, IID)
-        if texEntry is None:
+        texEntry = self.virtual_dat.getEntry(2238569388, 1782082854, IID)
+        if texEntry is not None:
             texEntry.content = texEntry.rawContent = None
         self.descriptor.name = self.exemplar.GetProp(32)[0]
         self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
@@ -1421,7 +1421,12 @@ class NoteBookPanel(wx.Panel):
             needed = 3049262776
             lowStage = 4
         ogs = range(needed + 1, needed + 8)
-        lst = [self.virtual_dat.properties[2854081430].Options[x] for x in ogs]
+        options = self.virtual_dat.properties[2854081430].Options
+        lst = [options.get(x, hex2str(x)) for x in ogs]
+        missing_options = [hex2str(x) for x in ogs if x not in options]
+        if missing_options:
+            logger.debug('Missing occupant group option labels for CAM stage dialog: %s',
+                         ', '.join(missing_options))
         dlg = wx.MultiChoiceDialog(self, camStageSelectorMsg, appTitle, lst)
         currentOgs = self.exemplar.GetProp(2854081430)
         selected = []
@@ -2186,9 +2191,7 @@ class NoteBookPanel(wx.Panel):
             if event is not None:
                 dlg = wx.TextEntryDialog(self, fillingDegreeMsg, fillingDegreeTitleMsg, str(fillingDegree))
                 if dlg.ShowModal() == wx.ID_OK:
-                    newValue = dlg.GetValue().encode('utf8')
-                    if isinstance(newValue, str):
-                        pass
+                    newValue = dlg.GetValue()
                     newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775825], newValue)
                     self.exemplar.AddTextProp(newPropStr)
                     fillingDegree = self.exemplar.GetProp(662775825)[0]
