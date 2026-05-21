@@ -6,7 +6,7 @@ import wx.html
 import wx.lib.sized_controls as sc
 from PIL import Image
 
-from . import CustomTreeCtrl as CT
+import wx.lib.agw.customtreectrl as CT
 from .SC4Data import *
 from .SC4DatTools import *
 from .translation import *
@@ -49,8 +49,14 @@ class DependenciesDlg(sc.SizedDialog):
         pane.SetSizerType('vertical')
         self.exemplar = exemplar
         self.virtualDAT = getattr(parent, 'virtual_dat', None) or getattr(parent, 'virtualDAT')
-        self.tree = CT.CustomTreeCtrl(pane, -1, style=wx.SUNKEN_BORDER | CT.TR_HAS_VARIABLE_ROW_HEIGHT | CT.TR_FULL_ROW_HIGHLIGHT | CT.TR_SINGLE, size=(300,
-                                                                                                                                                        300))
+        # Modern wx.lib.agw.customtreectrl splits native window styles
+        # (``style``) from AGW-specific styles (``agwStyle``); the AGW flags
+        # must go in agwStyle or per-item windows raise at insert time.
+        self.tree = CT.CustomTreeCtrl(
+            pane, -1,
+            style=wx.SUNKEN_BORDER,
+            agwStyle=CT.TR_HAS_VARIABLE_ROW_HEIGHT | CT.TR_FULL_ROW_HIGHLIGHT | CT.TR_SINGLE,
+            size=(300, 300))
         self.root = self.tree.AddRoot(exemplar.GetProp(32)[0])
         self.tree.SetMinSize((500, 300))
         self.tree.SetIndent(10)
