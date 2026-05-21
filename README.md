@@ -60,11 +60,17 @@ Compress-Archive -Path dist/SC4PIMX -DestinationPath SC4PIMX-windows.zip
 ## User data location
 
 Per-user state lives in `%APPDATA%\sc4pimx\` (Windows) — this includes
-`config.toml`, `groups.ini`, `faulthandler.log`, and the
+`config.toml`, `groups.ini`, `sc4pimx.log`, `faulthandler.log`, and the
 `ImageDB` / `ImageDBLarge` thumbnail caches. The factory `config.toml`,
 `new_properties.xml`, and the language files in `lang/` ship in `assets/`;
 dropping your own copy of any of them into `%APPDATA%\sc4pimx\` (e.g.
 `%APPDATA%\sc4pimx\lang\fr.toml`) overrides the bundled one.
+
+## Logging
+
+Logging is configured from the `[Logging]` table in `config.toml`. Set
+`Level = "DEBUG"` to include verbose startup and loading timing messages.
+Logs rotate by default at `%APPDATA%\sc4pimx\sc4pimx.log`.
 
 ## Translations
 

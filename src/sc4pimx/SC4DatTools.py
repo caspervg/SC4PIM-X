@@ -4,6 +4,7 @@ This module provides classes and functions for reading, parsing, and writing
 SimCity 4 .dat files, including compressed entries and property handling.
 """
 import io
+import logging
 import os
 import os.path
 import re
@@ -14,6 +15,8 @@ import wx
 
 from . import QFS
 from .translation import compactingMegaPackMsg, genDirectoryMsg
+
+logger = logging.getLogger(__name__)
 
 binEx = 0
 textEx = 0
@@ -119,12 +122,9 @@ class Prop():
                 if nbr == 0 and self.sizeOfCounter == 0:
                     nbr = 1
                 if self.typeValue not in Prop.validFormat:
-                    print('*' * 21, 'ERROR', '*' * 21)
-                    print('in exemplar', hex(self.exemplar.entry.TGI['t']),
-                          hex(self.exemplar.entry.TGI['g']),
-                          hex(self.exemplar.entry.TGI['i']))
-                    print('located in', self.exemplar.entry.fileName)
-                    print('Unknown prop type')
+                    logger.error('Unknown prop type in exemplar 0x%X-0x%X-0x%X located in %s',
+                                 self.exemplar.entry.TGI['t'], self.exemplar.entry.TGI['g'],
+                                 self.exemplar.entry.TGI['i'], self.exemplar.entry.fileName)
                 s = struct.calcsize(Prop.validFormat[self.typeValue] * nbr)
                 self.values = list(struct.unpack(Prop.validFormat[self.typeValue] * nbr, line.read(s)))
                 count += 1 + s + offset
@@ -221,13 +221,9 @@ class Prop():
 
                         self.values = [ convH(x) for x in fields[3][1:-1].split(',') ]
             except Exception:
-                print('*' * 21, 'ERROR', '*' * 21)
-                print('in exemplar', hex(self.exemplar.entry.TGI['t']),
-                      hex(self.exemplar.entry.TGI['g']),
-                      hex(self.exemplar.entry.TGI['i']))
-                print('located in', self.exemplar.entry.fileName)
-                print(initialLine)
-                print('*' * 49)
+                logger.exception('Error parsing exemplar 0x%X-0x%X-0x%X located in %s\n  line: %s',
+                                 self.exemplar.entry.TGI['t'], self.exemplar.entry.TGI['g'],
+                                 self.exemplar.entry.TGI['i'], self.exemplar.entry.fileName, initialLine)
                 raise
 
         return
@@ -267,7 +263,7 @@ class Prop():
             try:
                 return hex2str(v)
             except Exception:
-                print('error in prop', hex2str(self.id), v, type(v))
+                logger.exception('Error in prop %s value %r type %s', hex2str(self.id), v, type(v))
                 raise
 
         if self.typeValue == 3072:
@@ -353,13 +349,9 @@ class Prop():
 
             return ret
         except Exception:
-            print('*' * 21, 'ERROR', '*' * 21)
-            print('in exemplar', hex(self.exemplar.entry.TGI['t']),
-                  hex(self.exemplar.entry.TGI['g']),
-                  hex(self.exemplar.entry.TGI['i']))
-            print('located in', self.exemplar.entry.fileName)
-            print('Prop', hex(self.id))
-            print('*' * 49)
+            logger.exception('Error in exemplar 0x%X-0x%X-0x%X prop 0x%X located in %s',
+                             self.exemplar.entry.TGI['t'], self.exemplar.entry.TGI['g'],
+                             self.exemplar.entry.TGI['i'], self.id, self.exemplar.entry.fileName)
             raise
 
 
@@ -525,7 +517,8 @@ class SC4Exemplar():
             self.link = self.virtualDAT.getEntry(self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
             if self.link is not None:
                 if 'exemplar' not in self.link.__dict__:
-                    print('require a cohort 0x%08X 0x%08X 0x%08X' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
+                    logger.debug('Loading required cohort 0x%08X 0x%08X 0x%08X',
+                                 self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
                     self.link.read_file(None, True, True)
                     cohort = SC4Exemplar(self.link, self.virtualDAT)
                     self.link.exemplar = cohort
@@ -630,7 +623,7 @@ class SC4Entry():
             self.dateCreated = int(time.time())
             self.dateUpdated = int(time.time())
         except Exception:
-            print('unexpectable error in', fileName, 'in the entry number', idx)
+            logger.exception('Unexpected error in %s, entry number %s', fileName, idx)
             raise
 
         return
@@ -883,12 +876,9 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         entry.buffer = newbuffer
         pos += entry.filesize
         if entry.filesize == 0:
-            print('*' * 20)
-            print('In file', entry.fileName)
-            if entry.compressed:
-                print('Warning : Entry', hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]), '(compressed)', 'has a 0 size len')
-            else:
-                print('Warning : Entry', hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]), '(uncompressed)', 'has a 0 size len')
+            logger.warning('Entry %s-%s-%s (%s) has a 0 size len in file %s',
+                           hex2str(entry.tgi[0]), hex2str(entry.tgi[1]), hex2str(entry.tgi[2]),
+                           'compressed' if entry.compressed else 'uncompressed', entry.fileName)
         if dlg:
             dlg.LOG('write;%d;0x%08X;0x%08X;0x%08X;%s;%s' % (i, entry.tgi[0], entry.tgi[1], entry.tgi[2], entry.fileName, fileName))
 

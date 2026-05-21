@@ -5,6 +5,7 @@ lots, and virtual DAT file collections.
 """
 import codecs
 import functools
+import logging
 import os
 import xml.dom.minidom
 
@@ -17,6 +18,8 @@ from .SC4DataFunctions import ToTile
 from .SC4DatTools import *
 from .translation import *
 from .util import basic_cmp
+
+logger = logging.getLogger(__name__)
 
 
 def _text_size(font, text):
@@ -406,9 +409,9 @@ class ImageListLoaderProps(object):
             return
         idx = self.virtualDAT.ilStandardModels.Add(image)
         if idx == -1:
-            print('PropLoader : Error adding JPG file for %s (%dx%d), nbr already loaded: %d' %
-                  (file_name, image.GetWidth(), image.GetHeight(),
-                   self.virtualDAT.ilStandardModels.GetImageCount()))
+            logger.error('PropLoader: error adding JPG file for %s (%dx%d), %d already loaded',
+                         file_name, image.GetWidth(), image.GetHeight(),
+                         self.virtualDAT.ilStandardModels.GetImageCount())
         elif tgi is not None:
             self.virtualDAT.s3dEntries[tgi] = idx
 
@@ -471,25 +474,25 @@ class ImageListLoaderTexture(object):
     def _AddTextureImage(self, rgb_bytes, size, trueAlpha, texEntry):
         expected = size[0] * size[1] * 3
         if len(rgb_bytes) != expected:
-            print('TextureLoader : Invalid RGB buffer size for %s (%d != %d)' %
-                  (texEntry.fileName, len(rgb_bytes), expected))
+            logger.error('TextureLoader: invalid RGB buffer size for %s (%d != %d)',
+                         texEntry.fileName, len(rgb_bytes), expected)
             return
         image = wx.Image(size[0], size[1])
         image.SetData(rgb_bytes)
         if trueAlpha:
             idx = self.virtualDAT.ilOver.Add(image.ConvertToBitmap())
             if idx == -1:
-                print('OverlayLoader : Error adding fsh %s-%s-%s from %s' %
-                      (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
-                       hex2str(texEntry.tgi[2]), texEntry.fileName))
+                logger.error('OverlayLoader: error adding fsh %s-%s-%s from %s',
+                             hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
+                             hex2str(texEntry.tgi[2]), texEntry.fileName)
             self.virtualDAT.overTexEntriesDict[texEntry] = idx
             self.virtualDAT.overTexEntries.append(texEntry)
         else:
             idx = self.virtualDAT.ilBase.Add(image.ConvertToBitmap())
             if idx == -1:
-                print('BaseLoader : Error adding fsh %s-%s-%s from %s' %
-                      (hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
-                       hex2str(texEntry.tgi[2]), texEntry.fileName))
+                logger.error('BaseLoader: error adding fsh %s-%s-%s from %s',
+                             hex2str(texEntry.tgi[0]), hex2str(texEntry.tgi[1]),
+                             hex2str(texEntry.tgi[2]), texEntry.fileName)
             self.virtualDAT.baseTexEntriesDict[texEntry] = idx
             self.virtualDAT.baseTexEntries.append(texEntry)
 
@@ -516,8 +519,7 @@ class ImageListLoaderTexture(object):
                     texEntry.content
                 )
             except Exception as exc:
-                print('TextureLoader : Failed to decode FSH from %s (%s)' %
-                      (texEntry.fileName, exc))
+                logger.warning('TextureLoader: failed to decode FSH from %s: %s', texEntry.fileName, exc)
                 texEntry.content = None
                 texEntry.rawContent = None
                 continue
@@ -526,8 +528,7 @@ class ImageListLoaderTexture(object):
             try:
                 pilz = Image.frombytes('RGB', size, img)
             except Exception as exc:
-                print('TextureLoader : Failed to load RGB for %s (%s)' %
-                      (texEntry.fileName, exc))
+                logger.warning('TextureLoader: failed to load RGB for %s: %s', texEntry.fileName, exc)
                 continue
             if trueAlpha:
                 try:
@@ -535,8 +536,7 @@ class ImageListLoaderTexture(object):
                     alpha = Image.frombytes('L', size, alpha)
                     pilz = Image.composite(pilz, blank, alpha)
                 except Exception as exc:
-                    print('TextureLoader : Failed alpha composite for %s (%s)' %
-                          (texEntry.fileName, exc))
+                    logger.warning('TextureLoader: failed alpha composite for %s: %s', texEntry.fileName, exc)
                     continue
             pilz = pilz.resize((64, 64), Image.BICUBIC)
             if nbrLayers > 1:
@@ -550,7 +550,7 @@ class ImageListLoaderTexture(object):
                                                                                                              0,
                                                                                                              0))
                 except Exception:
-                    print('blem')
+                    logger.exception('Error generating model image list')
                     raise
 
             IID = texEntry.tgi[2] & 61440
@@ -605,7 +605,7 @@ class LotDesc():
 
 
 def PrintCat(cat, spaces=0):
-    print(' ' * spaces, cat.Name)
+    logger.debug('%s%s', ' ' * spaces, cat.Name)
     for child in cat.childs:
         PrintCat(child, spaces + 1)
 
@@ -748,7 +748,7 @@ class ResourceViewer():
             viewer.refresh(False)
             return
         except Exception:
-            print(state)
+            logger.exception('Model render failed (state=%r)', state)
             raise
 
         viewer = what.__class__.viewer
@@ -830,9 +830,8 @@ class SC4ModelMesh():
                 xmlEntry.rawContent = None
                 del xmlEntry
             except Exception:
-                print('Error reading the xml in', xmlEntry.fileName)
-                print('xml for model 0x%08X-0x%08X' % (GID, IID))
-                print(xmlEntry.content)
+                logger.exception('Error reading XML for model 0x%08X-0x%08X in %s',
+                                 GID, IID, xmlEntry.fileName)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 self.descName = self.name
@@ -920,9 +919,8 @@ class SC4Model():
                 xmlEntry.rawContent = None
                 del xmlEntry
             except Exception:
-                print('Error reading the xml in', xmlEntry.fileName)
-                print('xml for model 0x%08X-0x%08X' % (GID, IID))
-                print(xmlEntry.content)
+                logger.exception('Error reading XML for model 0x%08X-0x%08X in %s',
+                                 GID, IID, xmlEntry.fileName)
                 xmlEntry.content = None
                 xmlEntry.rawContent = None
                 self.descName = self.name

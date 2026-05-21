@@ -1,6 +1,7 @@
 """Main SC4PIM application with lot editor and data browser."""
 import faulthandler
 import functools
+import logging
 import os.path
 import sys
 from math import *
@@ -18,6 +19,7 @@ except ImportError:
 import wx.adv
 
 from . import SC4IconMakerDlg, config, treeDnD
+from .logsetup import configure_logging
 from .ATCViewer import *
 from .DependenciesDlg import *
 from .paths import asset_path, ensure_user_data_dir, image_db_dir
@@ -27,6 +29,8 @@ from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
 from .version import get_version
+
+logger = logging.getLogger(__name__)
 
 offsetGID = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
@@ -38,27 +42,10 @@ def _env_true(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-_TRACE_T0 = None
-_TRACE_TLAST = None
-
-
-def _trace(stage):
-    if _env_true('SC4PIM_TRACE'):
-        global _TRACE_T0, _TRACE_TLAST
-        now = time.perf_counter()
-        if _TRACE_T0 is None:
-            _TRACE_T0 = _TRACE_TLAST = now
-        print('[TRACE] %+8.3fs (+%6.3fs) %s'
-              % (now - _TRACE_T0, now - _TRACE_TLAST, stage))
-        _TRACE_TLAST = now
-        sys.stdout.flush()
-
-
 def _exit_after(stage):
     target = os.environ.get('SC4PIM_EXIT_AFTER', '').strip()
     if target and target == stage:
-        print('[TRACE] exit after %s' % stage)
-        sys.stdout.flush()
+        logger.debug('exit after %s', stage)
         sys.exit(0)
 
 
@@ -347,7 +334,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                     try:
                         xml_doc = xml.dom.minidom.parseString(xml_str)
                     except Exception:
-                        print('Problem with family %s 0x%08X' % (name, family))
+                        logger.warning('Problem with family %s 0x%08X', name, family)
                         return
 
                     for subNode in xml_doc.documentElement.childNodes:
@@ -371,7 +358,8 @@ class MyTreeCtrl(wx.TreeCtrl):
                 try:
                     self.virtual_dat.categories[family].descriptors.append(desc)
                 except Exception:
-                    print('Bizarre problem with family %s 0x%08X in %s' % (name, family, desc.exemplar.entry.fileName))
+                    logger.warning('Bizarre problem with family %s 0x%08X in %s',
+                                   name, family, desc.exemplar.entry.fileName)
 
         if do_finalize:
             FinalizeCategory(self.virtual_dat.rootCategory)
@@ -2008,7 +1996,7 @@ class NoteBookPanel(wx.Panel):
             values = [
                 0, 0, 0, 0, 662775841, rkt1[0], rkt1[1], rkt1[2]]
         else:
-            print(' no rkt4 or rkt1')
+            logger.warning('No RKT4 or RKT1 property found')
         newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775844],
                                            ','.join([hex2str(v) for v in values]))
         try:
@@ -2038,7 +2026,7 @@ class NoteBookPanel(wx.Panel):
             values = [
                 rkt1[0], rkt1[1], rkt1[2]]
         else:
-            print(' no rkt4 or rkt1')
+            logger.warning('No RKT4 or RKT1 property found')
         newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775840],
                                            ','.join([hex2str(v) for v in values]))
         try:
@@ -2068,7 +2056,7 @@ class NoteBookPanel(wx.Panel):
             values = [
                 rkt0[0], rkt0[1], rkt0[2]]
         else:
-            print(' no rkt4 or rkt0')
+            logger.warning('No RKT4 or RKT0 property found')
         newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775841],
                                            ','.join([hex2str(v) for v in values]))
         try:
@@ -2246,11 +2234,9 @@ class NoteBookPanel(wx.Panel):
 
                         values = eval(codetxt)
                     except Exception:
-                        print('Error in eval')
-                        print(hex2str(prop2CreatID))
-                        print(initialCode)
-                        print(codetxt)
-                        print(variables)
+                        logger.exception(
+                            'Error evaluating property %s\n  initial: %s\n  final: %s\n  variables: %s',
+                            hex2str(prop2CreatID), initialCode, codetxt, variables)
                         raise
 
                     prop2CreatValue = []
@@ -2712,7 +2698,7 @@ class SC4NoteBook(wx.Notebook):
             icon_path = str(asset_path('icons', cat.imgName))
             img = wx.Image(icon_path)
             if not img.IsOk():
-                _trace('notebook:missing_icon:%s' % icon_path)
+                logger.debug('Missing category icon: %s', icon_path)
                 img = wx.Image(1, 1)
             cat.imgIdx = il.Add(img.ConvertToBitmap())
 
@@ -2992,7 +2978,7 @@ class MainFrame(wx.Frame):
         self.tree.SetDropTarget(dt)
         self.Bind(wx.EVT_TREE_SEL_CHANGED, self.OnSelChanged, self.tree)
         if _env_true('SC4PIM_SKIP_VIEWER'):
-            print("Skipping viewer")
+            logger.info('Skipping viewer (SC4PIM_SKIP_VIEWER)')
             self.glCanvas = wx.Panel(leftPanel)
             self.s3dviewer = None
             self.atcviewer = None
@@ -3170,8 +3156,8 @@ class MainFrame(wx.Frame):
 
                         values = eval(codetxt)
                     except Exception:
-                        print(variables)
-                        print(codetxt)
+                        logger.exception('Error evaluating category formula: %s\n  variables: %s',
+                                         codetxt, variables)
                         raise
 
                     prop2CreatValue = []
@@ -3268,7 +3254,7 @@ class MainFrame(wx.Frame):
         try:
             whatRTK = tuple(whatRTK)
         except Exception:
-            print('Failed ', whatRTK)
+            logger.error('Failed to convert whatRTK: %r', whatRTK)
             raise
 
         if whatRTK in self.virtualDAT.standardModelsDict:
@@ -3349,7 +3335,7 @@ class MainFrame(wx.Frame):
         global _preload_config_result
         if _preload_config_result is not None:
             return _preload_config_result
-        _trace('preload:start')
+        logger.debug('Preloading startup configuration')
         self.pathToScan = []
         registry_folder = _read_sc4_install_folder_from_registry()
         self.gameFolders = _existing_unique_paths([registry_folder] + _common_sc4_install_folders())
@@ -3357,26 +3343,26 @@ class MainFrame(wx.Frame):
         self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'Plugins') if self.maxisFolder else ''
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
         self.rootFolder = os.path.join(self.mydocs, 'SimCity 4\\Plugins')
-        _trace('preload:dialog')
+        logger.debug('Showing configuration dialog')
         dlg = ConfigureDialog(parent=self)
         if dlg.ShowModal() == wx.ID_OK:
             dlg.OnSave(self)
             dlg.Destroy()
             _preload_config_result = True
-            _trace('preload:ok')
+            logger.debug('Startup configuration accepted')
             _exit_after('preload:ok')
             return _preload_config_result
         dlg.Destroy()
         _preload_config_result = False
-        _trace('preload:cancel')
+        logger.debug('Startup configuration cancelled')
         _exit_after('preload:cancel')
         return _preload_config_result
 
     def LoadDatas(self):
-        _trace('loaddatas:start')
+        logger.debug('Loading application data')
         safe_mode = _env_true('SC4PIM_SAFE_MODE')
         if safe_mode:
-            _trace('loaddatas:safe_mode')
+            logger.debug('Safe mode enabled')
         wx.BeginBusyCursor()
         bLoadMaxisModel = False
         bLoadMaxisDesc = False
@@ -3385,20 +3371,22 @@ class MainFrame(wx.Frame):
         try:
             self.pathToScan = config.load_folders()
         except Exception:
-            pass
+            logger.exception('Could not load plugin scan folders from config.toml')
+            self.pathToScan = []
+        logger.debug('Configured plugin scan folders: %d', len(self.pathToScan))
 
-        _trace('loaddatas:processdlg')
+        logger.debug('Showing data loading progress dialog')
         dlg = ProcessDlg(self, loadingDialogMsg)
         dlg.Show()
         start = time.time()
-        _trace('loaddatas:cohorts')
+        logger.debug('Loading bundled cohorts')
         self.virtualDAT.addFile(dlg, str(asset_path('dbpf', 'cohorts.dat')), True)
         if self.maxisFolder != '':
             if bLoadMaxisDesc or bLoadMaxisModel:
                 pass
         for path, recurse in self.pathToScan:
             if path == self.maxisFolder:
-                _trace('loaddatas:maxis')
+                logger.debug('Loading Maxis install data from %s', self.maxisFolder)
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_1.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_2.dat'))
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_3.dat'))
@@ -3425,25 +3413,25 @@ class MainFrame(wx.Frame):
 
                 self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, localeFolder))
             else:
-                _trace('loaddatas:folder:%s' % path)
+                logger.debug('Loading plugin folder %s', path)
                 self.virtualDAT.addFolder(dlg, path, recurse)
 
-        _trace('loaddatas:finalize')
+        logger.debug('Finalizing loaded data')
         if not _env_true('SC4PIM_SKIP_FINALIZE'):
             self.virtualDAT.Finalize(dlg)
         else:
-            _trace('loaddatas:finalize:skipped')
-        _trace('loaddatas:textures')
+            logger.debug('Skipping data finalization')
+        logger.debug('Loading texture image lists')
         if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
             texLoader = ImageListLoaderTexture(self.virtualDAT)
             texLoader.Start()
         else:
-            _trace('loaddatas:textures:skipped')
+            logger.debug('Skipping texture image loading')
         if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
             if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
-                _trace('loaddatas:missingpics:skipped')
+                logger.debug('Skipping missing picture generation')
             else:
-                _trace('loaddatas:missingpics')
+                logger.debug('Generating %d missing model pictures', len(self.virtualDAT.missing_pictures))
                 dlg2 = ImageDBBuilder(self, -1, imageDbBuilderTitle)
                 dlg2.Show()
                 for data in self.virtualDAT.missing_pictures:
@@ -3451,32 +3439,34 @@ class MainFrame(wx.Frame):
                     dlg.Increment()
 
                 dlg2.Destroy()
-        _trace('loaddatas:props')
+        logger.debug('Loading prop image list')
         if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
             propLoader = ImageListLoaderProps(self.virtualDAT)
             propLoader.Start()
         else:
-            _trace('loaddatas:props:skipped')
+            logger.debug('Skipping prop image loading')
         wx.EndBusyCursor()
         self.tree.EnsureVisible(self.tree.standard_models_item)
         if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
             wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
         else:
-            _trace('loaddatas:treeselect:skipped')
+            logger.debug('Skipping initial tree selection')
         #self.tree.SelectItem(self.tree.standard_models_item)
-        _trace('loaddatas:after_select')
         self.tree.EnsureVisible(self.tree.root)
         InfoEx()
         dlg.Destroy()
         if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
             self.t2 = wx.CallLater(500, self.RefreshEvent)
-        _trace('loaddatas:done')
+        logger.debug(
+            'LoadDatas completed in %.3fs with %d entries, %d standard models, %d textures',
+            time.time() - start,
+            len(self.virtualDAT.allEntries),
+            len(self.virtualDAT.standardModels),
+            len(self.virtualDAT.allTextures))
         _exit_after('loaddatas:done')
 
     def RefreshEvent(self):
-        _trace('refresh:event')
         if not hasattr(self, 'viewer') or not hasattr(self.viewer, 's3d_mesh'):
-            _trace('refresh:noviewer')
             return
         if self.currentModel is not None:
             zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
@@ -3634,7 +3624,7 @@ class MainFrame(wx.Frame):
         return
 
     def OnSelChanged(self, event):
-        _trace(f"onselchanged:start: {event}")
+        logger.debug('Tree selection changed: %s', event)
         item = event.GetItem()
         tree = event.GetEventObject()
         try:
@@ -3664,7 +3654,6 @@ class MainFrame(wx.Frame):
                 self.viewer.s3d_mesh = None
                 self.viewer.refresh(False)
             self.currentModel = None
-        _trace(f"onselchanged:end: {event}")
         return
 
 
@@ -3703,8 +3692,14 @@ class App(wx.App):
         splash.Show()
         return True
 
+    def OnExceptionInMainLoop(self):
+        logger.exception('Unhandled exception in wx main loop')
+        return True
+
 
 def main() -> None:
+    configure_logging()
+    logger.info('SC4PIM-X %s starting', get_version())
     _enable_faulthandler()
     image_db = image_db_dir()
     image_db_large = image_db_dir(large=True)

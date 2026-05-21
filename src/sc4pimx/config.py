@@ -41,7 +41,11 @@ def load() -> dict:
 
 def load_settings() -> dict:
     """Top-level scalar settings, keyed by their exact (case-sensitive) name."""
-    return {key: value for key, value in load().items() if key != "Folders"}
+    return {
+        key: value
+        for key, value in load().items()
+        if not isinstance(value, (dict, list))
+    }
 
 
 def load_folders() -> list[tuple[str, int]]:
