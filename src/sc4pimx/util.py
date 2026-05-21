@@ -40,7 +40,7 @@ class DictWrapper(object):
         if isinstance(key, str):
             if key[:2].upper() == '0X':
                 key = '0x' + key[2:10].upper() + key[10:]
-        if key in self.mapping.keys():
+        if key in self.mapping:
             return self.mapping[key]
         if isinstance(key, str):
             sub = key.find('.')
@@ -55,7 +55,7 @@ class DictWrapper(object):
         self.mapping[key] = value
 
     def __getattr__(self, attr):
-        if attr in self.mapping.keys():
+        if attr in self.mapping:
             return self.mapping[attr]
         raise AttributeError(attr)
 
@@ -78,4 +78,4 @@ class DictWrapper(object):
         return self.mapping.values()
 
     def __len__(self):
-        return len(self.mapping.keys())
+        return len(self.mapping)

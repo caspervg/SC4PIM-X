@@ -18,6 +18,10 @@ binEx = 0
 textEx = 0
 binProp = 0
 
+# Sentinel for Prop(..., kind=...): lets callers pass the exemplar's already
+# resolved ExemplarType (property 16) so each Prop need not re-resolve it.
+_KIND_UNSET = object()
+
 def CreateAProp(prop, values):
     count = prop.Count
     if count == 1:
@@ -75,10 +79,15 @@ class Prop():
     validFormat = {1792: 'i',2304: 'f',768: 'I',2816: 'b',256: 'B',2048: 'q',512: 'h'}
     format2String = {768: 'Uint32',3072: 'String',2304: 'Float32',2816: 'Bool',256: 'Uint8',2048: 'Sint64',1792: 'Sint32'}
 
-    def __init__(self, line, binary, exemplar, initPos=0):
+    def __init__(self, line, binary, exemplar, initPos=0, kind=_KIND_UNSET):
         global binProp
         self.exemplar = exemplar
-        kind = exemplar.GetProp(16)
+        # ExemplarType (prop 16) is identical for every prop of an exemplar;
+        # callers decoding a whole exemplar pass it in so it is resolved once
+        # instead of once per prop (a linear scan, often into the parent
+        # cohort -- previously O(nbrProp) wasted work per exemplar).
+        if kind is _KIND_UNSET:
+            kind = exemplar.GetProp(16)
         if kind is not None:
             if kind[0] not in [30, 2, 17, 15, 16]:
                 self.id = 0
@@ -108,7 +117,7 @@ class Prop():
                 nbr = self.count
                 if nbr == 0 and self.sizeOfCounter == 0:
                     nbr = 1
-                if self.typeValue not in Prop.validFormat.keys():
+                if self.typeValue not in Prop.validFormat:
                     print('*' * 21, 'ERROR', '*' * 21)
                     print('in exemplar', hex(self.exemplar.entry.TGI['t']),
                           hex(self.exemplar.entry.TGI['g']),
@@ -440,8 +449,11 @@ class SC4Exemplar():
         self.parentCohort = tuple(struct.unpack('III', buf.read(12)))
         self.LinkToParent()
         self.nbrProp = struct.unpack('I', buf.read(4))[0]
+        # self.props is still empty here, so GetProp(16) resolves via the
+        # parent cohort -- exactly what each Prop would compute individually.
+        kind = self.GetProp(16)
         try:
-            self.props = list(map(lambda x: Prop(buf, True, self), range(self.nbrProp)))
+            self.props = list(map(lambda x: Prop(buf, True, self, kind=kind), range(self.nbrProp)))
         except Exception:
             raise
 

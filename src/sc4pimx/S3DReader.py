@@ -69,6 +69,7 @@ class S3D(object):
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.vertexBuffers = []
+        bounds_set = False
         for x in range(nbrBlock):
             vb = []
             flag = struct.unpack('H', buffer[0:2])[0]
@@ -127,36 +128,36 @@ class S3D(object):
                     texsNb = 2
                 vertexSize = 3 * 4 * coordsNb + 4 * colorsNb + 2 * 4 * texsNb
             buffer = buffer[8:]
-            vertices = numpy.zeros((count, 3), 'f')
-            uvs = np.zeros((count, 2), 'f')
-            for vert in range(count):
-                vertexData = buffer[:vertexSize]
-                coordx = struct.unpack('f', vertexData[0:4])[0]
-                coordy = struct.unpack('f', vertexData[4:8])[0]
-                coordz = struct.unpack('f', vertexData[8:12])[0]
-                u = struct.unpack('f', vertexData[12:16])[0]
-                v = struct.unpack('f', vertexData[16:20])[0]
-                vertices[vert] = (
-                 coordx, coordy, coordz)
-                uvs[vert] = (u, v)
-                if x == 0 and vert == 0:
-                    self.minx = coordx
-                    self.maxx = coordx
-                    self.miny = coordy
-                    self.maxy = coordy
-                    self.minz = coordz
-                    self.maxz = coordz
+            # Vectorised vertex read: the old per-vertex struct.unpack loop
+            # cost milliseconds per model. Slice the fixed-stride block with
+            # numpy instead -- coords are the first 12 bytes of each vertex,
+            # the UV pair the next 8.
+            nbytes = count * stride
+            arr = numpy.frombuffer(buffer[:nbytes], dtype=numpy.uint8).reshape(count, stride)
+            buffer = buffer[nbytes:]
+            vertices = numpy.ascontiguousarray(arr[:, 0:12]).view('<f4')
+            if stride >= 20:
+                uvs = numpy.ascontiguousarray(arr[:, 12:20]).view('<f4')
+            else:
+                uvs = numpy.zeros((count, 2), dtype=numpy.float32)
+            if count:
+                bmin = vertices.min(axis=0)
+                bmax = vertices.max(axis=0)
+                if not bounds_set:
+                    self.minx, self.miny, self.minz = (float(bmin[0]), float(bmin[1]), float(bmin[2]))
+                    self.maxx, self.maxy, self.maxz = (float(bmax[0]), float(bmax[1]), float(bmax[2]))
+                    bounds_set = True
                 else:
-                    self.minx = min(self.minx, coordx)
-                    self.maxx = max(self.maxx, coordx)
-                    self.miny = min(self.miny, coordy)
-                    self.maxy = max(self.maxy, coordy)
-                    self.minz = min(self.minz, coordz)
-                    self.maxz = max(self.maxz, coordz)
-                buffer = buffer[stride:]
-
+                    self.minx = min(self.minx, float(bmin[0]))
+                    self.maxx = max(self.maxx, float(bmax[0]))
+                    self.miny = min(self.miny, float(bmin[1]))
+                    self.maxy = max(self.maxy, float(bmax[1]))
+                    self.minz = min(self.minz, float(bmin[2]))
+                    self.maxz = max(self.maxz, float(bmax[2]))
             self.vertexBuffers.append((vertices.tobytes(), uvs.tobytes()))
 
+        if not bounds_set:
+            self.minx = self.maxx = self.miny = self.maxy = self.minz = self.maxz = 0.0
         return buffer
 
     def ReadIndx(self, buffer):

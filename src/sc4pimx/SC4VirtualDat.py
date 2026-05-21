@@ -105,7 +105,7 @@ class VirtualDat(object):
 
             return False
 
-        descs = filter(UseThisIID, self.categories[210091300].descriptors)
+        descs = list(filter(UseThisIID, self.categories[210091300].descriptors))
         if len(descs) > 0:
             return descs[0]
         return
@@ -127,8 +127,7 @@ class VirtualDat(object):
 
             return False
 
-        descs = filter(UseThisIID, self.categories[210091300].descriptors)
-        return descs
+        return list(filter(UseThisIID, self.categories[210091300].descriptors))
 
     def FindPropFromID(self, propID):
         if propID in self.categories:
