@@ -99,6 +99,15 @@ Filename = "sc4pimx.log"
 MaxBytes = 2000000
 BackupCount = 3
 
+# --- LotEditor workbench ---
+[LotEditor]
+BrowserWidth = 330
+InspectorWidth = 280
+AssetScope = "lot"
+AssetFilter = "all"
+AssetSearch = ""
+AssetCompact = false
+
 # --- Plugin scan folders ---
 # Populated by the Configure dialog. Each entry has a path and a recurse flag.
 # Example:

@@ -20,6 +20,15 @@ from .paths import data_file_path, ensure_user_data_dir
 
 CONFIG_FILENAME = "config.toml"
 
+DEFAULT_LOT_EDITOR = {
+    "BrowserWidth": 330,
+    "InspectorWidth": 280,
+    "AssetScope": "lot",
+    "AssetFilter": "all",
+    "AssetSearch": "",
+    "AssetCompact": False,
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -58,6 +67,15 @@ def load_folders() -> list[tuple[str, int]]:
     return folders
 
 
+def load_lot_editor() -> dict:
+    """Persisted LotEditor workbench preferences."""
+    value = load().get("LotEditor", {})
+    settings = DEFAULT_LOT_EDITOR.copy()
+    if isinstance(value, dict):
+        settings.update(value)
+    return settings
+
+
 def save_folders(folders) -> Path:
     """Persist the plugin-scan folder list, preserving the existing settings.
 
@@ -83,6 +101,22 @@ def save_folders(folders) -> Path:
             array_of_tables.append(table)
     doc["Folders"] = array_of_tables
 
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
+
+
+def save_lot_editor(settings: dict) -> Path:
+    """Persist LotEditor workbench preferences in the per-user config.toml."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    table = doc.get("LotEditor")
+    if table is None or not hasattr(table, "update"):
+        table = tomlkit.table()
+    for key, value in settings.items():
+        table[key] = value
+    doc["LotEditor"] = table
     target = ensure_user_data_dir() / CONFIG_FILENAME
     target.write_text(tomlkit.dumps(doc), encoding="utf-8")
     return target

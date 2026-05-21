@@ -14,6 +14,7 @@ except ImportError:
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
+from .config import load_lot_editor
 from .paths import asset_path, ensure_user_data_dir, image_db_path, user_data_path
 from .SC4Data import *
 from .SC4OpenGL import *
@@ -219,41 +220,34 @@ class GroupProxy():
         return
 
 
-def BuildImageForProp(exemplar):
+def BuildImageForTGI(tgi, size=128):
+    fileName = str(image_db_path('%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2])), large=True))
+    if not os.path.exists(fileName):
+        fileName = str(asset_path('other', 'NoPreview.jpg'))
+    return Image.open(fileName).convert('RGB').resize((size, size), Image.BICUBIC)
 
-    def BuildImageForTGI(tgi):
-        fileName = str(image_db_path('%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2])), large=True))
-        if not os.path.exists(fileName):
-            fileName = str(asset_path('other', 'NoPreview.jpg'))
-        return Image.open(fileName).resize((128, 128), Image.BICUBIC)
 
-    def BitmapFromTGI(tgi):
-        pilz = BuildImageForTGI(tgi)
-        image = wx.Image(pilz.size[0], pilz.size[1])
-        image.SetData(pilz.tobytes())
-        return image.ConvertToBitmap()
+def BitmapFromPIL(pilz):
+    image = wx.Image(pilz.size[0], pilz.size[1])
+    image.SetData(pilz.convert('RGB').tobytes())
+    return image.ConvertToBitmap()
 
+
+def BuildImagesForPropStates(exemplar, size=128):
     rkt0 = exemplar.GetProp(662775840)
     rkt1 = exemplar.GetProp(662775841)
     rkt3 = exemplar.GetProp(662775843)
     rkt4 = exemplar.GetProp(662775844)
     rkt5 = exemplar.GetProp(662775845)
-    tgi = (0, 0, 0)
     if rkt0 and rkt0[0] == 1523640343:
-        tgi = tuple(rkt0)
-        return (
-         BitmapFromTGI(tgi), False)
+        return [BuildImageForTGI(tuple(rkt0), size)]
     elif rkt1 and rkt1[0] == 1523640343:
-        tgi = tuple(rkt1)
-        return (
-         BitmapFromTGI(tgi), False)
+        return [BuildImageForTGI(tuple(rkt1), size)]
     elif rkt3 and rkt3[0] == 1523640343:
-        tgi = tuple(rkt3[0:2] + [rkt3[-1]])
-        return (
-         BitmapFromTGI(tgi), False)
+        return [BuildImageForTGI(tuple(rkt3[0:2] + [rkt3[-1]]), size)]
     elif rkt4:
         nbChoices = len(rkt4) // 8
-        fullImage = Image.new('RGB', (128 * nbChoices, 128))
+        images = []
         for cb in range(nbChoices):
             rkt = rkt4[cb * 8:cb * 8 + 8]
             rkt = rkt[4:]
@@ -264,22 +258,23 @@ def BuildImageForProp(exemplar):
                 tgi = tuple(rkt[1:])
             elif rkt[0] == 662775845 and rkt[1] == 1523640343:
                 tgi = tuple(rkt[1:])
-            img = BuildImageForTGI(tgi)
-            fullImage.paste(img.convert('RGB'), (128 * cb, 0))
-            draw = ImageDraw.Draw(fullImage)
-            draw.rectangle((128 * cb, 0, 128 * cb + 127, 127), outline=(255, 255, 255))
-
-        image = wx.Image(128 * nbChoices, 128)
-        image.SetData(fullImage.tobytes())
-        return (
-         image.ConvertToBitmap(), nbChoices > 1)
+            images.append(BuildImageForTGI(tgi, size))
+        return images
     elif rkt5 and rkt5[0] == 1523640343:
-        tgi = tuple(rkt5)
-        return (
-         BitmapFromTGI(tgi), False)
-    fileName = 'NoPreview.jpg'
-    return (
-     wx.Bitmap(fileName, wx.BITMAP_TYPE_JPEG), False)
+        return [BuildImageForTGI(tuple(rkt5), size)]
+    return [Image.open(asset_path('other', 'NoPreview.jpg')).convert('RGB').resize((size, size), Image.BICUBIC)]
+
+
+def BuildImageForProp(exemplar):
+    images = BuildImagesForPropStates(exemplar, 128)
+    if len(images) == 1:
+        return (BitmapFromPIL(images[0]), False)
+    fullImage = Image.new('RGB', (128 * len(images), 128))
+    draw = ImageDraw.Draw(fullImage)
+    for idx, img in enumerate(images):
+        fullImage.paste(img.convert('RGB'), (128 * idx, 0))
+        draw.rectangle((128 * idx, 0, 128 * idx + 127, 127), outline=(255, 255, 255))
+    return (BitmapFromPIL(fullImage), True)
 
 
 class ImageListCtrl(wx.ListCtrl):
@@ -604,6 +599,721 @@ def DisplayNameForPropsName(desc):
 
 def DisplayNameForTex(entry):
     return '%s' % hex2str(entry.tgi[2] - 3)[2:]
+
+
+class LEAssetItem(object):
+
+    def __init__(self, kind, label, sublabel, proxy, source=None, badge=None):
+        self.kind = kind
+        self.label = label
+        self.sublabel = sublabel
+        self.proxy = proxy
+        self.source = source
+        self.badge = badge or kind
+
+    @property
+    def search_text(self):
+        return ('%s %s %s %s' % (self.kind, self.badge, self.label, self.sublabel)).lower()
+
+    @property
+    def type_label(self):
+        labels = {
+            'base texture': LEXAssetTypeBaseTexture,
+            'overlay texture': LEXAssetTypeOverlayTexture,
+            'prop': LEXAssetTypeProp,
+            'flora': LEXAssetTypeFlora,
+            'family': LEXAssetTypeFamily,
+            'icon': LEXAssetTypeIcon,
+        }
+        return labels.get(self.kind, self.kind)
+
+
+class LEAssetThumbnailProvider(object):
+
+    def __init__(self):
+        self.cache = {}
+        self.state_counts = {}
+        self.state_strips = {}
+        self.pending = set()
+        self.placeholder = self._build_placeholder('...')
+
+    def _build_placeholder(self, label):
+        bmp = wx.Bitmap(72, 72)
+        dc = wx.MemoryDC(bmp)
+        dc.SetBackground(wx.Brush(wx.Colour(232, 235, 238)))
+        dc.Clear()
+        dc.SetPen(wx.Pen(wx.Colour(180, 187, 194)))
+        dc.SetBrush(wx.Brush(wx.Colour(245, 247, 249)))
+        dc.DrawRoundedRectangle(6, 6, 60, 60, 6)
+        dc.SetTextForeground(wx.Colour(98, 108, 118))
+        dc.DrawLabel(label, wx.Rect(6, 25, 60, 20), wx.ALIGN_CENTER)
+        dc.SelectObject(wx.NullBitmap)
+        return bmp
+
+    def _bitmap_from_pil(self, image, size=(72, 72)):
+        pil = image.convert('RGB').resize(size, Image.BICUBIC)
+        wx_image = wx.Image(pil.size[0], pil.size[1])
+        wx_image.SetData(pil.tobytes())
+        return wx_image.ConvertToBitmap()
+
+    def _scale_bitmap(self, bmp, size=(72, 72)):
+        if not bmp or not bmp.IsOk():
+            return self.placeholder
+        image = bmp.ConvertToImage()
+        image = image.Scale(size[0], size[1], wx.IMAGE_QUALITY_HIGH)
+        return image.ConvertToBitmap()
+
+    def _texture_bitmap(self, entry, overlay):
+        try:
+            image_list = VirtualDat.this.ilOver if overlay else VirtualDat.this.ilBase
+            idx_map = VirtualDat.this.overTexEntriesDict if overlay else VirtualDat.this.baseTexEntriesDict
+            idx = idx_map.get(entry)
+            if idx is not None:
+                return self._scale_bitmap(image_list.GetBitmap(idx))
+        except Exception:
+            pass
+        try:
+            entry.read_file(None, True, True)
+            nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(entry.content)
+            pil = Image.frombytes('RGB', size, img[:size[0] * size[1] * 3])
+            if trueAlpha:
+                blank = Image.new('RGB', size, 16777215)
+                alpha_layer = Image.frombytes('L', size, alpha[:size[0] * size[1]])
+                pil = Image.composite(pil, blank, alpha_layer)
+            return self._bitmap_from_pil(pil)
+        except Exception:
+            return self._build_placeholder('!')
+        finally:
+            try:
+                entry.content = None
+                entry.rawContent = None
+            except Exception:
+                pass
+
+    def _prop_bitmap(self, desc):
+        try:
+            images = BuildImagesForPropStates(desc.exemplar, 128)
+            return self._bitmap_from_pil(images[0])
+        except Exception:
+            return self._build_placeholder('!')
+
+    def _family_descs(self, cat_id):
+        try:
+            descs = VirtualDat.this.categories[cat_id].descriptors
+        except Exception:
+            return []
+        usable = []
+        for desc in descs:
+            try:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
+                    continue
+                if desc.exemplar.GetProp(16)[0] in (30, 15):
+                    usable.append(desc)
+            except Exception:
+                pass
+        usable.sort(key=lambda n: n.name.upper())
+        return usable
+
+    def _family_images(self, item, size=96):
+        images = []
+        for desc in self._family_descs(item.source):
+            try:
+                images.append(BuildImagesForPropStates(desc.exemplar, size)[0])
+            except Exception:
+                pass
+        if not images:
+            images.append(Image.open(asset_path('other', 'NoPreview.jpg')).convert('RGB').resize((size, size), Image.BICUBIC))
+        return images
+
+    def _family_bitmap(self, item):
+        try:
+            return self._bitmap_from_pil(self._family_images(item, 128)[0])
+        except Exception:
+            return self._build_placeholder('F')
+
+    def _prop_state_images(self, item):
+        key = self._cache_key(item)
+        if key not in self.state_strips:
+            images = BuildImagesForPropStates(item.source.exemplar, 96)
+            self.state_counts[key] = len(images)
+            full = Image.new('RGB', (96 * len(images), 96), 0xffffff)
+            draw = ImageDraw.Draw(full)
+            for idx, img in enumerate(images):
+                full.paste(img.convert('RGB'), (96 * idx, 0))
+                draw.rectangle((96 * idx, 0, 96 * idx + 95, 95), outline=(190, 195, 200))
+            self.state_strips[key] = BitmapFromPIL(full)
+        return self.state_strips[key]
+
+    def _family_state_images(self, item):
+        key = self._cache_key(item)
+        if key not in self.state_strips:
+            images = self._family_images(item, 80)
+            self.state_counts[key] = len(images)
+            cols = min(6, max(1, len(images)))
+            rows = (len(images) + cols - 1) // cols
+            full = Image.new('RGB', (80 * cols, 80 * rows), 0xffffff)
+            draw = ImageDraw.Draw(full)
+            for idx, img in enumerate(images):
+                x = idx % cols * 80
+                y = idx // cols * 80
+                full.paste(img.convert('RGB'), (x, y))
+                draw.rectangle((x, y, x + 79, y + 79), outline=(190, 195, 200))
+            self.state_strips[key] = BitmapFromPIL(full)
+        return self.state_strips[key]
+
+    def StateCount(self, item):
+        if item.kind not in ('prop', 'flora', 'family') or item.source is None:
+            return 1
+        key = self._cache_key(item)
+        if key not in self.state_counts:
+            try:
+                if item.kind == 'family':
+                    self.state_counts[key] = len(self._family_descs(item.source))
+                else:
+                    rkt4 = item.source.exemplar.GetProp(662775844)
+                    if rkt4:
+                        self.state_counts[key] = max(1, len(rkt4) // 8)
+                    else:
+                        self.state_counts[key] = 1
+            except Exception:
+                self.state_counts[key] = 1
+        return self.state_counts.get(key, 1)
+
+    def StateStrip(self, item):
+        if self.StateCount(item) <= 1:
+            return None
+        try:
+            if item.kind == 'family':
+                return self._family_state_images(item)
+            return self._prop_state_images(item)
+        except Exception:
+            return None
+
+    def CountLabel(self, item):
+        if item.kind == 'family':
+            return LEXAssetBrowserMembers
+        return LEXAssetBrowserStates
+
+    def _cache_key(self, item):
+        return (item.kind, item.sublabel, id(item.source))
+
+    def _build_bitmap(self, item):
+        bmp = self.placeholder
+        if item.kind == 'base texture':
+            bmp = self._texture_bitmap(item.source, False)
+        elif item.kind == 'overlay texture':
+            bmp = self._texture_bitmap(item.source, True)
+        elif item.kind in ('prop', 'flora'):
+            bmp = self._prop_bitmap(item.source)
+        elif item.kind == 'family':
+            bmp = self._family_bitmap(item)
+        elif item.kind == 'icon':
+            bmp = self._build_placeholder('I')
+        return bmp
+
+    def _load_pending(self, item, key, on_loaded):
+        try:
+            self.cache[key] = self._build_bitmap(item)
+        finally:
+            self.pending.discard(key)
+        if on_loaded:
+            try:
+                on_loaded(False)
+            except RuntimeError:
+                pass
+
+    def GetBitmap(self, item, on_loaded=None):
+        key = self._cache_key(item)
+        if key in self.cache:
+            return self.cache[key]
+        if on_loaded and key not in self.pending:
+            self.pending.add(key)
+            wx.CallLater(1, self._load_pending, item, key, on_loaded)
+        return self.placeholder
+
+    def GetBitmapNow(self, item):
+        key = self._cache_key(item)
+        if key in self.cache:
+            return self.cache[key]
+        bmp = self._build_bitmap(item)
+        self.cache[key] = bmp
+        return bmp
+
+
+class LEAssetGrid(wx.ScrolledWindow):
+
+    CARD_W = 142
+    CARD_H = 160
+    GAP = 10
+    THUMB = 72
+
+    def __init__(self, parent, thumbnail_provider, on_select=None):
+        wx.ScrolledWindow.__init__(self, parent, -1, style=wx.BORDER_NONE | wx.VSCROLL)
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetScrollRate(0, 24)
+        self.thumbnail_provider = thumbnail_provider
+        self.on_select = on_select
+        self.items = []
+        self.selected = -1
+        self.hovered = -1
+        self.drag_start = None
+        self.state_popup = None
+        self.Bind(wx.EVT_PAINT, self.OnPaint)
+        self.Bind(wx.EVT_SIZE, self.OnSize)
+        self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
+        self.Bind(wx.EVT_MOTION, self.OnMotion)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self.OnLeaveWindow)
+
+    def SetItems(self, items):
+        self.items = items
+        self.selected = -1
+        self.hovered = -1
+        self._hide_state_popup()
+        self._update_virtual_size()
+        self.Refresh(False)
+
+    def _columns(self):
+        width = max(1, self.GetClientSize()[0])
+        return max(1, (width + self.GAP) // (self.CARD_W + self.GAP))
+
+    def _update_virtual_size(self):
+        cols = self._columns()
+        rows = (len(self.items) + cols - 1) // cols
+        self.SetVirtualSize((max(self.CARD_W, self.GetClientSize()[0]), rows * (self.CARD_H + self.GAP) + self.GAP))
+
+    def OnSize(self, event):
+        self._update_virtual_size()
+        self.Refresh(False)
+        event.Skip()
+
+    def _item_rect(self, idx):
+        cols = self._columns()
+        col = idx % cols
+        row = idx // cols
+        x = self.GAP + col * (self.CARD_W + self.GAP)
+        y = self.GAP + row * (self.CARD_H + self.GAP)
+        return wx.Rect(x, y, self.CARD_W, self.CARD_H)
+
+    def _hit_test(self, pos):
+        x, y = self.CalcUnscrolledPosition(pos[0], pos[1])
+        cols = self._columns()
+        col = x // (self.CARD_W + self.GAP)
+        row = y // (self.CARD_H + self.GAP)
+        idx = int(row * cols + col)
+        if idx < 0 or idx >= len(self.items):
+            return -1
+        if self._item_rect(idx).Contains(x, y):
+            return idx
+        return -1
+
+    def _shorten(self, dc, text, width):
+        if dc.GetTextExtent(text)[0] <= width:
+            return text
+        ellipsis = '...'
+        while text and dc.GetTextExtent(text + ellipsis)[0] > width:
+            text = text[:-1]
+        return text + ellipsis
+
+    def OnPaint(self, event):
+        dc = wx.AutoBufferedPaintDC(self)
+        self.PrepareDC(dc)
+        dc.SetBackground(wx.Brush(wx.Colour(248, 249, 250)))
+        dc.Clear()
+        if not self.items:
+            dc.SetTextForeground(wx.Colour(92, 99, 106))
+            dc.DrawLabel(LEXAssetBrowserNoMatches, wx.Rect(0, 20, self.GetClientSize()[0], 30), wx.ALIGN_CENTER)
+            return
+        view_y = self.CalcUnscrolledPosition(0, 0)[1]
+        end_y = view_y + self.GetClientSize()[1]
+        cols = self._columns()
+        start_row = max(0, view_y // (self.CARD_H + self.GAP))
+        end_row = min((len(self.items) + cols - 1) // cols, end_y // (self.CARD_H + self.GAP) + 2)
+        for row in range(int(start_row), int(end_row)):
+            for col in range(cols):
+                idx = row * cols + col
+                if idx >= len(self.items):
+                    break
+                self._draw_card(dc, idx, self._item_rect(idx))
+
+    def _draw_card(self, dc, idx, rect):
+        item = self.items[idx]
+        selected = idx == self.selected
+        bg = wx.Colour(221, 235, 249) if selected else wx.Colour(255, 255, 255)
+        border = wx.Colour(65, 123, 188) if selected else wx.Colour(209, 214, 219)
+        dc.SetBrush(wx.Brush(bg))
+        dc.SetPen(wx.Pen(border, 2 if selected else 1))
+        dc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, 6)
+        bmp = self.thumbnail_provider.GetBitmap(item, self.Refresh)
+        tx = rect.x + (rect.width - self.THUMB) // 2
+        ty = rect.y + 12
+        dc.DrawBitmap(bmp, tx, ty, True)
+        state_count = self.thumbnail_provider.StateCount(item)
+        if state_count > 1:
+            state_label = str(state_count)
+            indicator = wx.Rect(tx + self.THUMB - 22, ty + self.THUMB - 20, 20, 18)
+            dc.SetBrush(wx.Brush(wx.Colour(45, 92, 150)))
+            dc.SetPen(wx.Pen(wx.Colour(45, 92, 150)))
+            dc.DrawRoundedRectangle(indicator.x, indicator.y, indicator.width, indicator.height, 6)
+            dc.SetTextForeground(wx.Colour(255, 255, 255))
+            dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            dc.DrawLabel(state_label, indicator, wx.ALIGN_CENTER)
+        badge_rect = wx.Rect(rect.x + 10, rect.y + 91, rect.width - 20, 18)
+        dc.SetBrush(wx.Brush(wx.Colour(238, 241, 244)))
+        dc.SetPen(wx.Pen(wx.Colour(220, 224, 228)))
+        dc.DrawRoundedRectangle(badge_rect.x, badge_rect.y, badge_rect.width, badge_rect.height, 5)
+        dc.SetTextForeground(wx.Colour(74, 82, 90))
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.DrawLabel(self._shorten(dc, item.badge, badge_rect.width - 8), badge_rect.Deflate(4, 0), wx.ALIGN_CENTER)
+        dc.SetTextForeground(wx.Colour(25, 29, 33))
+        dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        dc.DrawLabel(self._shorten(dc, item.label, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 116, rect.width - 18, 18), wx.ALIGN_CENTER)
+        dc.SetTextForeground(wx.Colour(96, 104, 112))
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.DrawLabel(self._shorten(dc, item.sublabel, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 137, rect.width - 18, 18), wx.ALIGN_CENTER)
+
+    def OnLeftDown(self, event):
+        self._hide_state_popup()
+        self.SetFocus()
+        idx = self._hit_test(event.GetPosition())
+        if idx != -1:
+            self.selected = idx
+            self.drag_start = event.GetPosition()
+            if self.on_select:
+                self.on_select(self.items[idx])
+            self.Refresh(False)
+        event.Skip()
+
+    def OnLeftUp(self, event):
+        self.drag_start = None
+        event.Skip()
+
+    def OnMotion(self, event):
+        idx = self._hit_test(event.GetPosition())
+        if idx != self.hovered:
+            self.hovered = idx
+            self._show_state_popup(idx, event.GetPosition())
+        if not event.Dragging() or not event.LeftIsDown() or self.drag_start is None:
+            event.Skip()
+            return
+        if abs(event.GetX() - self.drag_start.x) < 5 and abs(event.GetY() - self.drag_start.y) < 5:
+            event.Skip()
+            return
+        idx = self.selected
+        self.drag_start = None
+        if idx < 0 or idx >= len(self.items):
+            event.Skip()
+            return
+        comp = wx.DataObjectComposite()
+        dd = treeDnD.DropData()
+        dd.setObject(self.items[idx].proxy)
+        comp.Add(dd)
+        dropSource = wx.DropSource(self)
+        dropSource.SetData(comp)
+        dropSource.DoDragDrop(wx.Drag_AllowMove)
+        event.Skip()
+
+    def OnLeaveWindow(self, event):
+        self.hovered = -1
+        self._hide_state_popup()
+        event.Skip()
+
+    def _hide_state_popup(self):
+        if self.state_popup is not None:
+            try:
+                self.state_popup.Destroy()
+            except RuntimeError:
+                pass
+            self.state_popup = None
+
+    def _show_state_popup(self, idx, pos):
+        self._hide_state_popup()
+        if idx < 0 or idx >= len(self.items):
+            return
+        item = self.items[idx]
+        strip = self.thumbnail_provider.StateStrip(item)
+        if strip is None:
+            return
+        popup = wx.PopupTransientWindow(self, wx.BORDER_SIMPLE)
+        panel = wx.Panel(popup, -1)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        label = wx.StaticText(panel, -1, '%d %s' % (self.thumbnail_provider.StateCount(item), self.thumbnail_provider.CountLabel(item)))
+        sizer.Add(label, 0, wx.ALL, 6)
+        sizer.Add(wx.StaticBitmap(panel, -1, strip), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        panel.SetSizer(sizer)
+        sizer.Fit(panel)
+        popup.SetSize(panel.GetBestSize())
+        screen_pos = self.ClientToScreen((pos.x + 16, pos.y + 18))
+        popup.Position(screen_pos, (0, 0))
+        popup.Popup()
+        self.state_popup = popup
+
+
+class LEAssetList(wx.ListCtrl):
+
+    def __init__(self, parent, on_select=None):
+        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_SINGLE_SEL | wx.BORDER_NONE)
+        self.items = []
+        self.on_select = on_select
+        self.InsertColumn(0, LEXInspectorName)
+        self.InsertColumn(1, LEXInspectorType)
+        self.InsertColumn(2, LEXInspectorID)
+        self.SetColumnWidth(0, 190)
+        self.SetColumnWidth(1, 95)
+        self.SetColumnWidth(2, 95)
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSelected)
+        self.Bind(wx.EVT_LIST_BEGIN_DRAG, self.OnBeginDrag)
+
+    def SetItems(self, items):
+        self.items = items
+        self.SetItemCount(len(items))
+        self.Refresh(False)
+
+    def OnGetItemText(self, item, col):
+        if item < 0 or item >= len(self.items):
+            return ''
+        asset = self.items[item]
+        if col == 0:
+            return asset.label
+        if col == 1:
+            return asset.type_label
+        return asset.sublabel
+
+    def OnSelected(self, event):
+        idx = event.GetIndex()
+        if self.on_select and 0 <= idx < len(self.items):
+            self.on_select(self.items[idx])
+
+    def OnBeginDrag(self, event):
+        idx = event.GetIndex()
+        if idx < 0 or idx >= len(self.items):
+            return
+        comp = wx.DataObjectComposite()
+        dd = treeDnD.DropData()
+        dd.setObject(self.items[idx].proxy)
+        comp.Add(dd)
+        dropSource = wx.DropSource(self)
+        dropSource.SetData(comp)
+        dropSource.DoDragDrop(wx.Drag_AllowMove)
+
+
+class LEAssetBrowserPanel(wx.Panel):
+
+    def __init__(self, parent, editor):
+        wx.Panel.__init__(self, parent, -1)
+        self.editor = editor
+        settings = load_lot_editor()
+        self.scope = str(settings.get('AssetScope', 'lot'))
+        if self.scope not in ('lot', 'library', 'favorites'):
+            self.scope = 'lot'
+        self.kind_filter = str(settings.get('AssetFilter', 'all'))
+        if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families'):
+            self.kind_filter = 'all'
+        self.all_items = []
+        self.thumbnail_provider = LEAssetThumbnailProvider()
+        root = wx.BoxSizer(wx.VERTICAL)
+        header = wx.BoxSizer(wx.HORIZONTAL)
+        title = wx.StaticText(self, -1, LEXAssetBrowserAssets)
+        title.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        header.Add(title, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self.count_label = wx.StaticText(self, -1, '')
+        header.Add(self.count_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        root.Add(header, 0, wx.EXPAND | wx.ALL, 10)
+        self.search = wx.SearchCtrl(self, -1, style=wx.TE_PROCESS_ENTER)
+        self.search.ShowSearchButton(True)
+        self.search.ShowCancelButton(True)
+        root.Add(self.search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        scopes = wx.BoxSizer(wx.HORIZONTAL)
+        self.scope_buttons = {}
+        for scope, label in [
+            ('lot', LEXAssetBrowserCurrentLot),
+            ('library', LEXAssetBrowserLibrary),
+            ('favorites', LEXAssetBrowserFavorites),
+        ]:
+            btn = wx.ToggleButton(self, -1, label)
+            btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, value=scope: self.SetScope(value))
+            self.scope_buttons[scope] = btn
+            scopes.Add(btn, 1, wx.RIGHT, 4)
+        root.Add(scopes, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        filters = wx.BoxSizer(wx.HORIZONTAL)
+        self.filter_choice = wx.Choice(self, -1, choices=[
+            LEXAssetBrowserAll,
+            LEXAssetBrowserTextures,
+            LETreeBaseTextures,
+            LETreeOverlayTextures,
+            LEXAssetBrowserProps,
+            LETreeFlora,
+            LEXAssetBrowserFamilies,
+        ])
+        self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families'].index(self.kind_filter))
+        filters.Add(self.filter_choice, 1, wx.EXPAND)
+        self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
+        filters.Add(self.presentation, 0, wx.LEFT, 6)
+        root.Add(filters, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select)
+        self.list = LEAssetList(self, self._on_grid_select)
+        root.Add(self.grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        self.list.Hide()
+        self.SetSizer(root)
+        self.search.Bind(wx.EVT_TEXT, self.OnSearch)
+        self.filter_choice.Bind(wx.EVT_CHOICE, self.OnFilter)
+        self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
+        self._debounce = None
+        self.search.SetValue(str(settings.get('AssetSearch', '')))
+        compact = bool(settings.get('AssetCompact', False))
+        self.presentation.SetValue(compact)
+        self.OnPresentation(None)
+        self.SetScope(self.scope)
+
+    def GetState(self):
+        return {
+            'AssetScope': self.scope,
+            'AssetFilter': self.kind_filter,
+            'AssetSearch': self.search.GetValue(),
+            'AssetCompact': bool(self.presentation.GetValue()),
+        }
+
+    def RefreshAssets(self):
+        self.all_items = self._build_items()
+        self.ApplyFilters()
+
+    def SetScope(self, scope):
+        self.scope = scope
+        for key, btn in self.scope_buttons.items():
+            btn.SetValue(key == scope)
+        self.RefreshAssets()
+
+    def OnSearch(self, event):
+        if self._debounce:
+            self._debounce.Stop()
+        self._debounce = wx.CallLater(120, self.ApplyFilters)
+
+    def OnFilter(self, event):
+        labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families']
+        self.kind_filter = labels[self.filter_choice.GetSelection()]
+        self.ApplyFilters()
+
+    def OnPresentation(self, event):
+        compact = self.presentation.GetValue()
+        self.presentation.SetLabel(LEXAssetBrowserGrid if compact else LEXAssetBrowserCompact)
+        self.grid.Show(not compact)
+        self.list.Show(compact)
+        self.Layout()
+
+    def _on_grid_select(self, item):
+        if hasattr(self.editor, 'UpdateAssetInspector'):
+            self.editor.UpdateAssetInspector(item)
+
+    def _texture_item(self, entry, overlay):
+        iid = entry.tgi[2] - 3
+        kind = 'overlay texture' if overlay else 'base texture'
+        badge = LEXAssetBrowserOverlayBadge if overlay else LEXAssetBrowserBaseBadge
+        return LEAssetItem(kind, hex2str(iid)[2:], os.path.split(entry.fileName)[1], OverlayProxy(entry) if overlay else BaseProxy(entry), entry, badge)
+
+    def _prop_item(self, desc, flora=False):
+        name = desc.exemplar.GetProp(32)
+        label = name[0] if name else hex2str(desc.exemplar.entry.tgi[2])[2:]
+        kind = 'flora' if flora else 'prop'
+        badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserPropBadge
+        return LEAssetItem(kind, label, hex2str(desc.exemplar.entry.tgi[2])[2:], PropProxy(desc), desc, badge)
+
+    def _family_item(self, cat_id):
+        try:
+            category = VirtualDat.this.categories[cat_id]
+            label = category.Name
+        except Exception:
+            label = hex2str(cat_id)
+        return LEAssetItem('family', label, hex2str(cat_id)[2:], FamilyProxy(cat_id), cat_id, LEXAssetBrowserFamilyBadge)
+
+    def _build_items(self):
+        items = []
+        if self.scope == 'favorites':
+            return items
+        if self.scope == 'lot':
+            for iid in getattr(self.editor, 'lotBaseTextures', []):
+                entry = VirtualDat.this.getEntry(2058686020, 159781726, iid)
+                if entry is not None:
+                    items.append(self._texture_item(entry, False))
+            for iid in getattr(self.editor, 'lotOverTextures', []):
+                entry = VirtualDat.this.getEntry(2058686020, 159781726, iid)
+                if entry is not None:
+                    items.append(self._texture_item(entry, True))
+            for desc in getattr(self.editor, 'lotPropDescs', []):
+                items.append(self._prop_item(desc, False))
+            for desc in getattr(self.editor, 'lotFloraDescs', []):
+                items.append(self._prop_item(desc, True))
+            for cat_id in getattr(self.editor, 'lotFamiliesPropID', []):
+                items.append(self._family_item(cat_id))
+            return items
+        for entry in getattr(VirtualDat.this, 'baseTexEntries', []):
+            items.append(self._texture_item(entry, False))
+        for entry in getattr(VirtualDat.this, 'overTexEntries', []):
+            items.append(self._texture_item(entry, True))
+        prop_category = VirtualDat.this.categories.get(210746660)
+        if prop_category is not None:
+            prop_descs = prop_category.descriptors
+        else:
+            prop_descs = []
+        for desc in prop_descs:
+            try:
+                if desc.exemplar.entry.tgi[0] == 1697917002 and desc.exemplar.GetProp(16)[0] in (30, 15):
+                    items.append(self._prop_item(desc, False))
+            except Exception:
+                pass
+        flora_category = VirtualDat.this.categories.get(1830116951)
+        if flora_category is not None:
+            flora_descs = flora_category.descriptors
+        else:
+            flora_descs = []
+        for desc in flora_descs:
+            try:
+                if desc.exemplar.entry.tgi[0] == 1697917002 and desc.exemplar.GetProp(16)[0] in (30, 15):
+                    items.append(self._prop_item(desc, True))
+            except Exception:
+                pass
+        for root_id in (4089086497, 4089087265):
+            category = VirtualDat.this.categories.get(root_id)
+            if category is None:
+                continue
+            for sub in category.childs:
+                if self._is_prop_family(sub.descriptors):
+                    items.append(self._family_item(sub.ID))
+        return items
+
+    def _is_prop_family(self, descriptors):
+        for desc in descriptors:
+            try:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
+                    continue
+                if desc.exemplar.GetProp(16)[0] in (30, 15):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def ApplyFilters(self):
+        text = self.search.GetValue().strip().lower()
+        filtered = []
+        for item in self.all_items:
+            if self.kind_filter == 'textures' and item.kind not in ('base texture', 'overlay texture'):
+                continue
+            if self.kind_filter == 'base_textures' and item.kind != 'base texture':
+                continue
+            if self.kind_filter == 'overlay_textures' and item.kind != 'overlay texture':
+                continue
+            if self.kind_filter == 'props' and item.kind != 'prop':
+                continue
+            if self.kind_filter == 'flora' and item.kind != 'flora':
+                continue
+            if self.kind_filter == 'families' and item.kind != 'family':
+                continue
+            if text and text not in item.search_text:
+                continue
+            filtered.append(item)
+        self.count_label.SetLabel('%d' % len(filtered))
+        self.grid.SetItems(filtered)
+        self.list.SetItems(filtered)
 
 
 class LETreeCtrl(wx.TreeCtrl):
