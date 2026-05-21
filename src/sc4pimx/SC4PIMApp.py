@@ -17,13 +17,13 @@ except ImportError:
     HAS_WIN32 = False
 import wx.adv
 
-from . import SC4IconMakerDlg, treeDnD
+from . import SC4IconMakerDlg, config, treeDnD
 from .ATCViewer import *
 from .DependenciesDlg import *
-from .paths import asset_path, package_data_path
+from .paths import asset_path, ensure_user_data_dir
 from .SC4LotPreview import *
 from .settings import *
-from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text, encode_unicode_escape
+from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
 
@@ -139,7 +139,7 @@ def _enable_faulthandler():
     if not _env_true('SC4PIM_FAULTHANDLER'):
         return
     try:
-        _faulthandler_file = open('faulthandler.log', 'w')
+        _faulthandler_file = open(ensure_user_data_dir() / 'faulthandler.log', 'w')
     except OSError:
         _faulthandler_file = None
     if _faulthandler_file is not None:
@@ -2931,54 +2931,21 @@ class ConfigureDialog(sc.SizedDialog):
         self.EndModal(wx.ID_CANCEL)
 
     def ReadConfig(self):
-        self.pathToScan = []
-        def getText(nodelist):
-            rc = ''
-            for node in nodelist:
-                if node.nodeType == node.TEXT_NODE:
-                    rc = rc + node.data
-
-            return rc
-
-        config_path = os.path.join(os.getcwd(), 'config.xml')
-        if not os.path.exists(config_path):
-            config_path = str(package_data_path('config.xml'))
-        configXML = xml.dom.minidom.parse(config_path)
-        for node in configXML.documentElement.childNodes:
-            if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
-                for subNode in node.childNodes:
-                    if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
-                        recurse = int(subNode.getAttribute('recurse'))
-                        path = self._decode_config_path(getText(subNode.childNodes))
-                        if path:
-                            self.pathToScan.append(self._normalise_path(path))
-
-    @staticmethod
-    def _decode_config_path(path):
-        return decode_unicode_escape(str(path)).replace('\\\\', '\\')
+        self.pathToScan = [
+            self._normalise_path(path) for path, _recurse in config.load_folders()
+        ]
 
     @staticmethod
     def _normalise_path(path):
         return os.path.normcase(os.path.normpath(path))
 
     def OnSave(self, parent):
-        xmlData = '<?xml version="1.0" encoding="UTF-8"?>\n'
-        xmlData += '<config>\n'
-        xmlData += ' <folders>\n'
+        folders = []
         for i, path in enumerate(self.listFolder):
             if path and self.lb1.IsChecked(i):
-                escaped_path = encode_unicode_escape(path.replace('\\', '\\\\'))
-                if path == self.maxisFolder or path == self.rootFolder:
-                    xmlData += '  <folder recurse="0">%s</folder>\n' % escaped_path
-                else:
-                    xmlData += '  <folder recurse="1">%s</folder>\n' % escaped_path
-
-        xmlData += ' </folders>\n'
-        xmlData += '</config>\n'
-        config_path = os.path.join(os.getcwd(), 'config.xml')
-        fconfig = open(config_path, 'wt')
-        fconfig.write(xmlData)
-        fconfig.close()
+                recurse = path not in (self.maxisFolder, self.rootFolder)
+                folders.append((path, recurse))
+        config.save_folders(folders)
 
 
 class MainFrame(wx.Frame):
@@ -3414,27 +3381,7 @@ class MainFrame(wx.Frame):
         if _env_true('SC4PIM_SKIP_DAT_SCAN'):
             self.pathToScan = []
         try:
-
-            def getText(nodelist):
-                rc = ''
-                for node in nodelist:
-                    if node.nodeType == node.TEXT_NODE:
-                        rc = rc + node.data
-
-                return rc
-
-            config_path = os.path.join(os.getcwd(), 'config.xml')
-            if not os.path.exists(config_path):
-                config_path = str(package_data_path('config.xml'))
-            configXML = xml.dom.minidom.parse(config_path)
-            for node in configXML.documentElement.childNodes:
-                if node.nodeType == node.ELEMENT_NODE and node.tagName == 'folders':
-                    for subNode in node.childNodes:
-                        if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'folder':
-                            recurse = int(subNode.getAttribute('recurse'))
-                            path = decode_unicode_escape(str(getText(subNode.childNodes))).replace('\\\\', '\\')
-                            self.pathToScan.append((path, recurse))
-
+            self.pathToScan = config.load_folders()
         except Exception:
             pass
 

@@ -14,7 +14,7 @@ except ImportError:
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
-from .paths import asset_path
+from .paths import asset_path, ensure_user_data_dir, user_data_path
 from .SC4Data import *
 from .SC4OpenGL import *
 from .translation import *
@@ -701,8 +701,9 @@ class TextureDlg(wx.Frame):
             self.CreateSubFamilies(familyID, self.tree.lotPropsItem)
 
         self.groups = []
-        if os.path.exists('groups.ini'):
-            with open('groups.ini', 'r', encoding='utf-8', errors='replace') as group_file:
+        groups_file = user_data_path('groups.ini')
+        if groups_file.exists():
+            with open(groups_file, 'r', encoding='utf-8', errors='replace') as group_file:
                 exec(compile(group_file.read(), 'groups.ini', 'exec'), globals(), locals())
         dt = TreeDropTarget(self.tree)
         self.tree.SetDropTarget(dt)
@@ -899,7 +900,7 @@ class TextureDlg(wx.Frame):
         return
 
     def Save(self):
-        fout = open('groups.ini', 'wt')
+        fout = open(ensure_user_data_dir() / 'groups.ini', 'wt')
         x, y = self.GetPosition()
         w, h = self.GetSize()
         fout.write('self.Move( ( %d, %d ) )\n' % (x, y))
