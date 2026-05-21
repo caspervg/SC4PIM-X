@@ -15,7 +15,8 @@ class IconDlg(wx.Dialog):
         box_sizer1 = wx.BoxSizer(wx.VERTICAL)
         file_browse = filebrowse.FileBrowseButton(self, -1, changeCallback=self.fbb_callback, labelText=IconDlgPicture)
         box_sizer1.Add(file_browse, 0, wx.EXPAND, 5)
-        self.bitmap1 = wx.StaticBitmap(self, wx.ID_ANY, wx.BitmapBundle(wx.Bitmap('IconTpl.png')))
+        self.bitmap1 = wx.StaticBitmap(self, wx.ID_ANY,
+                                       wx.BitmapBundle(wx.Bitmap(str(asset_path('templates', 'IconTpl.png')))))
         box_sizer1.Add(self.bitmap1, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
         static_line1 = wx.StaticLine(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.LI_HORIZONTAL)
         box_sizer1.Add(static_line1, 0, wx.ALL | wx.EXPAND, 5)

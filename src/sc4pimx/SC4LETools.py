@@ -14,7 +14,7 @@ except ImportError:
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
-from .paths import asset_path, ensure_user_data_dir, user_data_path
+from .paths import asset_path, ensure_user_data_dir, image_db_path, user_data_path
 from .SC4Data import *
 from .SC4OpenGL import *
 from .translation import *
@@ -222,9 +222,9 @@ class GroupProxy():
 def BuildImageForProp(exemplar):
 
     def BuildImageForTGI(tgi):
-        fileName = 'ImageDBLarge/%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2]))
+        fileName = str(image_db_path('%s-%s.jpg' % (hex2str(tgi[1]), hex2str(tgi[2])), large=True))
         if not os.path.exists(fileName):
-            fileName = 'NoPreview.jpg'
+            fileName = str(asset_path('other', 'NoPreview.jpg'))
         return Image.open(fileName).resize((128, 128), Image.BICUBIC)
 
     def BitmapFromTGI(tgi):

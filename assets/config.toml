@@ -6,6 +6,9 @@
 
 bAdvancedUser = true
 
+# UI language: a code matching a bundled assets/lang/<code>.toml file ("en", ...).
+Language = "en"
+
 # --- School capacities (SCCS) ---
 SCCSElementary = 500
 SCCSHighSchool = 750

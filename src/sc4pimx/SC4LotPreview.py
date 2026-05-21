@@ -1,6 +1,6 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
-from contextlib import contextmanager
 import math
+from contextlib import contextmanager
 
 import numpy
 import wx
@@ -10,6 +10,7 @@ from PIL import Image
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
+from .paths import asset_path
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
 from .SC4LETools import *
@@ -966,7 +967,7 @@ class LotEditorWin(wx.Frame):
         self.BackTextureSizes = [None, None, None, None, None]
         for i, tex in enumerate(texs):
             try:
-                im = Image.open(tex)
+                im = Image.open(asset_path('backgrounds', tex))
             except Exception:
                 print("Can't load", tex)
                 continue
@@ -986,7 +987,7 @@ class LotEditorWin(wx.Frame):
          'TE_Road.jpg', 'TE_Train.jpg', 'TE_ElevatedHighway.jpg', 'TE_Street.jpg', '', '', 'TE_Avenue.jpg', '', 'TE_ElTrain.jpg', 'TE_Monorail.jpg', 'TE_OneWay.jpg', '', 'TE_GroundHighway.jpg']
         for i, tex in enumerate(texs):
             try:
-                im = Image.open(tex)
+                im = Image.open(asset_path('backgrounds', tex))
             except Exception:
                 continue
 

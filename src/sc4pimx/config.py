@@ -16,7 +16,7 @@ from pathlib import Path
 
 import tomlkit
 
-from .paths import ensure_user_data_dir, package_data_path, user_data_path
+from .paths import data_file_path, ensure_user_data_dir
 
 CONFIG_FILENAME = "config.toml"
 
@@ -25,12 +25,9 @@ def config_path() -> Path:
     """The config.toml that is actually read.
 
     The per-user copy in ``%APPDATA%\\sc4pimx`` if it exists, otherwise the
-    bundled package default (the shipped factory settings).
+    copy shipped in ``assets/`` (the factory settings).
     """
-    user_path = user_data_path(CONFIG_FILENAME)
-    if user_path.exists():
-        return user_path
-    return Path(package_data_path(CONFIG_FILENAME))
+    return data_file_path(CONFIG_FILENAME)
 
 
 def load() -> dict:

@@ -20,12 +20,13 @@ import wx.adv
 from . import SC4IconMakerDlg, config, treeDnD
 from .ATCViewer import *
 from .DependenciesDlg import *
-from .paths import asset_path, ensure_user_data_dir
+from .paths import asset_path, ensure_user_data_dir, image_db_dir
 from .SC4LotPreview import *
 from .settings import *
 from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
+from .version import get_version
 
 offsetGID = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
@@ -155,7 +156,7 @@ def _enable_faulthandler():
 class ProcessDlg(wx.Dialog):
 
     def __init__(self, parent, title='please wait'):
-        wx.Dialog.__init__(self, parent, -1, 'PIM Extended')
+        wx.Dialog.__init__(self, parent, -1, splashTitle)
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.label_g1 = wx.StaticText(self, -1, title, size=Size(500, -1))
         sizer.Add(self.label_g1, 1, wx.EXPAND | wx.ALL, 5)
@@ -854,7 +855,7 @@ class NoteBookPanel(wx.Panel):
 
             lst2.sort(functools.cmp_to_key(basic_cmp))
             lst = lst + lst2
-            dlg = wx.SingleChoiceDialog(self, chooseParentCohortMsg, 'PIMX', [l[0] for l in lst])
+            dlg = wx.SingleChoiceDialog(self, chooseParentCohortMsg, appTitle, [l[0] for l in lst])
             if dlg.ShowModal() == wx.ID_OK:
                 if dlg.GetSelection() == 0:
                     self.exemplar.parentCohort = (0, 0, 0)
@@ -968,7 +969,7 @@ class NoteBookPanel(wx.Panel):
         preventFilename += ['ep1.dat', 'sounds.dat', 'intro.dat', 'loteditor.dat']
         preventFilename = [x.upper() for x in preventFilename]
         if os.path.split(fileName)[1].upper() in preventFilename:
-            dlg = wx.MessageDialog(self, "You can't save %s" % fileName, 'Legacy file error',
+            dlg = wx.MessageDialog(self, legacyFileErrorMsg % fileName, legacyFileErrorTitle,
                                    wx.OK | wx.ICON_INFORMATION)
             dlg.ShowModal()
             dlg.Destroy()
@@ -1006,7 +1007,7 @@ class NoteBookPanel(wx.Panel):
         preventFilename += ['ep1.dat', 'sounds.dat', 'intro.dat', 'loteditor.dat']
         preventFilename = [x.upper() for x in preventFilename]
         if os.path.split(filename)[1].upper() in preventFilename:
-            dlg = wx.MessageDialog(self, "You can't save %s" % filename, 'Legacy file error',
+            dlg = wx.MessageDialog(self, legacyFileErrorMsg % filename, legacyFileErrorTitle,
                                    wx.OK | wx.ICON_INFORMATION)
             dlg.ShowModal()
             dlg.Destroy()
@@ -1368,7 +1369,7 @@ class NoteBookPanel(wx.Panel):
         lst = [
             'Chicago', 'New york', 'Houston', 'Euro']
         ogs = [8192, 8193, 8194, 8195]
-        dlg = wx.MultiChoiceDialog(self, 'Choose tileset', 'PIMX', lst)
+        dlg = wx.MultiChoiceDialog(self, tilesetSelectorMsg, appTitle, lst)
         currentOgs = self.exemplar.GetProp(2854081430)
         selected = []
         for i, o in enumerate(ogs):
@@ -1432,7 +1433,7 @@ class NoteBookPanel(wx.Panel):
             lowStage = 4
         ogs = range(needed + 1, needed + 8)
         lst = [self.virtual_dat.properties[2854081430].Options[x] for x in ogs]
-        dlg = wx.MultiChoiceDialog(self, 'Choose CAM Stage', 'PIMX', lst)
+        dlg = wx.MultiChoiceDialog(self, camStageSelectorMsg, appTitle, lst)
         currentOgs = self.exemplar.GetProp(2854081430)
         selected = []
         for i, o in enumerate(ogs):
@@ -1499,8 +1500,8 @@ class NoteBookPanel(wx.Panel):
                     'ID Anchor': 747617304, 'ID Mech': 747617305, 'ID Out': 747617306, 'IM Anchor': 1820235836,
                     'IM Mech': 1820235837, 'IM Out': 1820235838, 'IHT Anchor': 1821359581, 'IHT Mech': 1821359582,
                     'IHT Out': 1821359583}
-        dlg1 = wx.SingleChoiceDialog(self, 'Choose the category you want the new lot to be based on',
-                                     'Plop lot creation', lst, wx.CHOICEDLG_STYLE)
+        dlg1 = wx.SingleChoiceDialog(self, plopLotCategoryMsg,
+                                     plopLotCategoryTitle, lst, wx.CHOICEDLG_STYLE)
         if dlg1.ShowModal() == wx.ID_OK:
             selected = dlg1.GetStringSelection()
             cat = name2Cat[selected]
@@ -1695,12 +1696,12 @@ class NoteBookPanel(wx.Panel):
                 buildingID = IID
                 if families is not None:
                     lst = [
-                              'This building only'] + ['Family %s' % hex2str(f) for f in families]
-                    dlg1 = wx.SingleChoiceDialog(self, 'Choose the building or family you want to put on this lot',
-                                                 'Lot Creation', lst, wx.CHOICEDLG_STYLE)
+                              lotBuildingChoiceSelf] + ['Family %s' % hex2str(f) for f in families]
+                    dlg1 = wx.SingleChoiceDialog(self, lotBuildingChoiceMsg,
+                                                 lotCreationTitle, lst, wx.CHOICEDLG_STYLE)
                     if dlg1.ShowModal() == wx.ID_OK:
                         selected = dlg1.GetStringSelection()
-                        if selected != 'This building only':
+                        if selected != lotBuildingChoiceSelf:
                             buildingID = int(selected[7:], 16)
                         dlg1.Destroy()
                     else:
@@ -1896,12 +1897,12 @@ class NoteBookPanel(wx.Panel):
             buildingID = self.exemplar.entry.tgi[2]
             if families is not None:
                 lst = [
-                          'This building only'] + ['Family %s' % hex2str(f) for f in families]
-                dlg1 = wx.SingleChoiceDialog(self, 'Choose the building or family you want to put on this lot',
-                                             'Lot Creation', lst, wx.CHOICEDLG_STYLE)
+                          lotBuildingChoiceSelf] + ['Family %s' % hex2str(f) for f in families]
+                dlg1 = wx.SingleChoiceDialog(self, lotBuildingChoiceMsg,
+                                             lotCreationTitle, lst, wx.CHOICEDLG_STYLE)
                 if dlg1.ShowModal() == wx.ID_OK:
                     selected = dlg1.GetStringSelection()
-                    if selected != 'This building only':
+                    if selected != lotBuildingChoiceSelf:
                         buildingID = int(selected[7:], 16)
                     dlg1.Destroy()
                 else:
@@ -2951,7 +2952,7 @@ class ConfigureDialog(sc.SizedDialog):
 class MainFrame(wx.Frame):
 
     def __init__(self):
-        wx.Frame.__init__(self, None, title='SC4 PIM Extended 2009 RC8', size=Size(800, 800))
+        wx.Frame.__init__(self, None, title='%s %s' % (appTitle, get_version()), size=Size(800, 800))
         # Initialize GID (Group ID) from Windows registry or generate new one.
         self.GID = _read_user_group_id_from_registry()
         if self.GID is None:
@@ -3067,7 +3068,7 @@ class MainFrame(wx.Frame):
         return
 
     def OnCloseWindow(self, event):
-        dlg = wx.MessageDialog(self, quitMsg, 'SC4 PIMX', wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION)
+        dlg = wx.MessageDialog(self, quitMsg, appTitle, wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION)
         res = dlg.ShowModal()
         dlg.Destroy()
         if res == wx.ID_NO:
@@ -3442,7 +3443,7 @@ class MainFrame(wx.Frame):
                 _trace('loaddatas:missingpics:skipped')
             else:
                 _trace('loaddatas:missingpics')
-                dlg2 = ImageDBBuilder(self, -1, 'Builder')
+                dlg2 = ImageDBBuilder(self, -1, imageDbBuilderTitle)
                 dlg2.Show()
                 for data in self.virtualDAT.missing_pictures:
                     dlg2.Draw(data)
@@ -3704,15 +3705,17 @@ class App(wx.App):
 
 def main() -> None:
     _enable_faulthandler()
-    os.makedirs('ImageDB', exist_ok=True)
-    os.makedirs('ImageDBLarge', exist_ok=True)
+    image_db = image_db_dir()
+    image_db_large = image_db_dir(large=True)
+    image_db.mkdir(parents=True, exist_ok=True)
+    image_db_large.mkdir(parents=True, exist_ok=True)
 
     blank = Image.new('RGB', (64, 64), 8355711)
-    blank.save('ImageDB/0xbadb57f1-0x00000000.jpg')
-    blank.save('ImageDB/0x00000000-0x00000000.jpg')
+    blank.save(image_db / '0xbadb57f1-0x00000000.jpg')
+    blank.save(image_db / '0x00000000-0x00000000.jpg')
     blank = Image.new('RGB', (128, 128), 8355711)
-    blank.save('ImageDBLarge/0xbadb57f1-0x00000000.jpg')
-    blank.save('ImageDBLarge/0x00000000-0x00000000.jpg')
+    blank.save(image_db_large / '0xbadb57f1-0x00000000.jpg')
+    blank.save(image_db_large / '0x00000000-0x00000000.jpg')
     prog = App()
     prog.MainLoop()
 

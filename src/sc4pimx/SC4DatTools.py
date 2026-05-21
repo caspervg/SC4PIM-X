@@ -13,6 +13,7 @@ import time
 import wx
 
 from . import QFS
+from .translation import compactingMegaPackMsg, genDirectoryMsg
 
 binEx = 0
 textEx = 0
@@ -816,10 +817,10 @@ def GenerateDirectory(allEntries, fileName):
 
 def WriteADat(fileName, allEntries, dlg, bRecompress):
     if dlg:
-        dlg.SetTitle('Compacting mega pack')
+        dlg.SetTitle(compactingMegaPackMsg)
     withoutDir = []
     if dlg:
-        dlg.labelg2.SetLabel('Generating directory of ' + fileName)
+        dlg.labelg2.SetLabel(genDirectoryMsg % fileName)
     if dlg:
         dlg.g2.SetRange(len(allEntries))
     for i, entry in enumerate(allEntries):
