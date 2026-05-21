@@ -1878,6 +1878,22 @@ class LotEditorWin(wx.Frame):
             glEnable(GL_DEPTH_TEST)
         return
 
+    def Draw3DBackdrop(self, valW, valH):
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glDisable(GL_ALPHA_TEST)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_TEXTURE_2D)
+        glDisable(GL_BLEND)
+        glBegin(GL_QUADS)
+        glColor3f(0.15, 0.17, 0.20)
+        glVertex3f(-valW, -valH, 0)
+        glVertex3f(valW, -valH, 0)
+        glColor3f(0.36, 0.39, 0.42)
+        glVertex3f(valW, valH, 0)
+        glVertex3f(-valW, valH, 0)
+        glEnd()
+
     def Draw3D(self):
         self.glCanvas2D.SetCurrent()
         glMatrixMode(GL_PROJECTION)
@@ -1905,6 +1921,7 @@ class LotEditorWin(wx.Frame):
         valH = h * 2.0 / 60.0
         glViewport(0, 0, int(w), int(h))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
+        self.Draw3DBackdrop(valW, valH)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         rotation = self.rotation
