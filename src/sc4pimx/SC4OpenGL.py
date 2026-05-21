@@ -22,9 +22,29 @@ from wx.glcanvas import GLContext
 
 class MyCanvasBase(glcanvas.GLCanvas):
 
-    def __init__(self, parent, size=(256, 256)):
+    @staticmethod
+    def _gl_attributes(samples, depth):
         attribs = wx.glcanvas.GLAttributes()
-        attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(16).EndList()
+        attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(depth)
+        if samples:
+            attribs.SampleBuffers(1).Samplers(samples)
+        attribs.EndList()
+        return attribs
+
+    def __init__(self, parent, size=(256, 256)):
+        # Prefer a 4x-multisampled, 24-bit depth context: smooth (anti-aliased)
+        # model edges and far less z-fighting. Fall back through plainer
+        # configs if the display cannot supply it.
+        samples = 0
+        attribs = None
+        for try_samples, try_depth in ((4, 24), (0, 24), (0, 16)):
+            candidate = self._gl_attributes(try_samples, try_depth)
+            if glcanvas.GLCanvas.IsDisplaySupported(candidate):
+                attribs, samples = candidate, try_samples
+                break
+        if attribs is None:
+            attribs = self._gl_attributes(0, 16)
+        self.samples = samples
         glcanvas.GLCanvas.__init__(self, parent, attribs, size=size)
         self.context = GLContext(self)
         self.displayer = None

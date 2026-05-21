@@ -1373,6 +1373,7 @@ class LotEditorWin(wx.Frame):
         glClearColor(0.5, 0.5, 0.5, 0.0)
         glClearDepth(1.0)
         glShadeModel(GL_SMOOTH)
+        glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
         glMatrixMode(GL_MODELVIEW)
         glDisable(GL_CULL_FACE)
 

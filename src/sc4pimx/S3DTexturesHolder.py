@@ -2,6 +2,7 @@
 from OpenGL.GL import (
     GL_CLAMP,
     GL_LINEAR,
+    GL_LINEAR_MIPMAP_LINEAR,
     GL_RGBA,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -17,9 +18,9 @@ from OpenGL.GL import (
     glEnable,
     glGenTextures,
     glPixelStorei,
-    glTexImage2D,
     glTexParameterf,
 )
+from OpenGL.GLU import gluBuild2DMipmaps
 from PIL import Image
 
 from . import FSHConverter
@@ -110,11 +111,15 @@ class S3DTexturesHolder(object):
                     texture[1].append(texName)
                     glBindTexture(GL_TEXTURE_2D, texName)
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
+                    # Build a full mipmap chain so model textures stay smooth
+                    # (no shimmering/aliasing) when the model is small or
+                    # zoomed out, instead of a single GL_LINEAR level.
+                    gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, size[0], size[1],
+                                      GL_RGBA, GL_UNSIGNED_BYTE, im)
                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
                 except Exception:
                     continue
 
