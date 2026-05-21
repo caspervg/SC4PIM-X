@@ -1,6 +1,7 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
 import logging
 import math
+import os
 from contextlib import contextmanager
 
 import numpy
@@ -11,6 +12,7 @@ from PIL import Image
 
 from . import FSHConverter, treeDnD
 from .ATCReader import *
+from .config import load_lot_editor, save_lot_editor
 from .paths import asset_path
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
@@ -286,6 +288,11 @@ class LotEditorWin(wx.Frame):
         self.sb = CustomStatusBar(self)
         self.SetStatusBar(self.sb)
         panel = wx.Panel(self, -1)
+        self.lotOverTextures = []
+        self.lotBaseTextures = []
+        self.lotPropDescs = []
+        self.lotFamiliesPropID = []
+        self.lotFloraDescs = []
         self.modeDisplay = MODE_DISPLAY_FULL
         self.modeEdit = MODE_EDIT_PAN
         self.glCanvas2D = MyCanvasBase(panel, size=(800, 400))
@@ -299,21 +306,12 @@ class LotEditorWin(wx.Frame):
         self.rotation = 0
         self.panel = 3
         self.highlighted = []
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        hsizer = wx.BoxSizer(wx.HORIZONTAL)
-        hsizer.Add(self.glCanvas2D, 1, wx.ALL | wx.EXPAND, 5)
-        sizer.Add(hsizer, 1, wx.ALL | wx.EXPAND, 5)
-        panel.SetSizer(sizer)
-        sizer.Fit(self)
-        self.lotOverTextures = []
-        self.lotBaseTextures = []
-        self.lotPropDescs = []
-        self.lotFamiliesPropID = []
-        self.lotFloraDescs = []
+        self._build_workbench(panel)
         self.posy = 0
         self.posx = 0
         self.posz = 10
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
+        self.Bind(wx.EVT_CHAR_HOOK, self._OnCharHook)
         self.glCanvas2D.Bind(wx.EVT_CHAR, self._OnChar)
         self.LETools = None
         self.glCanvas2D.Bind(wx.EVT_MOTION, self.OnMouseMotion)
@@ -326,6 +324,176 @@ class LotEditorWin(wx.Frame):
         self._texDragTile = None
         return
 
+    def _build_workbench(self, panel):
+        root = wx.BoxSizer(wx.VERTICAL)
+        command_bar = wx.Panel(panel, -1)
+        settings = load_lot_editor()
+        command_bar.SetBackgroundColour(wx.Colour(244, 246, 248))
+        command_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.lotContextLabel = wx.StaticText(command_bar, -1, LEXNoLotLoaded)
+        self.lotContextLabel.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        command_sizer.Add(self.lotContextLabel, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
+
+        for label, handler in [
+            (LEXPAN, self.OnModePan),
+            (LEXProps, self.OnModeProp),
+            (LEXBaseTexture, self.OnModeBaseTex),
+            (LEXOverlayTexture, self.OnModeOverTex),
+            (LEXFlora, self.OnModeFlora),
+            (LEXToolbarView, self.OnCycleViewMode),
+            (LEXToolbarZoomIn, self.OnZoom),
+            (LEXToolbarZoomOut, self.OnUnzoom),
+            (LEXToolbarSnap, self.OnToggleSnap),
+            (LEXToolbarDuplicate, self.OnDuplicate),
+            (LEXToolbarDelete, self.OnDelete),
+        ]:
+            btn = wx.Button(command_bar, -1, label, size=(-1, 28))
+            btn.Bind(wx.EVT_BUTTON, handler)
+            command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        command_bar.SetSizer(command_sizer)
+        root.Add(command_bar, 0, wx.EXPAND)
+
+        self.mainSplitter = wx.SplitterWindow(panel, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
+        self.rightSplitter = wx.SplitterWindow(self.mainSplitter, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
+        self.assetBrowser = LEAssetBrowserPanel(self.mainSplitter, self)
+        viewport_panel = wx.Panel(self.rightSplitter, -1)
+        self.glCanvas2D.Reparent(viewport_panel)
+        viewport_sizer = wx.BoxSizer(wx.VERTICAL)
+        viewport_sizer.Add(self.glCanvas2D, 1, wx.EXPAND | wx.ALL, 6)
+        viewport_panel.SetSizer(viewport_sizer)
+        self.inspector = wx.TextCtrl(self.rightSplitter, -1, LEXInspectorPrompt,
+                                     style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_NONE)
+        self.inspector.SetBackgroundColour(wx.Colour(250, 251, 252))
+        inspector_width = int(settings.get('InspectorWidth', 280))
+        self.rightSplitter.SplitVertically(viewport_panel, self.inspector, -inspector_width)
+        self.rightSplitter.SetMinimumPaneSize(220)
+        browser_width = int(settings.get('BrowserWidth', 330))
+        self.mainSplitter.SplitVertically(self.assetBrowser, self.rightSplitter, browser_width)
+        self.mainSplitter.SetMinimumPaneSize(260)
+        root.Add(self.mainSplitter, 1, wx.EXPAND)
+        panel.SetSizer(root)
+
+    def _editor_state(self):
+        state = {}
+        if hasattr(self, 'assetBrowser'):
+            state.update(self.assetBrowser.GetState())
+        if hasattr(self, 'mainSplitter'):
+            state['BrowserWidth'] = int(self.mainSplitter.GetSashPosition())
+        if hasattr(self, 'rightSplitter'):
+            width = self.rightSplitter.GetClientSize()[0]
+            sash = self.rightSplitter.GetSashPosition()
+            state['InspectorWidth'] = max(220, int(width - sash))
+        return state
+
+    def SaveEditorState(self):
+        try:
+            save_lot_editor(self._editor_state())
+        except Exception:
+            logger.exception('Failed to save LotEditor state')
+
+    def _update_lot_context(self):
+        if not hasattr(self, 'exemplar'):
+            self.lotContextLabel.SetLabel(LEXNoLotLoaded)
+            return
+        name = None
+        try:
+            name_prop = self.exemplar.GetProp(32)
+            if name_prop:
+                name = name_prop[0]
+        except Exception:
+            pass
+        if not name:
+            name = hex2str(self.exemplar.entry.tgi[2])
+        try:
+            lot_size = self.exemplar.GetProp(2297284496)
+            size_label = '%dx%d' % (lot_size[0], lot_size[1])
+        except Exception:
+            size_label = '?x?'
+        self.lotContextLabel.SetLabel('%s   %s   %s' % (name, hex2str(self.exemplar.entry.tgi[2]), size_label))
+
+    def RefreshAssetBrowser(self):
+        if hasattr(self, 'assetBrowser'):
+            self.assetBrowser.RefreshAssets()
+
+    def UpdateAssetInspector(self, item):
+        lines = [
+            LEXInspectorAsset,
+            '',
+            '%s: %s' % (LEXInspectorType, item.type_label),
+            '%s: %s' % (LEXInspectorName, item.label),
+            '%s: %s' % (LEXInspectorID, item.sublabel),
+        ]
+        try:
+            source = item.source
+            file_name = getattr(source, 'fileName', None)
+            if file_name is None and hasattr(source, 'exemplar'):
+                file_name = source.exemplar.entry.fileName
+            if file_name:
+                lines.append('%s: %s' % (LEXInspectorFile, os.path.split(file_name)[1]))
+        except Exception:
+            pass
+        self.inspector.SetValue('\n'.join(lines))
+
+    def _lot_config_for_selection(self, selected_id):
+        if not hasattr(self, 'exemplar'):
+            return None
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            if values[11] == selected_id:
+                return values
+        return None
+
+    def _lot_config_type_label(self, values):
+        if values[0] == 0:
+            return LEXBuilding
+        if values[0] == 1:
+            return LEXAssetTypeProp
+        if values[0] == 2:
+            tex_id = values[12]
+            for tex in getattr(self, 'texOverlays', []):
+                if tex[4] == values[11] and tex[3] == tex_id:
+                    return LEXAssetTypeOverlayTexture
+            return LEXAssetTypeBaseTexture
+        if values[0] == 4:
+            return LEXAssetTypeFlora
+        return LEXInspectorSelection
+
+    def UpdateSelectionInspector(self):
+        if not hasattr(self, 'inspector'):
+            return
+        if not self.selected:
+            self.inspector.SetValue(LEXInspectorNoSelection)
+            return
+        lines = [
+            LEXInspectorSelection,
+            '',
+            '%s: %d' % (LEXInspectorSelectionCount, len(self.selected)),
+        ]
+        if len(self.selected) == 1:
+            values = self._lot_config_for_selection(self.selected[0])
+            if values is not None:
+                cx = ToCoord(values[3])
+                cy = ToCoord(values[5])
+                bounds = (
+                    ToCoord(values[6]),
+                    ToCoord(values[7]),
+                    ToCoord(values[8]),
+                    ToCoord(values[9]),
+                )
+                lines.extend([
+                    '%s: %s' % (LEXInspectorType, self._lot_config_type_label(values)),
+                    '%s: %s' % (LEXInspectorID, hex2str(values[11])),
+                    '%s: %s' % (LEXInspectorName, hex2str(values[12])),
+                    '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
+                    '%s: %.2f, %.2f - %.2f, %.2f' % ((LEXInspectorBounds,) + bounds),
+                    '%s: %.2f' % (LEXInspectorHeight, ToCoord(values[4])),
+                    '%s: %s' % (LEXInspectorRotation, values[2]),
+                ])
+        self.inspector.SetValue('\n'.join(lines))
+
     def OnModePan(self, event):
         self.modeEdit = MODE_EDIT_PAN
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
@@ -336,6 +504,7 @@ class LotEditorWin(wx.Frame):
             self.selected = []
             self.newIds = []
             self.quadSelected = []
+            self.UpdateSelectionInspector()
         self.modeEdit = MODE_EDIT_PROP
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXProps, 3)
@@ -345,6 +514,7 @@ class LotEditorWin(wx.Frame):
             self.selected = []
             self.newIds = []
             self.quadSelected = []
+            self.UpdateSelectionInspector()
         self.modeEdit = MODE_EDIT_BUILDING
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBuilding, 3)
@@ -353,6 +523,7 @@ class LotEditorWin(wx.Frame):
         if self.modeEdit != MODE_EDIT_BASETEX:
             self.selected = []
             self.quadSelected = []
+            self.UpdateSelectionInspector()
         self.modeEdit = MODE_EDIT_BASETEX
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBaseTexture, 3)
@@ -362,6 +533,7 @@ class LotEditorWin(wx.Frame):
             self.selected = []
             self.newIds = []
             self.quadSelected = []
+            self.UpdateSelectionInspector()
         self.modeEdit = MODE_EDIT_OVERTEX
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXOverlayTexture, 3)
@@ -371,6 +543,7 @@ class LotEditorWin(wx.Frame):
             self.selected = []
             self.newIds = []
             self.quadSelected = []
+            self.UpdateSelectionInspector()
         self.modeEdit = MODE_EDIT_FLORA
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXFlora, 3)
@@ -406,13 +579,15 @@ class LotEditorWin(wx.Frame):
 
     def OnZoom(self, event):
         zoom = self.zoom
-        if zoom < 5 and event.GetKeyCode() == 43:
+        key = event.GetKeyCode() if hasattr(event, 'GetKeyCode') else 43
+        if zoom < 5 and key == 43:
             zoom += 1
         self.SetZoom(zoom)
 
     def OnUnzoom(self, event):
         zoom = self.zoom
-        if zoom > 0 and event.GetKeyCode() == 45:
+        key = event.GetKeyCode() if hasattr(event, 'GetKeyCode') else 45
+        if zoom > 0 and key == 45:
             zoom -= 1
         self.SetZoom(zoom)
 
@@ -719,6 +894,7 @@ class LotEditorWin(wx.Frame):
         self.exemplar.ReindexLotConfig()
         self.UpdatePIM()
         self.RebuildVars()
+        self.UpdateSelectionInspector()
         return
 
     def OnDuplicate(self, event):
@@ -759,6 +935,8 @@ class LotEditorWin(wx.Frame):
         self.selected = newSelection
         self.quadSelected = newQuad
         self.UpdatePIM()
+        self.RefreshAssetBrowser()
+        self.UpdateSelectionInspector()
         return
 
     def ComputeBBox(self):
@@ -852,14 +1030,44 @@ class LotEditorWin(wx.Frame):
         xMin, yMin, xMax, yMax = self.ComputeBBox()
         self.Align([5, 9, 7], yMax)
 
-    def _OnChar(self, event):
+    def _event_shortcut_key(self, event):
         key = event.GetKeyCode()
+        if event.ControlDown() and 65 <= key <= 90:
+            return key - 64
+        if 65 <= key <= 90:
+            return ord(chr(key).lower())
+        return key
+
+    def _shortcut_focus_allows_editor_keys(self):
+        focus = wx.Window.FindFocus()
+        if focus is None:
+            return True
+        if isinstance(focus, wx.SearchCtrl):
+            return False
+        if isinstance(focus, wx.TextCtrl):
+            return bool(focus.GetWindowStyleFlag() & wx.TE_READONLY)
+        return True
+
+    def _HandleShortcut(self, event):
+        key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
         func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
+            return True
+        return False
+
+    def _OnCharHook(self, event):
+        if self._shortcut_focus_allows_editor_keys() and self._HandleShortcut(event):
+            return
+        event.Skip()
+
+    def _OnChar(self, event):
+        if self._HandleShortcut(event):
+            return
+        event.Skip()
 
     def OnUpdateIcon(self, event):
         if self.exemplar.GetProp(16)[0] == 16:
@@ -918,10 +1126,12 @@ class LotEditorWin(wx.Frame):
         dlg.Destroy()
 
     def OnCloseWindow(self, event):
+        self.SaveEditorState()
         if self.LETools:
             self.LETools.Save()
             self.LETools = None
-        self.t2.Stop()
+        if hasattr(self, 't2'):
+            self.t2.Stop()
         self.Free()
         event.Skip()
         return True
@@ -1153,7 +1363,9 @@ class LotEditorWin(wx.Frame):
                 elif selectedDesc not in self.lotFloraDescs:
                     self.lotFloraDescs.append(selectedDesc)
 
-        self.LETools.ReBuildLot()
+        if self.LETools:
+            self.LETools.ReBuildLot()
+        self.RefreshAssetBrowser()
         return
 
     def LoadPropModel(self, propID):
@@ -1367,10 +1579,9 @@ class LotEditorWin(wx.Frame):
         self.pos3Dy = 0
         self.pos3Dx = 0
         self.pos3Dz = -10
+        self._update_lot_context()
         if not bForIcon:
-            dlg = TextureDlg(self)
-            dlg.Show()
-            self.LETools = dlg
+            self.RefreshAssetBrowser()
         wx.EndBusyCursor()
         self.t2 = wx.CallLater(500, self.on_draw)
 
@@ -2451,6 +2662,7 @@ class LotEditorWin(wx.Frame):
                 self.selected = self.selected[:id2remove] + self.selected[id2remove + 1:]
                 self.quadSelected = self.quadSelected[:id2remove] + self.quadSelected[id2remove + 1:]
         self.on_draw()
+        self.UpdateSelectionInspector()
         return
 
     def OnMouseUp(self, evt):
@@ -2527,6 +2739,7 @@ class LotEditorWin(wx.Frame):
 
             self.UpdatePIM()
         self.on_draw()
+        self.UpdateSelectionInspector()
         return
 
     def UpdatePIM(self):
