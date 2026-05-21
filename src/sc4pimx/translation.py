@@ -55,9 +55,13 @@ DepDlgFlora = 'Flora'
 IconDlgTitle = 'Icon maker'
 IconDlgPicture = 'Icon picture'
 try:
-    with open('current.lang') as f:
-        exec(f.read())
-except IOError:
+    from .paths import user_data_path
+
+    _current_lang = user_data_path('current.lang')
+    if _current_lang.exists():
+        with open(_current_lang, encoding='utf-8', errors='replace') as f:
+            exec(f.read())
+except OSError:
     pass
 treeRootMsg = 'Root'
 treeResourceMsg = 'Resources'
