@@ -1377,7 +1377,16 @@ class LotEditorWin(wx.Frame):
         glDisable(GL_CULL_FACE)
 
     def on_draw(self):
-        self.glCanvas2D.SetCurrent()
+        # on_draw can be invoked by a pending wx.CallLater (see Display) after
+        # the window/canvas has already been destroyed; bail out cleanly
+        # instead of touching a freed C/C++ object.
+        canvas = self.glCanvas2D
+        if not canvas:
+            return
+        try:
+            canvas.SetCurrent()
+        except RuntimeError:
+            return
         if self.modeEdit == MODE_EDIT_PAN:
             if self.panel == 3:
                 if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:

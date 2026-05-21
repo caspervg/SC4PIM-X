@@ -92,19 +92,20 @@ def readPropertyDef(node):
 
 
 def ToUnsigned(val):
-    # Many callers pass float results of coordinate maths; struct.pack('l')
-    # required an int even in Python 2 only by truncation, so coerce here
-    # (matches ToTile, which already does int(val)).
-    try:
-        return struct.unpack('L', struct.pack('l', int(val)))[0]
-    except Exception:
-        print(type(val), val)
-        raise
+    # Reinterpret as a 32-bit unsigned int. Callers pass float results of
+    # coordinate maths (coerce to int) and signed differences that can fall
+    # outside the 32-bit range; Python 2's struct masked the overflow, so
+    # mask explicitly here instead of letting struct.pack raise.
+    return int(val) & 0xFFFFFFFF
 
 
 def ToTile(val):
+    # Reinterpret the 32-bit value as signed. The input may be a signed
+    # difference of raw coordinates (e.g. values[6] - centre), so mask into
+    # the unsigned range before packing, matching Python 2 overflow masking.
     try:
-        return float(struct.unpack('l', struct.pack('L', int(val)))[0]) / float(1048576)
+        masked = int(val) & 0xFFFFFFFF
+        return float(struct.unpack('l', struct.pack('L', masked))[0]) / float(1048576)
     except Exception:
         print(type(val), val)
         raise
