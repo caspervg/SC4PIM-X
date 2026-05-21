@@ -4,6 +4,8 @@ import functools
 import logging
 import os.path
 import sys
+import threading
+import time
 from math import *
 
 import wx.lib.mixins.listctrl as listmix
@@ -145,8 +147,12 @@ class ProcessDlg(wx.Dialog):
     def __init__(self, parent, title='please wait'):
         wx.Dialog.__init__(self, parent, -1, splashTitle)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        self.label_g1 = wx.StaticText(self, -1, title, size=Size(500, -1))
-        sizer.Add(self.label_g1, 1, wx.EXPAND | wx.ALL, 5)
+        self.label_g1 = wx.StaticText(self, -1, title, size=Size(500, -1),
+                                      style=wx.ST_ELLIPSIZE_MIDDLE)
+        sizer.Add(self.label_g1, 0, wx.EXPAND | wx.ALL, 5)
+        self.label_detail = wx.StaticText(self, -1, '', size=Size(500, -1),
+                                          style=wx.ST_ELLIPSIZE_MIDDLE)
+        sizer.Add(self.label_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         self.g1 = wx.Gauge(self, -1, 32)
         # The following methods no longer exist in modern wxPython versions
         # self.g1.SetBezelFace(3)
@@ -158,13 +164,37 @@ class ProcessDlg(wx.Dialog):
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
         self.g1.SetRange(1000)
         self.value = 0
+        # The gauge is animated by a main-thread timer so it stays smooth no
+        # matter what the background loader thread is doing.
+        self._pulse_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_pulse, self._pulse_timer)
+
+    def StartPulse(self):
+        """Begin the indeterminate gauge animation (main thread only)."""
+        self._pulse_timer.Start(120)
+
+    def StopPulse(self):
+        if self._pulse_timer.IsRunning():
+            self._pulse_timer.Stop()
+
+    def _on_pulse(self, event):
+        self.g1.Pulse()
 
     def Increment(self):
+        # Called only from the GUI thread (Finalize / missing-picture loop).
+        # A throttled yield keeps the dialog -- and its pulse timer -- alive
+        # while those main-thread phases run.
         self.value += 1
-        if self.value == 1000:
-            self.g1.Pulse()
-            self.value = 0
+        if self.value % 200 == 0:
             wx.Yield()
+
+    def SetStatus(self, text, detail=''):
+        """Update the visible progress text. Safe to call from any thread."""
+        if not wx.IsMainThread():
+            wx.CallAfter(self.SetStatus, text, detail)
+            return
+        self.label_g1.SetLabel(text)
+        self.label_detail.SetLabel(detail)
 
     def LogError(self, what):
         pass
@@ -714,7 +744,7 @@ class NoteBookPanel(wx.Panel):
                         try:
                             txt = decode_sc4_text(uvnk.content[4:])
                         except UnicodeDecodeError:
-                            txt = uvnk.content.decode('utf8')
+                            txt = uvnk.content.decode('utf-8', errors='replace')
 
                         idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(),
                                                                    self.virtual_dat.properties[2319542937].Name)
@@ -736,7 +766,7 @@ class NoteBookPanel(wx.Panel):
                         try:
                             txt = decode_sc4_text(idk.content[4:])
                         except UnicodeDecodeError:
-                            txt = idk.content.decode('utf8')
+                            txt = idk.content.decode('utf-8', errors='replace')
 
                         idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(),
                                                                    self.virtual_dat.properties[3393284789].Name)
@@ -785,7 +815,7 @@ class NoteBookPanel(wx.Panel):
         try:
             txt = decode_sc4_text(ltext_entry.content[4:])
         except UnicodeDecodeError:
-            txt = ltext_entry.content.decode('utf8')
+            txt = ltext_entry.content.decode('utf-8', errors='replace')
 
         dlg = EditDialog(self, editUnicodeTitle, txt)
         if dlg.ShowModal() == wx.ID_OK:
@@ -1792,7 +1822,7 @@ class NoteBookPanel(wx.Panel):
                             try:
                                 utxt = decode_sc4_text(uvnk.content[4:])
                             except UnicodeDecodeError:
-                                utxt = uvnk.content.decode('utf8')
+                                utxt = uvnk.content.decode('utf-8', errors='replace')
 
                             uvnk.content = uvnk.rawContent = None
                             ltextEnt = self.DuplicateLTEXTEntry(descEntry.exemplar, utxt, 539399691,
@@ -1812,7 +1842,7 @@ class NoteBookPanel(wx.Panel):
                             try:
                                 utxt = decode_sc4_text(idk.content[4:])
                             except UnicodeDecodeError:
-                                utxt = idk.content.decode('utf8')
+                                utxt = idk.content.decode('utf-8', errors='replace')
 
                             idk.content = idk.rawContent = None
                             ltextEnt = self.DuplicateLTEXTEntry(descEntry.exemplar, utxt, 539399691,
@@ -2445,7 +2475,7 @@ class NoteBookPanel(wx.Panel):
             try:
                 utxt = decode_sc4_text(txt)
             except Exception:
-                utxt = txt.decode('utf8')
+                utxt = txt.decode('utf-8', errors='replace')
 
         UVNK = self.exemplar.GetProp(2319542937)
         if UVNK:
@@ -2456,7 +2486,7 @@ class NoteBookPanel(wx.Panel):
                     try:
                         utxt = decode_sc4_text(uvnk.content[4:])
                     except UnicodeDecodeError:
-                        utxt = uvnk.content.decode('utf8')
+                        utxt = uvnk.content.decode('utf-8', errors='replace')
 
                     break
 
@@ -2476,7 +2506,7 @@ class NoteBookPanel(wx.Panel):
             try:
                 utxt = decode_sc4_text(txt)
             except Exception:
-                utxt = txt.decode('utf8')
+                utxt = txt.decode('utf-8', errors='replace')
 
         if self.exemplar.GetProp(1788208387) and self.exemplar.GetProp(1788208387)[0]:
             newProp = CreateAProp(self.virtual_dat.properties[1788208387], (False,))
@@ -2492,7 +2522,7 @@ class NoteBookPanel(wx.Panel):
             try:
                 utxt = decode_sc4_text(txt)
             except Exception:
-                utxt = txt.decode('utf8')
+                utxt = txt.decode('utf-8', errors='replace')
 
         IDK = self.exemplar.GetProp(3393284789)
         if IDK:
@@ -2503,7 +2533,7 @@ class NoteBookPanel(wx.Panel):
                     try:
                         utxt = decode_sc4_text(idk.content[4:])
                     except UnicodeDecodeError:
-                        utxt = idk.content.decode('utf8')
+                        utxt = idk.content.decode('utf-8', errors='replace')
 
                     break
 
@@ -2520,7 +2550,7 @@ class NoteBookPanel(wx.Panel):
             try:
                 utxt = decode_sc4_text(txt)
             except Exception:
-                utxt = txt.decode('utf8')
+                utxt = txt.decode('utf-8', errors='replace')
 
         self.CreateLTEXTEntry(utxt, 539399691, self.exemplar.entry.tgi[1], self.exemplar.entry.tgi[2], 3393284789,
                               2317746857)
@@ -2867,14 +2897,39 @@ class ConfigureDialog(sc.SizedDialog):
         self.maxisFolder = parent.maxisFolder
         self.rootFolder = parent.rootFolder
         self.listFolder = []
-        to_check = []
-        game_folders = _existing_unique_paths([parent.maxisFolder] + getattr(parent, 'gameFolders', []))
+        rootPane = sc.SizedPanel(pane, -1)
+        rootPane.SetSizerType('horizontal')
+        wx.StaticText(rootPane, -1, configurationDialogPluginsRoot)
+        self.rootFolderCtrl = wx.TextCtrl(rootPane, -1, self.rootFolder, size=Size(520, -1))
+        self.rootFolderCtrl.SetSizerProp('expand', True)
+        self.rootFolderCtrl.SetSizerProp('proportion', 1)
+        self.bBrowseRoot = wx.Button(rootPane, -1, configurationDialogBrowse)
+        self.bBrowseRoot.Bind(wx.EVT_BUTTON, self.OnBrowseRoot)
+        self.game_folders = _existing_unique_paths([parent.maxisFolder] + getattr(parent, 'gameFolders', []))
+        self._build_folder_choices()
+        self.lb1 = wx.CheckListBox(pane, -1, choices=self.listFolder, style=wx.LB_SINGLE | wx.LB_HSCROLL, size=Size(700, -1))
+        self.lb1.SetSelection(0)
+        self.lb1.SetSizerProp('expand', True)
+        self.lb1.SetSizerProp('proportion', 1)
+        for checked in self.to_check:
+            self.lb1.Check(checked)
+
+        buttonPane = sc.SizedPanel(pane, -1)
+        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
+        self.Fit()
+        self.SetMinSize(self.GetSize())
+        self.Bind(wx.EVT_BUTTON, self.OnOK, id=wx.ID_OK)
+        self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
+
+    def _build_folder_choices(self):
+        self.listFolder = []
+        self.to_check = []
         default_folders = []
-        for game_folder in game_folders:
+        for game_folder in self.game_folders:
             default_folders.append((game_folder, False))
             default_folders.append((os.path.join(game_folder, 'Plugins'), True))
             default_folders.append((os.path.join(game_folder, 'plugins'), True))
-        default_folders.append((parent.rootFolder, True))
+        default_folders.append((self.rootFolder, True))
         seen_folders = set()
         for folder, recurse_by_default in default_folders:
             if not folder or not os.path.isdir(folder):
@@ -2885,33 +2940,42 @@ class ConfigureDialog(sc.SizedDialog):
             seen_folders.add(normalised)
             self.listFolder.append(os.path.normpath(folder))
             if recurse_by_default or normalised in self.pathToScan:
-                to_check.append(len(self.listFolder) - 1)
-        for root, dirs, files in os.walk(parent.rootFolder):
-            for folder in dirs:
-                path = os.path.join(parent.rootFolder, folder)
-                normalised = self._normalise_path(path)
-                if normalised in seen_folders:
-                    continue
-                seen_folders.add(normalised)
-                self.listFolder.append(os.path.normpath(path))
-                if normalised in self.pathToScan:
-                    to_check.append(len(self.listFolder) - 1)
+                self.to_check.append(len(self.listFolder) - 1)
+        if os.path.isdir(self.rootFolder):
+            for root, dirs, files in os.walk(self.rootFolder):
+                for folder in dirs:
+                    path = os.path.join(self.rootFolder, folder)
+                    normalised = self._normalise_path(path)
+                    if normalised in seen_folders:
+                        continue
+                    seen_folders.add(normalised)
+                    self.listFolder.append(os.path.normpath(path))
+                    if normalised in self.pathToScan:
+                        self.to_check.append(len(self.listFolder) - 1)
+                break
 
-            break
+    def _refresh_folder_list(self):
+        previous_checked = set()
+        if hasattr(self, 'lb1'):
+            for i, path in enumerate(self.listFolder):
+                if self.lb1.IsChecked(i):
+                    previous_checked.add(self._normalise_path(path))
+        self._build_folder_choices()
+        self.lb1.Set(self.listFolder)
+        for i, path in enumerate(self.listFolder):
+            normalised = self._normalise_path(path)
+            if normalised in previous_checked or i in self.to_check:
+                self.lb1.Check(i)
+        if self.listFolder:
+            self.lb1.SetSelection(0)
 
-        self.lb1 = wx.CheckListBox(pane, -1, choices=self.listFolder, style=wx.LB_SINGLE | wx.LB_HSCROLL, size=Size(700, -1))
-        self.lb1.SetSelection(0)
-        self.lb1.SetSizerProp('expand', True)
-        self.lb1.SetSizerProp('proportion', 1)
-        for checked in to_check:
-            self.lb1.Check(checked)
-
-        buttonPane = sc.SizedPanel(pane, -1)
-        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
-        self.Fit()
-        self.SetMinSize(self.GetSize())
-        self.Bind(wx.EVT_BUTTON, self.OnOK, id=wx.ID_OK)
-        self.Bind(wx.EVT_BUTTON, self.OnCancel, id=wx.ID_CANCEL)
+    def OnBrowseRoot(self, event):
+        dlg = wx.DirDialog(self, chooseFolderMsg, defaultPath=self.rootFolder, style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            self.rootFolder = os.path.normpath(dlg.GetPath())
+            self.rootFolderCtrl.SetValue(self.rootFolder)
+            self._refresh_folder_list()
+        dlg.Destroy()
 
     def OnOK(self, event):
         # Save configuration before closing
@@ -2931,10 +2995,20 @@ class ConfigureDialog(sc.SizedDialog):
         return os.path.normcase(os.path.normpath(path))
 
     def OnSave(self, parent):
+        root_folder = self.rootFolderCtrl.GetValue().strip()
+        if root_folder:
+            new_root = os.path.normpath(root_folder)
+            if self._normalise_path(new_root) != self._normalise_path(self.rootFolder):
+                self.rootFolder = new_root
+                self._refresh_folder_list()
+        if parent is not None:
+            parent.rootFolder = self.rootFolder
+        config.save_user_plugins_root(self.rootFolder)
         folders = []
+        maxis_root = self._normalise_path(self.maxisFolder) if self.maxisFolder else ''
         for i, path in enumerate(self.listFolder):
             if path and self.lb1.IsChecked(i):
-                recurse = path not in (self.maxisFolder, self.rootFolder)
+                recurse = self._normalise_path(path) != maxis_root
                 folders.append((path, recurse))
         config.save_folders(folders)
 
@@ -3345,7 +3419,8 @@ class MainFrame(wx.Frame):
         self.maxisFolder = self.gameFolders[0] if self.gameFolders else ''
         self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'Plugins') if self.maxisFolder else ''
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
-        self.rootFolder = os.path.join(self.mydocs, 'SimCity 4', 'Plugins')
+        default_root = os.path.join(self.mydocs, 'SimCity 4', 'Plugins')
+        self.rootFolder = os.path.normpath(config.load_user_plugins_root(default_root))
         logger.debug('Showing configuration dialog')
         dlg = ConfigureDialog(parent=self)
         if dlg.ShowModal() == wx.ID_OK:
@@ -3362,13 +3437,17 @@ class MainFrame(wx.Frame):
         return _preload_config_result
 
     def LoadDatas(self):
+        """Kick off data loading on a background thread and return immediately.
+
+        DBPF files are parsed in parallel by a worker thread pool; the merge,
+        finalize and tree-population steps are marshalled back onto the GUI
+        thread. The progress dialog stays animated throughout.
+        """
         logger.debug('Loading application data')
         safe_mode = _env_true('SC4PIM_SAFE_MODE')
         if safe_mode:
             logger.debug('Safe mode enabled')
         wx.BeginBusyCursor()
-        bLoadMaxisModel = False
-        bLoadMaxisDesc = False
         if _env_true('SC4PIM_SKIP_DAT_SCAN'):
             self.pathToScan = []
         try:
@@ -3378,95 +3457,138 @@ class MainFrame(wx.Frame):
             self.pathToScan = []
         logger.debug('Configured plugin scan folders: %d', len(self.pathToScan))
 
+        # Build the ordered job list on the GUI thread (registry access etc.).
+        # Each job is ('file', name, bStandard) or ('folder', name, recurse).
+        jobs = [('file', str(asset_path('dbpf', 'cohorts.dat')), True)]
+        for path, recurse in self.pathToScan:
+            if path == self.maxisFolder:
+                logger.debug('Queuing Maxis install data from %s', self.maxisFolder)
+                for name in ('simcity_1.dat', 'simcity_2.dat', 'simcity_3.dat',
+                             'simcity_4.dat', 'simcity_5.dat', 'ep1.dat'):
+                    jobs.append(('file', os.path.join(self.maxisFolder, name), False))
+                jobs.append(('file', os.path.join(self.maxisFolder,
+                                                  self._maxis_locale_file()), False))
+            else:
+                jobs.append(('folder', path, recurse))
+
         logger.debug('Showing data loading progress dialog')
         dlg = ProcessDlg(self, loadingDialogMsg)
         dlg.Show()
+        dlg.StartPulse()
         start = time.time()
-        logger.debug('Loading bundled cohorts')
-        self.virtualDAT.addFile(dlg, str(asset_path('dbpf', 'cohorts.dat')), True)
-        if self.maxisFolder != '':
-            if bLoadMaxisDesc or bLoadMaxisModel:
-                pass
-        for path, recurse in self.pathToScan:
-            if path == self.maxisFolder:
-                logger.debug('Loading Maxis install data from %s', self.maxisFolder)
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_1.dat'))
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_2.dat'))
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_3.dat'))
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_4.dat'))
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'simcity_5.dat'))
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, 'ep1.dat'))
-                try:
-                    if HAS_WIN32:
-                        maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Maxis\\SimCity 4\\1.0')
-                        language = win32api.RegQueryValueEx(maxisKey, 'Language')[0]
+        logger.debug('Starting background loader thread')
+        loader = threading.Thread(target=self._load_worker,
+                                  args=(dlg, jobs, start, safe_mode),
+                                  name='sc4-loader-main', daemon=True)
+        loader.start()
+
+    def _maxis_locale_file(self):
+        """Return the relative path of the Maxis locale DAT for the OS language."""
+        try:
+            if HAS_WIN32:
+                maxisKey = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE,
+                                                 'SOFTWARE\\Maxis\\SimCity 4\\1.0')
+                language = win32api.RegQueryValueEx(maxisKey, 'Language')[0]
+            else:
+                language = 1  # Default to English
+        except Exception:
+            language = 1  # Default to English if registry read fails
+        paths = {1: 'English', 2: 'French', 3: 'German', 4: 'Italian', 5: 'Spanish',
+                 6: 'Swedish', 7: 'Finnish', 8: 'Dutch', 9: 'Danish', 10: 'Portgese',
+                 11: 'Czech', 12: 'Hebrew', 13: 'Greek', 14: 'Japanese', 15: 'Korean',
+                 16: 'Russian', 17: 'SChinese', 18: 'TChinese', 19: 'UKEnglsh',
+                 20: 'Polish', 21: 'Thai', 22: 'Norwgian'}
+        return os.path.join(paths.get(language, 'English'), 'simcitylocale.dat')
+
+    def _load_worker(self, dlg, jobs, start, safe_mode):
+        """Background thread: expand folders, parse DBPF files, merge entries."""
+        try:
+            file_list = []  # ordered (fileName, bStandard)
+            for job in jobs:
+                if job[0] == 'file':
+                    _, fileName, bStandard = job
+                    if os.path.exists(fileName):
+                        file_list.append((fileName, bStandard))
                     else:
-                        language = 1  # Default to English
-                except Exception:
-                    language = 1  # Default to English if registry read fails
-                paths = {1: 'English', 2: 'French', 3: 'German', 4: 'Italian', 5: 'Spanish', 6: 'Swedish', 7: 'Finnish',
-                         8: 'Dutch', 9: 'Danish', 10: 'Portgese', 11: 'Czech', 12: 'Hebrew', 13: 'Greek',
-                         14: 'Japanese', 15: 'Korean', 16: 'Russian', 17: 'SChinese', 18: 'TChinese', 19: 'UKEnglsh',
-                         20: 'Polish', 21: 'Thai', 22: 'Norwgian'}
-                localeFolder = ''
-                try:
-                    localeFolder = os.path.join(paths[language], 'simcitylocale.dat')
-                except Exception:
-                    localeFolder = os.path.join('English', 'simcitylocale.dat')
+                        logger.debug('Skipping missing file %s', fileName)
+                else:
+                    _, folderName, recurse = job
+                    dlg.SetStatus('Scanning folder: %s' % folderName,
+                                  'Building file list...')
+                    try:
+                        for f in self.virtualDAT.gather_container_files(folderName, recurse):
+                            file_list.append((f, False))
+                    except Exception:
+                        logger.warning('Could not scan folder %s', folderName, exc_info=True)
 
-                self.virtualDAT.addFile(dlg, os.path.join(self.maxisFolder, localeFolder))
+            def _progress(done, total, fileName):
+                if done % 15 == 0 or done == total:
+                    dlg.SetStatus('Loading plugins  (%d / %d files)' % (done, total),
+                                  os.path.basename(fileName))
+
+            self.virtualDAT.load_files_parallel(file_list, progress_cb=_progress)
+        except Exception:
+            logger.exception('Background loader thread failed')
+        finally:
+            # Hand finalization back to the GUI thread regardless of outcome.
+            wx.CallAfter(self._load_finalize, dlg, start, safe_mode)
+
+    def _load_finalize(self, dlg, start, safe_mode):
+        """GUI thread: finalize loaded data, build the tree, tear down dialog."""
+        try:
+            dlg.SetStatus('Finalizing data...', '')
+            logger.debug('Finalizing loaded data')
+            if not _env_true('SC4PIM_SKIP_FINALIZE'):
+                self.virtualDAT.Finalize(dlg)
             else:
-                logger.debug('Loading plugin folder %s', path)
-                self.virtualDAT.addFolder(dlg, path, recurse)
-
-        logger.debug('Finalizing loaded data')
-        if not _env_true('SC4PIM_SKIP_FINALIZE'):
-            self.virtualDAT.Finalize(dlg)
-        else:
-            logger.debug('Skipping data finalization')
-        logger.debug('Loading texture image lists')
-        if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
-            texLoader = ImageListLoaderTexture(self.virtualDAT)
-            texLoader.Start()
-        else:
-            logger.debug('Skipping texture image loading')
-        if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
-            if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
-                logger.debug('Skipping missing picture generation')
+                logger.debug('Skipping data finalization')
+            logger.debug('Loading texture image lists')
+            if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
+                texLoader = ImageListLoaderTexture(self.virtualDAT)
+                texLoader.Start()
             else:
-                logger.debug('Generating %d missing model pictures', len(self.virtualDAT.missing_pictures))
-                dlg2 = ImageDBBuilder(self, -1, imageDbBuilderTitle)
-                dlg2.Show()
-                for data in self.virtualDAT.missing_pictures:
-                    dlg2.Draw(data)
-                    dlg.Increment()
+                logger.debug('Skipping texture image loading')
+            if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
+                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
+                    logger.debug('Skipping missing picture generation')
+                else:
+                    logger.debug('Generating %d missing model pictures',
+                                 len(self.virtualDAT.missing_pictures))
+                    dlg2 = ImageDBBuilder(self, -1, imageDbBuilderTitle)
+                    dlg2.Show()
+                    for data in self.virtualDAT.missing_pictures:
+                        dlg2.Draw(data)
+                        dlg.Increment()
 
-                dlg2.Destroy()
-        logger.debug('Loading prop image list')
-        if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
-            propLoader = ImageListLoaderProps(self.virtualDAT)
-            propLoader.Start()
-        else:
-            logger.debug('Skipping prop image loading')
-        wx.EndBusyCursor()
-        self.tree.EnsureVisible(self.tree.standard_models_item)
-        if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
-            wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
-        else:
-            logger.debug('Skipping initial tree selection')
-        #self.tree.SelectItem(self.tree.standard_models_item)
-        self.tree.EnsureVisible(self.tree.root)
-        InfoEx()
-        dlg.Destroy()
-        if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
-            self.t2 = wx.CallLater(500, self.RefreshEvent)
-        logger.debug(
-            'LoadDatas completed in %.3fs with %d entries, %d standard models, %d textures',
-            time.time() - start,
-            len(self.virtualDAT.allEntries),
-            len(self.virtualDAT.standardModels),
-            len(self.virtualDAT.allTextures))
-        _exit_after('loaddatas:done')
+                    dlg2.Destroy()
+            logger.debug('Loading prop image list')
+            if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
+                propLoader = ImageListLoaderProps(self.virtualDAT)
+                propLoader.Start()
+            else:
+                logger.debug('Skipping prop image loading')
+            self.tree.EnsureVisible(self.tree.standard_models_item)
+            if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
+                wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
+            else:
+                logger.debug('Skipping initial tree selection')
+            self.tree.EnsureVisible(self.tree.root)
+            InfoEx()
+            if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
+                self.t2 = wx.CallLater(500, self.RefreshEvent)
+            logger.debug(
+                'LoadDatas completed in %.3fs with %d entries, %d standard models, %d textures',
+                time.time() - start,
+                len(self.virtualDAT.allEntries),
+                len(self.virtualDAT.standardModels),
+                len(self.virtualDAT.allTextures))
+        except Exception:
+            logger.exception('Data finalization failed')
+        finally:
+            dlg.StopPulse()
+            wx.EndBusyCursor()
+            dlg.Destroy()
+            _exit_after('loaddatas:done')
 
     def RefreshEvent(self):
         if not hasattr(self, 'viewer') or not hasattr(self.viewer, 's3d_mesh'):

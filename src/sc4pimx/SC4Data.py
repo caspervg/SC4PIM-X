@@ -7,7 +7,9 @@ import codecs
 import functools
 import logging
 import os
+import threading
 import xml.dom.minidom
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -444,13 +446,29 @@ class ImageListLoaderTexture(object):
         self.keepGoing = self.running = False
         self.font = ImageFont.truetype('arial.ttf', 12)
         self.offset = _text_size(self.font, 'R')
+        # PIL FreeType font objects are not safe to share across threads, so
+        # each worker thread gets its own via _thread_font().
+        self._tls = threading.local()
+
+    def _thread_font(self):
+        font = getattr(self._tls, 'font', None)
+        if font is None:
+            font = ImageFont.truetype('arial.ttf', 12)
+            self._tls.font = font
+        return font
 
     def Start(self):
         self.keepGoing = self.running = True
         if _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
             self.running = False
             return
-        wx.CallAfter(self.Run)
+        # wx objects must be created on the GUI thread, so pre-size the image
+        # lists here; the FSH decoding then runs on a background worker pool.
+        allTex = self.virtualDAT.allTextures
+        self.virtualDAT.ilBase = wx.ImageList(64, 64, True, len(allTex) + 2)
+        self.virtualDAT.ilOver = wx.ImageList(64, 64, True, len(allTex) + 2)
+        threading.Thread(target=self.Run, name='sc4-texture-loader',
+                         daemon=True).start()
 
     def Stop(self):
         self.keepGoing = False
@@ -508,71 +526,90 @@ class ImageListLoaderTexture(object):
         if _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
             self.running = False
             return
-        allTex = self.virtualDAT.allTextures
-        # Pre-size both texture image lists (see ImageListLoaderProps.Run):
-        # an unsized wx.ImageList makes every Add() O(n). The base/overlay
-        # split is unknown up front, so size each to the total.
-        self.virtualDAT.ilBase = wx.ImageList(64, 64, True, len(allTex) + 2)
-        self.virtualDAT.ilOver = wx.ImageList(64, 64, True, len(allTex) + 2)
-        for texEntry in allTex:
-            if not self.keepGoing:
-                break
-            texEntry.read_file(None, True, True)
-            try:
-                nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(
-                    texEntry.content
-                )
-            except Exception as exc:
-                logger.warning('TextureLoader: failed to decode FSH from %s: %s', texEntry.fileName, exc)
-                texEntry.content = None
-                texEntry.rawContent = None
-                continue
-            texEntry.content = None
-            texEntry.rawContent = None
-            try:
-                pilz = Image.frombytes('RGB', size, img)
-            except Exception as exc:
-                logger.warning('TextureLoader: failed to load RGB for %s: %s', texEntry.fileName, exc)
-                continue
-            if trueAlpha:
-                try:
-                    blank = Image.new('RGB', size, 16777215)
-                    alpha = Image.frombytes('L', size, alpha)
-                    pilz = Image.composite(pilz, blank, alpha)
-                except Exception as exc:
-                    logger.warning('TextureLoader: failed alpha composite for %s: %s', texEntry.fileName, exc)
-                    continue
-            pilz = pilz.resize((64, 64), Image.BICUBIC)
-            if nbrLayers > 1:
-                try:
-                    draw = ImageDraw.Draw(pilz)
-                    draw.ellipse((64 - self.offset[0] - 8, 64 - self.offset[1] - 2, 64 - self.offset[0] + 6,
-                                  64 - self.offset[1] + 12), fill=(156,
-                                                                   181,
-                                                                   140))
-                    draw.text((64 - self.offset[0] - 5, 64 - self.offset[1] - 2), 'R', font=self.font, fill=(0,
-                                                                                                             0,
-                                                                                                             0))
-                except Exception:
-                    logger.exception('Error generating model image list')
-                    raise
-
-            IID = texEntry.tgi[2] & 61440
-            if IID == 0 or IID == 4096 or IID == 8192 or IID == 12288:
-                signs = {0: '0', 4096: '$', 8192: '$$', 12288: '$$$'}
-                length = _text_size(self.font, signs[IID])
-                draw = ImageDraw.Draw(pilz)
-                draw.ellipse((2, 64 - self.offset[1] - 2, length[0] + 7, 64 - self.offset[1] + 12), fill=(156,
-                                                                                                          181,
-                                                                                                          140))
-                draw.text((5, 64 - self.offset[1] - 2), signs[IID], font=self.font, fill=(0,
-                                                                                          0,
-                                                                                          0))
-            rgb_bytes = pilz.convert('RGB').tobytes()
-            wx.CallAfter(self._AddTextureImage, rgb_bytes, (64, 64), trueAlpha, texEntry)
-
+        allTex = list(self.virtualDAT.allTextures)
+        workers = max(2, min(8, (os.cpu_count() or 4)))
+        logger.debug('Decoding %d textures with %d worker threads',
+                     len(allTex), workers)
+        try:
+            # Decode FSH textures in parallel; only the wx.ImageList.Add
+            # (in _AddTextureImage) is marshalled back to the GUI thread.
+            # Each entry stores its own returned index and the lists are
+            # sorted afterwards, so out-of-order completion is harmless.
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix='sc4-tex') as pool:
+                for result in pool.map(self._decode_texture, allTex):
+                    if not self.keepGoing:
+                        break
+                    if result is not None:
+                        rgb_bytes, trueAlpha, texEntry = result
+                        wx.CallAfter(self._AddTextureImage, rgb_bytes,
+                                     (64, 64), trueAlpha, texEntry)
+        except Exception:
+            logger.exception('Texture loader thread failed')
         wx.CallAfter(self._FinalizeTextureLists)
         self.running = False
+
+    def _decode_texture(self, texEntry):
+        """Decode one FSH texture to a 64x64 RGB byte buffer.
+
+        Runs on a worker thread and performs no wx calls. Returns
+        ``(rgb_bytes, trueAlpha, texEntry)`` or ``None`` on failure.
+        """
+        if not self.keepGoing:
+            return None
+        try:
+            texEntry.read_file(None, True, True)
+            nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(
+                texEntry.content
+            )
+        except Exception as exc:
+            logger.warning('TextureLoader: failed to decode FSH from %s: %s',
+                           texEntry.fileName, exc)
+            texEntry.content = None
+            texEntry.rawContent = None
+            return None
+        texEntry.content = None
+        texEntry.rawContent = None
+        try:
+            pilz = Image.frombytes('RGB', size, img)
+        except Exception as exc:
+            logger.warning('TextureLoader: failed to load RGB for %s: %s',
+                           texEntry.fileName, exc)
+            return None
+        if trueAlpha:
+            try:
+                blank = Image.new('RGB', size, 16777215)
+                alpha = Image.frombytes('L', size, alpha)
+                pilz = Image.composite(pilz, blank, alpha)
+            except Exception as exc:
+                logger.warning('TextureLoader: failed alpha composite for %s: %s',
+                               texEntry.fileName, exc)
+                return None
+        pilz = pilz.resize((64, 64), Image.BICUBIC)
+        font = self._thread_font()
+        if nbrLayers > 1:
+            try:
+                draw = ImageDraw.Draw(pilz)
+                draw.ellipse((64 - self.offset[0] - 8, 64 - self.offset[1] - 2,
+                              64 - self.offset[0] + 6, 64 - self.offset[1] + 12),
+                             fill=(156, 181, 140))
+                draw.text((64 - self.offset[0] - 5, 64 - self.offset[1] - 2), 'R',
+                          font=font, fill=(0, 0, 0))
+            except Exception:
+                logger.exception('Error generating texture overlay for %s',
+                                 texEntry.fileName)
+                return None
+
+        IID = texEntry.tgi[2] & 61440
+        if IID == 0 or IID == 4096 or IID == 8192 or IID == 12288:
+            signs = {0: '0', 4096: '$', 8192: '$$', 12288: '$$$'}
+            length = _text_size(font, signs[IID])
+            draw = ImageDraw.Draw(pilz)
+            draw.ellipse((2, 64 - self.offset[1] - 2, length[0] + 7,
+                          64 - self.offset[1] + 12), fill=(156, 181, 140))
+            draw.text((5, 64 - self.offset[1] - 2), signs[IID], font=font,
+                      fill=(0, 0, 0))
+        return pilz.convert('RGB').tobytes(), trueAlpha, texEntry
         return
 
 
