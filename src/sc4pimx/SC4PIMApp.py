@@ -37,9 +37,19 @@ def _env_true(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+_TRACE_T0 = None
+_TRACE_TLAST = None
+
+
 def _trace(stage):
     if _env_true('SC4PIM_TRACE'):
-        print('[TRACE] %s' % stage)
+        global _TRACE_T0, _TRACE_TLAST
+        now = time.perf_counter()
+        if _TRACE_T0 is None:
+            _TRACE_T0 = _TRACE_TLAST = now
+        print('[TRACE] %+8.3fs (+%6.3fs) %s'
+              % (now - _TRACE_T0, now - _TRACE_TLAST, stage))
+        _TRACE_TLAST = now
         sys.stdout.flush()
 
 
