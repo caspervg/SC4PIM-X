@@ -1,5 +1,5 @@
+import logging
 import os
-import sys
 import time
 import xml.dom.minidom
 
@@ -15,6 +15,8 @@ from .SC4DataFunctions import (
     readPropertyDef,
 )
 from .SC4DatTools import BuildSortedFilesList, DatFile, hex2str
+
+logger = logging.getLogger(__name__)
 
 
 class VirtualDat(object):
@@ -191,10 +193,9 @@ class VirtualDat(object):
         return
 
     def addFolder(self, dlg, folderName, bRecurse=True, bStandard=False):
-        if os.environ.get('SC4PIM_TRACE', '').strip():
-            print('[TRACE] addFolder:%s' % folderName)
-            sys.stdout.flush()
+        logger.debug('Scanning folder %s (recurse=%s, standard=%s)', folderName, bool(bRecurse), bool(bStandard))
         filesName = BuildSortedFilesList(folderName, bRecurse)
+        logger.debug('Found %d candidate files in %s', len(filesName), folderName)
         for fileName in filesName:
             # Skip non-DBPF/SC4 container files early to avoid unnecessary reads.
             if not self._is_sc4_container(fileName):
@@ -202,12 +203,13 @@ class VirtualDat(object):
             self.addFile(dlg, fileName, bStandard)
 
     def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):
-        if os.environ.get('SC4PIM_TRACE', '').strip():
-            print('[TRACE] addFile:%s' % fileName)
-            sys.stdout.flush()
+        logger.debug('Loading DAT file %s (standard=%s, force_update=%s)',
+                     fileName, bool(bStandard), bool(bForceUpdate))
         if not self._is_sc4_container(fileName):
+            logger.debug('Skipping non-SC4 container file %s', fileName)
             return
         sc4File = DatFile(fileName, dlg, True)
+        logger.debug('Loaded %d entries from %s', len(sc4File.entries), fileName)
         self.addEntries(sc4File.entries, dlg, bStandard, bForceUpdate)
 
     @staticmethod
@@ -223,18 +225,22 @@ class VirtualDat(object):
             return False
 
     def addEntries(self, entries, dlg, bStandard, bForceUpdate):
+        before = len(self.allEntries)
+        replaced = 0
         for entry in entries:
             entry.bStandard = bStandard
             entry.virtual_dat = self
             try:
                 idx = self.TGIIndex[entry.tgi]
                 self.allEntries[idx] = entry
+                replaced += 1
             except KeyError:
                 self.TGIIndex[entry.tgi] = len(self.allEntries)
                 self.allEntries.append(entry)
 
             if bForceUpdate:
                 self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
+        logger.debug('Registered %d entries (%d new, %d replaced)', len(entries), len(self.allEntries) - before, replaced)
 
     def getEntries(self, t, g, i, tMask=4294967295, gMask=4294967295, iMask=4294967295):
         if t == 87304289 and tMask == 4294967295:
@@ -253,6 +259,7 @@ class VirtualDat(object):
 
     def Finalize(self, dlg):
         start = time.time()
+        logger.debug('Finalizing virtual DAT with %d entries', len(self.allEntries))
         self.cohorts = filter(lambda ent: ent.tgi[0] == 87304289, self.allEntries)
         for entry in self.cohorts:
             self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
@@ -266,3 +273,10 @@ class VirtualDat(object):
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))))
             if not os.path.exists(file_name):
                 self.missing_pictures.append((file_name, s3d))
+        logger.debug(
+            'Finalized virtual DAT in %.3fs: %d standard models, %d other models, %d textures, %d missing pictures',
+            time.time() - start,
+            len(self.standardModels),
+            len(self.otherModels),
+            len(self.allTextures),
+            len(self.missing_pictures))

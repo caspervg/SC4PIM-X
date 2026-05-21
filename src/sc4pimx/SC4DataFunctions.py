@@ -1,8 +1,11 @@
 import functools
+import logging
 import struct
 
 from .translation import categoryLocalized
 from .util import DictWrapper, basic_cmp
+
+logger = logging.getLogger(__name__)
 
 
 def ReadStageVsDensity(node):
@@ -107,7 +110,7 @@ def ToTile(val):
         masked = int(val) & 0xFFFFFFFF
         return float(struct.unpack('l', struct.pack('L', masked))[0]) / float(1048576)
     except Exception:
-        print(type(val), val)
+        logger.exception('Failed to convert value to tile coordinate: %r (%s)', val, type(val).__name__)
         raise
 
 

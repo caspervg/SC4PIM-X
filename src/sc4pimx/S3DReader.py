@@ -1,4 +1,5 @@
 """S3D (SimCity 4 3D model) file reader."""
+import logging
 import struct
 
 import numpy
@@ -6,6 +7,8 @@ import numpy as np
 from OpenGL.GL import *  # noqa: F403  (GL names used in draw())
 
 from .S3DViewer import *
+
+logger = logging.getLogger(__name__)
 
 
 class S3D(object):
@@ -26,8 +29,7 @@ class S3D(object):
         entry.read_file(None, True, True)
         buffer = entry.content
         if buffer[:4] != b'3DMD':
-            print('not 3DMD')
-            print(buffer[:4])
+            logger.error('Invalid S3D header: expected 3DMD, got %r', buffer[:4])
             buffer = None
             del buffer
             entry.content = None
@@ -54,7 +56,7 @@ class S3D(object):
 
     def ReadHead(self, buffer):
         if buffer[:4] != b'HEAD':
-            print('not head')
+            logger.error('Invalid S3D HEAD chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         self.majorRevision = struct.unpack('H', buffer[8:10])[0]
@@ -63,7 +65,7 @@ class S3D(object):
 
     def ReadVert(self, buffer):
         if buffer[:4] != b'VERT':
-            print('not vert')
+            logger.error('Invalid S3D VERT chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
@@ -162,7 +164,7 @@ class S3D(object):
 
     def ReadIndx(self, buffer):
         if buffer[:4] != b'INDX':
-            print('not indx')
+            logger.error('Invalid S3D INDX chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
@@ -182,7 +184,7 @@ class S3D(object):
 
     def ReadPrim(self, buffer):
         if buffer[:4] != b'PRIM':
-            print('not PRIM')
+            logger.error('Invalid S3D PRIM chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
@@ -205,7 +207,7 @@ class S3D(object):
 
     def ReadMats(self, buffer):
         if buffer[:4] != b'MATS':
-            print('not MATS')
+            logger.error('Invalid S3D MATS chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
@@ -249,7 +251,7 @@ class S3D(object):
 
     def ReadAnim(self, buffer):
         if buffer[:4] != b'ANIM':
-            print('not ANIM')
+            logger.error('Invalid S3D ANIM chunk: got %r', buffer[:4])
             raise IOError
         length = struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
@@ -339,8 +341,9 @@ class S3D(object):
                 try:
                     glBlendFunc(blendTable[material['srcBlend']], blendTable[material['dstBlend']])
                 except Exception:
-                    print('srcBlend =', material['srcBlend'])
-                    print('dstBlend =', material['dstBlend'])
+                    logger.exception(
+                        'Invalid S3D blend mode srcBlend=%r dstBlend=%r',
+                        material['srcBlend'], material['dstBlend'])
                     raise
 
             else:

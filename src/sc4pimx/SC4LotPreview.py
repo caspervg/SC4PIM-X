@@ -1,4 +1,5 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
+import logging
 import math
 from contextlib import contextmanager
 
@@ -16,6 +17,8 @@ from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
 from .SC4LETools import *
 from .SC4OpenGL import *
 from .translation import *
+
+logger = logging.getLogger(__name__)
 
 MODE_PROP_ONLY = 1
 MODE_BASETEX_ONLY = 2
@@ -969,7 +972,7 @@ class LotEditorWin(wx.Frame):
             try:
                 im = Image.open(asset_path('backgrounds', tex))
             except Exception:
-                print("Can't load", tex)
+                logger.exception("Can't load background texture %s", tex)
                 continue
 
             try:
@@ -977,7 +980,7 @@ class LotEditorWin(wx.Frame):
                 self.BackTextureSizes[i] = im.size
                 self.BackTextures[i] = texOGL
             except Exception:
-                print("Can't convert to OGL", tex)
+                logger.exception("Can't convert background texture to OGL: %s", tex)
                 continue
 
         return
@@ -1090,9 +1093,10 @@ class LotEditorWin(wx.Frame):
                 if buildingViewer is None:
                     pass
                 else:
-                    print("Can't load model")
-                    print(hex2str(buildingViewer.rkType))
-                    print('-'.join([ hex2str(v) for v in buildingViewer.rktData ]))
+                    logger.exception(
+                        "Can't load building model rkType=%s rktData=%s",
+                        hex2str(buildingViewer.rkType),
+                        '-'.join([hex2str(v) for v in buildingViewer.rktData]))
 
         return name
 
@@ -1200,9 +1204,10 @@ class LotEditorWin(wx.Frame):
             if propViewer is None:
                 pass
             else:
-                print("Can't load model")
-                print(hex2str(propViewer.rkType))
-                print('-'.join([ hex2str(v) for v in propViewer.rktData ]))
+                logger.exception(
+                    "Can't load prop model rkType=%s rktData=%s",
+                    hex2str(propViewer.rkType),
+                    '-'.join([hex2str(v) for v in propViewer.rktData]))
 
         return (
          propViewer, name)
@@ -1243,9 +1248,10 @@ class LotEditorWin(wx.Frame):
             if propViewer is None:
                 pass
             else:
-                print("Can't load model")
-                print(hex2str(propViewer.rkType))
-                print('-'.join([ hex2str(v) for v in propViewer.rktData ]))
+                logger.exception(
+                    "Can't load flora model rkType=%s rktData=%s",
+                    hex2str(propViewer.rkType),
+                    '-'.join([hex2str(v) for v in propViewer.rktData]))
 
         return (
          propViewer, name)
@@ -2639,14 +2645,12 @@ class LotCreatorDlg(sc.SizedDialog):
                 idx = cont.index(key)
                 return cont[idx + 1]
             except AttributeError:
-                print(cont)
-                print(type(cont))
-                print(key)
+                logger.exception('Capacity container has no index() method: %r (%s), key=%r',
+                                 cont, type(cont).__name__, key)
                 raise
             except KeyError:
-                print(cont)
-                print(type(cont))
-                print(key)
+                logger.exception('Capacity key lookup failed: %r (%s), key=%r',
+                                 cont, type(cont).__name__, key)
                 raise
 
         capacities = {('R', 0): 4112,('R', 1): 4128,('R', 2): 4144,('CS', 0): 12560,('CS', 1): 12576,('CS', 2): 12592,('CO', 1): 13088,('CO', 2): 13104,('IR', 0): 16640,('ID', 1): 16896,('IM', 1): 17152,('IHT', 2): 17408}
@@ -2719,14 +2723,12 @@ def ComputeStagePurposeWealth(capacitySatisfied, occupantGroup, width, depth):
             idx = cont.index(key)
             return cont[idx + 1]
         except AttributeError:
-            print(cont)
-            print(type(cont))
-            print(key)
+            logger.exception('Capacity container has no index() method: %r (%s), key=%r',
+                             cont, type(cont).__name__, key)
             raise
         except KeyError:
-            print(cont)
-            print(type(cont))
-            print(key)
+            logger.exception('Capacity key lookup failed: %r (%s), key=%r',
+                             cont, type(cont).__name__, key)
             raise
 
     capacities = {('R', 0): 4112,('R', 1): 4128,('R', 2): 4144,('CS', 0): 12560,('CS', 1): 12576,('CS', 2): 12592,('CO', 1): 13088,('CO', 2): 13104,('IR', 0): 16640,('ID', 1): 16896,('IM', 1): 17152,('IHT', 2): 17408}

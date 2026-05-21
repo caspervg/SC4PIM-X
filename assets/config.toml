@@ -88,6 +88,17 @@ QueryForRunway        = 0x2A56675C
 QueryForPowerEyeCandy = 0x2A56675C
 QueryForTrainEyeCandy = 0x2A56675C
 
+# --- Logging ---
+# Level accepts DEBUG, INFO, WARNING, ERROR, or CRITICAL
+[Logging]
+Enabled = true
+Level = "INFO"
+File = true
+Console = true
+Filename = "sc4pimx.log"
+MaxBytes = 2000000
+BackupCount = 3
+
 # --- Plugin scan folders ---
 # Populated by the Configure dialog. Each entry has a path and a recurse flag.
 # Example:
