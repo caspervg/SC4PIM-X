@@ -1079,7 +1079,7 @@ class NoteBookPanel(wx.Panel):
             self.popupID10 = wx.NewIdRef()
             self.popupID11 = wx.NewIdRef()
             self.popupID12 = wx.NewIdRef()
-            self.popupID13 = wx.NewIdRef()
+            self.familyMenuIDs = []
             self.AddLangUVNK_IDs = [wx.NewIdRef() for i in offsetGID]
             for idP in self.AddLangUVNK_IDs:
                 self.Bind(wx.EVT_MENU, self.OnAddLangUVNK, id=idP)
@@ -1174,7 +1174,7 @@ class NoteBookPanel(wx.Panel):
                     if not bSep:
                         bSep = True
                         menu.AppendSeparator()
-                    menu.AppendMenu(self.popupID7, popupPropertyMenuItem7, submenu)
+                    menu.Append(self.popupID7, popupPropertyMenuItem7, submenu)
         if IsFromCategory(self.virtual_dat.categories[3431971885], self.exemplar) and self.exemplar.GetProp(
                 3928360329) and self.exemplar.GetProp(3928360329)[0] != 0:
             if self.exemplar.GetProp(2308635565) is None and self.exemplar.GetProp(2319542937) is None:
@@ -1212,7 +1212,7 @@ class NoteBookPanel(wx.Panel):
                         if not bSep:
                             bSep = True
                             menu.AppendSeparator()
-                        menu.AppendMenu(self.popupID10, popupPropertyMenuItem10, submenu)
+                        menu.Append(self.popupID10, popupPropertyMenuItem10, submenu)
         if bAdvancedUser:
             if IsFromCategory(self.virtual_dat.categories[3431971885], self.exemplar):
                 if not bSep:
@@ -1227,11 +1227,12 @@ class NoteBookPanel(wx.Panel):
                         bSep = True
                         menu.AppendSeparator()
                     submenu = wx.Menu()
+                    self.familyMenuIDs = [wx.NewIdRef() for _ in propFamilies]
                     for i, family in enumerate(propFamilies):
-                        submenu.Append(self.popupID13 + i, '0x%08X' % family)
-                        self.Bind(wx.EVT_MENU, self.OnOpenFamily, id=self.popupID13 + i)
+                        submenu.Append(self.familyMenuIDs[i], '0x%08X' % family)
+                        self.Bind(wx.EVT_MENU, self.OnOpenFamily, id=self.familyMenuIDs[i])
 
-                    menu.AppendMenu(self.popupID12, popupPropertyMenuItem12, submenu)
+                    menu.Append(self.popupID12, popupPropertyMenuItem12, submenu)
                 if self.exemplar.GetProp(16)[0] == 2 or self.exemplar.GetProp(16)[0] == 30:
                     if self.exemplar.GetProp(662775920) is None:
                         if not bSep:
@@ -2402,7 +2403,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnOpenFamily(self, event):
         idMenu = event.GetId()
-        familyIdx = idMenu - self.popupID13
+        familyIdx = self.familyMenuIDs.index(idMenu)
         family = self.exemplar.GetProp(662775920)[familyIdx]
         for desc in self.virtual_dat.categories[family].descriptors:
             self.parent.AddNewDesc(desc, self.virtual_dat, False)
