@@ -86,7 +86,12 @@ def texture_coords_for_flag(flag):
 
 
 def ToTileOrigin(val):
-    return ToTile(val) - 0.5
+    # Textures/water/land/TE quads cover whole 16m tiles. The stored position
+    # is the object centre, which may not sit exactly on a tile centre, so
+    # floor it to the origin of the tile it falls in instead of just shifting
+    # by half a tile (ToTile - 0.5) — that left saved textures straddling
+    # tile boundaries when the centre was not perfectly aligned.
+    return math.floor(ToTile(val))
 
 
 def minmax(a, b):
@@ -228,7 +233,7 @@ class LEDropTarget(wx.PyDropTarget):
                 xmax = ToUnsigned(xmax * 1048576)
                 ymax = ToUnsigned(ymax * 1048576)
                 v = [vType, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, currentID, v12]
-                self.frame.exemplar.AddTextProp(CreateAProp(self.frame.virtual_dat.properties[lastIDProp], v[:]))
+                self.frame.exemplar.AddTextProp(CreateAProp(self.frame.virtualDAT.properties[lastIDProp], v[:]))
                 self.frame.PreCacheObject(v)
                 self.frame.UpdatePIM()
                 self.frame.RebuildVars()
@@ -314,6 +319,7 @@ class LotEditorWin(wx.Frame):
         self.currentSnapSize = 4
         self.BackPosx = 0
         self.BackPosy = 0
+        self._texDragTile = None
         return
 
     def OnModePan(self, event):
@@ -1077,7 +1083,7 @@ class LotEditorWin(wx.Frame):
                 buildingViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
             self.buildingViewer.append(buildingViewer)
             try:
-                self.buildingViewer[-1]._pre_load(self.virtualDAT, self.s3DTexturesHolder)
+                self.buildingViewer[-1].PreLoad(self.virtualDAT, self.s3DTexturesHolder)
                 continue
             except Exception:
                 if buildingViewer is None:
@@ -2286,6 +2292,18 @@ class LotEditorWin(wx.Frame):
                                     break
 
                     elif values[0] == 2:
+                        # Base/overlay textures are 1x1 tiles and must stay
+                        # aligned to the 16m grid: snap the (already moved)
+                        # centre to the centre of the tile it now sits in and
+                        # rebuild the 16x16m bounding box from it.
+                        cx = (math.floor(ToCoord(values[3]) / 16.0) + 0.5) * 16.0
+                        cy = (math.floor(ToCoord(values[5]) / 16.0) + 0.5) * 16.0
+                        values[3] = ToUnsigned(int(cx * 65536))
+                        values[5] = ToUnsigned(int(cy * 65536))
+                        values[6] = ToUnsigned(int((cx - 8.0) * 65536))
+                        values[7] = ToUnsigned(int((cy - 8.0) * 65536))
+                        values[8] = ToUnsigned(int((cx + 8.0) * 65536))
+                        values[9] = ToUnsigned(int((cy + 8.0) * 65536))
 
                         def UpdateTexData(what):
                             for texData in what:
@@ -2346,12 +2364,26 @@ class LotEditorWin(wx.Frame):
             if self.dragSelect:
                 self.dragQuad[2] = cx + self.lotSizeXOffset
                 self.dragQuad[3] = cy + self.lotSizeYOffset
+            elif self.modeEdit in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX]:
+                # Textures live on whole 16m tiles: snap the cursor to a tile
+                # first, then move the selection by whole-tile steps so a slow
+                # drag still tracks the pointer instead of being swallowed.
+                tileX = math.floor((cx + self.lotSizeXOffset) / 16.0)
+                tileY = math.floor((cy + self.lotSizeYOffset) / 16.0)
+                if self._texDragTile is None:
+                    self._texDragTile = (tileX, tileY)
+                dTileX = tileX - self._texDragTile[0]
+                dTileY = tileY - self._texDragTile[1]
+                if dTileX or dTileY:
+                    self._texDragTile = (tileX, tileY)
+                    self.MoveByAmount(dTileX * 16.0, dTileY * 16.0, 0)
             else:
                 self.MoveByAmount(dx, dy, 0)
         self.on_draw()
 
     def OnMouseDown(self, evt):
         self.glCanvas2D.on_mouse_down(evt)
+        self._texDragTile = None
         Xclic, Yclick = self.glCanvas2D.mouseX, self.glCanvas2D.mouseY
         self.SetMatForUnproj()
         h = self.size[1]

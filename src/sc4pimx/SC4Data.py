@@ -705,7 +705,7 @@ class ResourceViewer():
         except IndexError:
             return None
 
-        what._pre_load(virtualDAT, s3DTexturesHolder)
+        what.PreLoad(virtualDAT, s3DTexturesHolder)
         return None
 
     def draw(self, viewer, fileNameStatic, zoom, rot, state):

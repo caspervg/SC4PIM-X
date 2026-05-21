@@ -122,6 +122,12 @@ class S3DTexturesHolder(object):
             glDisable(GL_TEXTURE_2D)
             glColor3f(1, 1, 1)
             return
+        # The requested layer (e.g. an ATC animation plane) can run past the
+        # number of decoded layers; clamp instead of raising IndexError.
+        if layer >= len(texture[1]):
+            layer = len(texture[1]) - 1
+        elif layer < 0:
+            layer = 0
         texName = texture[1][layer]
         glBindTexture(GL_TEXTURE_2D, texName)
         return
