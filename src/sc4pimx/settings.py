@@ -6,6 +6,17 @@ reference them directly via ``from .settings import *``.
 """
 from .config import load_settings
 
+
+def Test(condition, true_value, false_value):
+    """Formula helper used by new_properties.xml."""
+    return true_value if condition else false_value
+
+
+def LessThan(left, right):
+    """Formula helper used by new_properties.xml."""
+    return left < right
+
+
 # Defaults; overridden by config.toml when present.
 ItemOrderForPloppable = 1
 ItemOrderForElementary = 2
