@@ -373,6 +373,9 @@ class LotEditorWin(wx.Frame):
         self.mainSplitter.SetMinimumPaneSize(260)
         root.Add(self.mainSplitter, 1, wx.EXPAND)
         panel.SetSizer(root)
+        # The constructor size is only the "restore" size; the lot editor is
+        # cramped at 800x600, so open it maximized.
+        self.Maximize(True)
 
     def _editor_state(self):
         state = {}
