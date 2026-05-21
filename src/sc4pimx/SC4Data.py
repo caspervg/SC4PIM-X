@@ -323,6 +323,10 @@ def ConvertAPropToReadable(prop, propFormat):
 
 
 def CreateAPropFromString(prop, value):
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', errors='replace')
+    else:
+        value = str(value)
     count = prop.Count
     if count == 1:
         count = 0
