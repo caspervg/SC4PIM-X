@@ -425,6 +425,19 @@ class LotEditorWin(wx.Frame):
         self._drag_undo_pending = False
         return
 
+    def _make_toolbar_button(self, parent, label, tooltip, handler, hint=None, art_id=None, size=(32, 28)):
+        tip = tooltip if hint is None else '%s  [%s]' % (tooltip, hint)
+        btn = None
+        if art_id is not None:
+            bmp = wx.ArtProvider.GetBitmap(art_id, wx.ART_TOOLBAR, wx.Size(16, 16))
+            if bmp.IsOk():
+                btn = wx.BitmapButton(parent, -1, bmp, size=size)
+        if btn is None:
+            btn = wx.Button(parent, -1, label, size=size)
+        btn.SetToolTip(tip)
+        btn.Bind(wx.EVT_BUTTON, handler)
+        return btn
+
     def _build_workbench(self, panel):
         root = wx.BoxSizer(wx.VERTICAL)
         command_bar = wx.Panel(panel, -1)
@@ -460,33 +473,33 @@ class LotEditorWin(wx.Frame):
             self.modeButtons[mode] = btn
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        for label, handler, hint in [
-            (LEXToolbarView, self.OnCycleViewMode, 'A'),
-            (LEXToolbarZoomIn, self.OnZoom, '+'),
-            (LEXToolbarZoomOut, self.OnUnzoom, '-'),
-            (LEXToolbarFitView, self.OnFitView, 'C'),
-            (LEXToolbarDuplicate, self.OnDuplicate, 'D'),
-            (LEXToolbarDelete, self.OnDelete, 'Del'),
+        for label, fallback, handler, hint, art_id in [
+            (LEXToolbarDuplicate, '⧉', self.OnDuplicate, 'D', wx.ART_COPY),
+            (LEXToolbarDelete, '×', self.OnDelete, 'Del', wx.ART_DELETE),
         ]:
-            btn = wx.Button(command_bar, -1, label, size=(-1, 28))
-            btn.SetToolTip('%s  [%s]' % (label, hint))
-            btn.Bind(wx.EVT_BUTTON, handler)
+            btn = self._make_toolbar_button(command_bar, fallback, label, handler, hint, art_id)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
+        for label, tooltip, handler, hint, art_id in [
+            ('◱', LEXToolbarView, self.OnCycleViewMode, 'A', wx.ART_REPORT_VIEW),
+            ('−', LEXToolbarZoomOut, self.OnUnzoom, '-', wx.ART_MINUS),
+            ('+', LEXToolbarZoomIn, self.OnZoom, '+', wx.ART_PLUS),
+            ('⛶', LEXToolbarFitView, self.OnFitView, 'C', wx.ART_FIND),
+        ]:
+            btn = self._make_toolbar_button(command_bar, label, tooltip, handler, hint, art_id)
+            command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
+
         # Snap: plain click toggles the grid, Ctrl+click sets the grid size.
-        snap_btn = wx.Button(command_bar, -1, LEXToolbarSnap, size=(-1, 28))
-        snap_btn.SetToolTip('%s  [S]\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint))
-        snap_btn.Bind(wx.EVT_BUTTON, self.OnSnapButton)
+        snap_btn = self._make_toolbar_button(command_bar, '#', '%s\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint),
+                                             self.OnSnapButton, 'S')
         command_sizer.Add(snap_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        icon_btn = wx.Button(command_bar, -1, LEXToolbarIcon, size=(-1, 28))
-        icon_btn.SetToolTip(LEXIconPreviewTitle)
-        icon_btn.Bind(wx.EVT_BUTTON, self.OnPreviewIcon)
+        icon_btn = self._make_toolbar_button(command_bar, '▣', LEXIconPreviewTitle, self.OnPreviewIcon,
+                                             art_id=wx.ART_NORMAL_FILE)
         command_sizer.Add(icon_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        layers_btn = wx.Button(command_bar, -1, LEXToolbarLayers, size=(-1, 28))
-        layers_btn.SetToolTip('%s\n%s' % (LEXToolbarLayers, LEXToolbarLayersHint))
-        layers_btn.Bind(wx.EVT_BUTTON, self.OnLayersMenu)
+        layers_btn = self._make_toolbar_button(command_bar, '▤', '%s\n%s' % (LEXToolbarLayers, LEXToolbarLayersHint),
+                                               self.OnLayersMenu, art_id=wx.ART_LIST_VIEW)
         command_sizer.Add(layers_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
@@ -496,23 +509,21 @@ class LotEditorWin(wx.Frame):
         self.alignButtons = []
         self.rotateButtons = []
         self.mirrorButton = None
-        for label, handler, tip, group in [
-            ('◀', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align'),
-            ('▶', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align'),
-            ('▲', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align'),
-            ('▼', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align'),
-            ('↺', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate'),
-            ('↻', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate'),
-            ('⇄', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror'),
+        for label, handler, tip, group, art_id in [
+            ('◀', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align', wx.ART_GO_BACK),
+            ('▶', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align', wx.ART_GO_FORWARD),
+            ('▲', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align', wx.ART_GO_UP),
+            ('▼', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align', wx.ART_GO_DOWN),
+            ('↺', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate', None),
+            ('↻', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate', None),
+            ('⇄', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror', None),
         ]:
             holder = wx.Panel(command_bar, -1)
-            btn = wx.Button(holder, -1, label, size=(32, 28))
+            btn = self._make_toolbar_button(holder, label, tip, handler, art_id=art_id)
             holder.SetToolTip(tip)
-            btn.SetToolTip(tip)
             holder_sizer = wx.BoxSizer(wx.VERTICAL)
             holder_sizer.Add(btn, 0)
             holder.SetSizerAndFit(holder_sizer)
-            btn.Bind(wx.EVT_BUTTON, handler)
             command_sizer.Add(holder, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
             if group == 'align':
                 self.alignButtons.append(btn)
@@ -522,13 +533,11 @@ class LotEditorWin(wx.Frame):
                 self.mirrorButton = btn
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
-        self.undoButton = wx.Button(command_bar, -1, LEXToolbarUndo, size=(-1, 28))
-        self.undoButton.SetToolTip('%s  [Ctrl+Z]' % LEXToolbarUndo)
-        self.undoButton.Bind(wx.EVT_BUTTON, self.OnUndo)
+        self.undoButton = self._make_toolbar_button(command_bar, '↶', LEXToolbarUndo, self.OnUndo,
+                                                    'Ctrl+Z', wx.ART_UNDO)
         command_sizer.Add(self.undoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        self.redoButton = wx.Button(command_bar, -1, LEXToolbarRedo, size=(-1, 28))
-        self.redoButton.SetToolTip('%s  [Ctrl+Y]' % LEXToolbarRedo)
-        self.redoButton.Bind(wx.EVT_BUTTON, self.OnRedo)
+        self.redoButton = self._make_toolbar_button(command_bar, '↷', LEXToolbarRedo, self.OnRedo,
+                                                    'Ctrl+Y', wx.ART_REDO)
         command_sizer.Add(self.redoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.undoButton.Disable()
         self.redoButton.Disable()
