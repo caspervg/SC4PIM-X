@@ -29,6 +29,7 @@ DEFAULT_LOT_EDITOR = {
     "AssetCompact": False,
     "BackgroundEnabled": False,
     "BackgroundSet": "Default",
+    "UndoLimit": 40,
 }
 
 

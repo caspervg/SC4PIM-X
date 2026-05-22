@@ -228,6 +228,7 @@ class LEDropTarget(wx.PyDropTarget):
                     vType = 1
                     bOk = True
             if bOk:
+                self.frame._push_undo()
                 xmin = posX - width / 2.0
                 ymin = posY - depth / 2.0
                 xmax = posX + width / 2.0
@@ -322,6 +323,9 @@ class LotEditorWin(wx.Frame):
         self.BackPosx = 0
         self.BackPosy = 0
         self._texDragTile = None
+        self._undo_stack = []
+        self._redo_stack = []
+        self._drag_undo_pending = False
         return
 
     def _build_workbench(self, panel):
@@ -330,6 +334,7 @@ class LotEditorWin(wx.Frame):
         settings = load_lot_editor()
         self.bDrawBack = bool(settings.get('BackgroundEnabled', False))
         self.backgroundSet = str(settings.get('BackgroundSet', 'Default'))
+        self._undo_limit = max(1, int(settings.get('UndoLimit', 40)))
         command_bar.SetBackgroundColour(wx.Colour(244, 246, 248))
         command_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.lotContextLabel = wx.StaticText(command_bar, -1, LEXNoLotLoaded)
@@ -366,6 +371,16 @@ class LotEditorWin(wx.Frame):
             self.backgroundChoice.SetSelection(0)
         self.backgroundChoice.Bind(wx.EVT_CHOICE, self.OnChooseBackgroundSet)
         command_sizer.Add(self.backgroundChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
+        self.undoButton = wx.Button(command_bar, -1, 'Undo', size=(-1, 28))
+        self.undoButton.Bind(wx.EVT_BUTTON, self.OnUndo)
+        command_sizer.Add(self.undoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.redoButton = wx.Button(command_bar, -1, 'Redo', size=(-1, 28))
+        self.redoButton.Bind(wx.EVT_BUTTON, self.OnRedo)
+        command_sizer.Add(self.redoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.undoButton.Disable()
+        self.redoButton.Disable()
 
         command_bar.SetSizer(command_sizer)
         root.Add(command_bar, 0, wx.EXPAND)
@@ -802,6 +817,8 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def OnRotateRight(self, event):
+        if self.selected:
+            self._push_undo()
         if event.ShiftDown():
             if self.modeEdit in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
                 self.GroupRotate([3, 0, 1, 2], RotCCW)
@@ -823,6 +840,8 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def OnRotateLeft(self, event):
+        if self.selected:
+            self._push_undo()
         if event.ShiftDown():
             if self.modeEdit in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
                 self.GroupRotate([1, 2, 3, 0], RotCW)
@@ -834,6 +853,8 @@ class LotEditorWin(wx.Frame):
 
     def OnMirror(self, event):
         if self.modeEdit == MODE_EDIT_BASETEX or self.modeEdit == MODE_EDIT_OVERTEX:
+            if self.selected:
+                self._push_undo()
             for id, q in zip(self.selected, self.quadSelected):
                 for lcp in range(2297284864, 2297286144):
                     values = self.exemplar.GetProp(lcp)
@@ -867,9 +888,102 @@ class LotEditorWin(wx.Frame):
         self.UpdatePIM()
         return
 
+    def _capture_lot_snapshot(self):
+        """Copy every lot-config property so an edit can be reverted."""
+        snapshot = []
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            snapshot.append(values[:])
+        return snapshot
+
+    def _push_undo(self):
+        """Record the pre-edit state. Call this before a mutating operation."""
+        if not hasattr(self, 'exemplar'):
+            return
+        self._undo_stack.append(self._capture_lot_snapshot())
+        if len(self._undo_stack) > self._undo_limit:
+            self._undo_stack.pop(0)
+        self._redo_stack = []
+        self._update_undo_buttons()
+
+    def _update_undo_buttons(self):
+        if hasattr(self, 'undoButton'):
+            self.undoButton.Enable(bool(self._undo_stack))
+            self.redoButton.Enable(bool(self._redo_stack))
+
+    def _rebuild_scene(self):
+        """Rebuild the cached render lists from the current lot-config props.
+
+        Reuses the texture cache (`self.textures`), so it is cheap enough for
+        an undo/redo step and does not leak GL textures.
+        """
+        self.glCanvas2D.SetCurrent()
+        self.texBases = []
+        self.texOverlays = []
+        self.building = None
+        self.buildingViewer = []
+        self.currentBuilding = 0
+        self.props = []
+        self.propViewers = []
+        self.floras = []
+        self.floraViewers = []
+        self.waters = []
+        self.lands = []
+        self.te = []
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            self.PreCacheObject(values[:])
+        base_ids = []
+        for tex in self.texBases:
+            if tex[3] + 3 not in base_ids:
+                base_ids.append(tex[3] + 3)
+        over_ids = []
+        for tex in self.texOverlays:
+            if tex[3] + 3 not in over_ids:
+                over_ids.append(tex[3] + 3)
+        self.lotBaseTextures = base_ids
+        self.lotOverTextures = over_ids
+
+    def _apply_lot_snapshot(self, snapshot):
+        for lcp in [lcp for lcp in range(2297284864, 2297286144)
+                    if self.exemplar.GetProp(lcp) is not None]:
+            self.exemplar.RemoveProp(lcp)
+        for offset, values in enumerate(snapshot):
+            prop_id = 2297284864 + offset
+            self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[prop_id], values[:]))
+        self.exemplar.ReindexLotConfig()
+        self.selected = []
+        self.quadSelected = []
+        self.newIds = []
+        self.highlighted = []
+        self._rebuild_scene()
+        self.UpdatePIM()
+        self.RebuildVars()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
+    def OnUndo(self, event=None):
+        if not self._undo_stack:
+            return
+        self._redo_stack.append(self._capture_lot_snapshot())
+        self._apply_lot_snapshot(self._undo_stack.pop())
+        self._update_undo_buttons()
+
+    def OnRedo(self, event=None):
+        if not self._redo_stack:
+            return
+        self._undo_stack.append(self._capture_lot_snapshot())
+        self._apply_lot_snapshot(self._redo_stack.pop())
+        self._update_undo_buttons()
+
     def OnDelete(self, event):
         if self.modeEdit == MODE_EDIT_BUILDING:
             return
+        self._push_undo()
         prop2Remove = []
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
@@ -925,6 +1039,7 @@ class LotEditorWin(wx.Frame):
             return
         if self.newIds != []:
             return
+        self._push_undo()
         currentID = 0
         selection = {}
         lastIDProp = 2297284864
@@ -993,6 +1108,7 @@ class LotEditorWin(wx.Frame):
          xMin, yMin, xMax, yMax)
 
     def Align(self, ids, val):
+        self._push_undo()
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
                 values = self.exemplar.GetProp(lcp)
@@ -1079,7 +1195,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
@@ -2370,6 +2486,8 @@ class LotEditorWin(wx.Frame):
     def OnKeyMove(self, evt):
         if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING]:
             return
+        if self.selected:
+            self._push_undo()
         dx = 0
         dy = 0
         dz = 0
@@ -2684,14 +2802,21 @@ class LotEditorWin(wx.Frame):
                 dTileY = tileY - self._texDragTile[1]
                 if dTileX or dTileY:
                     self._texDragTile = (tileX, tileY)
+                    if not self._drag_undo_pending:
+                        self._push_undo()
+                        self._drag_undo_pending = True
                     self.MoveByAmount(dTileX * 16.0, dTileY * 16.0, 0)
             else:
+                if not self._drag_undo_pending:
+                    self._push_undo()
+                    self._drag_undo_pending = True
                 self.MoveByAmount(dx, dy, 0)
         self.on_draw()
 
     def OnMouseDown(self, evt):
         self.glCanvas2D.on_mouse_down(evt)
         self._texDragTile = None
+        self._drag_undo_pending = False
         Xclic, Yclick = self.glCanvas2D.mouseX, self.glCanvas2D.mouseY
         self.SetMatForUnproj()
         h = self.size[1]
@@ -2730,6 +2855,7 @@ class LotEditorWin(wx.Frame):
 
     def OnMouseUp(self, evt):
         self.newIds = []
+        self._drag_undo_pending = False
         self.glCanvas2D.on_mouse_up(evt)
         if self.dragSelect:
             self.dragSelect = False
