@@ -3495,6 +3495,7 @@ class MainFrame(wx.Frame):
         self.listItems.on_filter_change = self._update_list_count
         self.listItems.InsertColumn(0, itemColumName)
         self.listItems.InsertColumn(1, itemColumFilename)
+        self.listItems.SetColumnWidth(0, self._resource_name_col_width())
         self.listItems.Bind(wx.EVT_LIST_BEGIN_DRAG, self.OnBeginDrag)
         self.listItems.Bind(wx.EVT_LIST_COL_END_DRAG, self.OnListColResize)
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnItemListSelected, self.listItems)
@@ -4117,6 +4118,9 @@ class MainFrame(wx.Frame):
             self.FillItemsList(self.tree.virtual_dat.categories[self.backupCat])
         return
 
+    def _resource_name_col_width(self):
+        return max(int(self._mw_settings.get('ColName', 240)), 240)
+
     def FillItemsList(self, cat):
         self.backupCat = cat.ID
         self.listItemsCat = cat
@@ -4128,7 +4132,7 @@ class MainFrame(wx.Frame):
             self.listItems.InsertColumn(1, itemColumTGI)
             self.listItems.InsertColumn(2, itemColumFilename)
             self.listItems.InsertColumn(3, itemColumDate)
-            self.listItems.SetColumnWidth(0, int(self._mw_settings['ColName']))
+            self.listItems.SetColumnWidth(0, self._resource_name_col_width())
             self.listItems.SetColumnWidth(1, int(self._mw_settings['ColTGI']))
             self.listItems.SetColumnWidth(2, int(self._mw_settings['ColFile']))
         self.listItems.columns = ['name', 'tgi', 'file', 'date']
@@ -4145,7 +4149,7 @@ class MainFrame(wx.Frame):
             self.listItems.ClearAll()
             self.listItems.InsertColumn(0, itemColumName)
             self.listItems.InsertColumn(1, itemColumFilename)
-            self.listItems.SetColumnWidth(0, int(self._mw_settings['ColName']))
+        self.listItems.SetColumnWidth(0, self._resource_name_col_width())
         self.listItems.columns = ['name', 'file']
         # Only the BAT Models section has rendered thumbnails in the image DB;
         # other model lists would just show empty space, so skip thumbnails.
