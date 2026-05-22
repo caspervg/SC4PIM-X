@@ -473,6 +473,10 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         listmix.ListCtrlAutoWidthMixin.__init__(self)
         self.SetItemCount(0)
         self.list_datas = None
+        # Active column layout; FillItemsList* sets the appropriate keys.
+        self.columns = ['name', 'file']
+        self.sort_col = -1
+        self.sort_ascending = True
         self.attr1 = wx.ItemAttr()
         self.attr1.SetBackgroundColour((255, 228, 181))
         self.attr2 = wx.ItemAttr()
@@ -480,32 +484,60 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         self.Bind(wx.EVT_LIST_COL_CLICK, self.OnListHeaderClick)
         return
 
+    def _column_value(self, data, key):
+        try:
+            if key == 'name':
+                return data.name or ''
+            if key == 'file':
+                return data.fileName or ''
+            if key == 'tgi':
+                tgi = data.exemplar.entry.tgi
+                return '%08X-%08X-%08X' % (tgi[0], tgi[1], tgi[2])
+            if key == 'date':
+                return time.ctime(data.exemplar.entry.dateUpdated)
+        except Exception:
+            return ''
+        return ''
+
     def Refresh(self, **kwargs):
         if len(self.list_datas) != self.GetItemCount():
             self.SetItemCount(len(self.list_datas))
         wx.ListCtrl.Refresh(self)
 
     def OnGetItemText(self, item, col):
-        if self.list_datas is None:
+        if self.list_datas is None or col >= len(self.columns):
             return ''
-        elif col == 0:
-            return self.list_datas[item].name
-        elif col == 1:
-            return self.list_datas[item].fileName
-        elif col == 2:
-            return time.ctime(self.list_datas[item].exemplar.entry.dateUpdated)
-        else:
-            return 'Item %d, column %d' % (item, col)
+        return self._column_value(self.list_datas[item], self.columns[col])
 
     def OnListHeaderClick(self, event):
         col = event.GetColumn()
-        # TODO: Implement sorting, cmp is not available in Python 3
-        # if col == 0:
-        #     self.list_datas.sort(key=functools.cmp_to_key(lambda n1, n2: cmp(n1.name.upper() > n2.name.upper()))
-        # if col == 1:
-        #     self.list_datas.sort(key=functools.cmp_to_key(lambda n1, n2: cmp(n1.fileName.upper(), n2.fileName.upper()))
-        # if col == 2:
-        #     self.list_datas.sort(key=functools.cmp_to_key(lambda n1, n2: cmp(n2.exemplar.entry.dateUpdated, n1.exemplar.entry.dateUpdated))
+        if not self.list_datas or col >= len(self.columns):
+            return
+        if self.sort_col == col:
+            self.sort_ascending = not self.sort_ascending
+        else:
+            self.sort_col = col
+            self.sort_ascending = True
+        key = self.columns[col]
+
+        def sort_key(data):
+            if key == 'tgi':
+                try:
+                    return tuple(data.exemplar.entry.tgi)
+                except Exception:
+                    return ()
+            if key == 'date':
+                try:
+                    return data.exemplar.entry.dateUpdated
+                except Exception:
+                    return 0
+            return self._column_value(data, key).upper()
+
+        try:
+            self.list_datas.sort(key=sort_key, reverse=not self.sort_ascending)
+        except Exception:
+            logger.exception('Failed to sort resource list')
+            return
         self.DeleteAllItems()
         self.SetItemCount(len(self.list_datas))
 
@@ -568,7 +600,11 @@ class NoteBookPanel(wx.Panel):
         self.listProperties.InsertColumn(2, propertyPageColumnDataType)
         self.listProperties.InsertColumn(3, propertyPageColumnRep)
         self.listProperties.InsertColumn(4, propertyPageColumnValue)
-        self.listProperties.SetColumnWidth(4, 400)
+        mw = config.load_main_window()
+        self.listProperties.SetColumnWidth(0, int(mw['PropColName']))
+        self.listProperties.SetColumnWidth(1, int(mw['PropColNameValue']))
+        self.listProperties.SetColumnWidth(2, int(mw['PropColType']))
+        self.listProperties.SetColumnWidth(3, int(mw['PropColRep']))
         self.Bind(wx.EVT_SET_FOCUS, self.parent.OnFocus, self.listProperties)
         self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivated, self.listProperties)
         self.listProperties.DeleteAllItems()
@@ -3002,7 +3038,13 @@ class ConfigureDialog(sc.SizedDialog):
 class MainFrame(wx.Frame):
 
     def __init__(self):
-        wx.Frame.__init__(self, None, title='%s %s' % (appTitle, get_version()), size=Size(800, 800))
+        self._mw_settings = config.load_main_window()
+        size = Size(int(self._mw_settings['Width']), int(self._mw_settings['Height']))
+        wx.Frame.__init__(self, None, title='%s %s' % (appTitle, get_version()), size=size)
+        pos_x = int(self._mw_settings['X'])
+        pos_y = int(self._mw_settings['Y'])
+        if pos_x >= 0 and pos_y >= 0:
+            self.SetPosition((pos_x, pos_y))
         # Initialize GID (Group ID) from Windows registry or generate new one.
         self.GID = _read_user_group_id_from_registry()
         if self.GID is None:
@@ -3025,6 +3067,8 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnConfigure, id=201)
         splitter = wx.SplitterWindow(self, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
         splitterHoriz = wx.SplitterWindow(splitter, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
+        self.splitter = splitter
+        self.splitterHoriz = splitterHoriz
         rightUpPanel = wx.Panel(splitterHoriz)
         rightDownPanel = wx.Panel(splitterHoriz)
         leftPanel = wx.Panel(splitter)
@@ -3101,10 +3145,12 @@ class MainFrame(wx.Frame):
         boxRight = wx.BoxSizer(wx.VERTICAL)
         boxRight.Add(self.nb, 1, wx.ALL | wx.EXPAND, 5)
         rightDownPanel.SetSizer(boxRight)
-        splitterHoriz.SplitHorizontally(rightUpPanel, rightDownPanel, 400)
+        splitterHoriz.SplitHorizontally(rightUpPanel, rightDownPanel, int(self._mw_settings['ListSash']))
         splitterHoriz.SetMinimumPaneSize(200)
-        splitter.SplitVertically(leftPanel, splitterHoriz, 300)
+        splitter.SplitVertically(leftPanel, splitterHoriz, int(self._mw_settings['TreeSash']))
         splitter.SetMinimumPaneSize(300)
+        if self._mw_settings.get('Maximized'):
+            self.Maximize(True)
         if not _env_true('SC4PIM_SAFE_MODE'):
             self.nb.LoadPics(self.virtualDAT)
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
@@ -3125,8 +3171,36 @@ class MainFrame(wx.Frame):
         if res == wx.ID_NO:
             event.Veto()
             return
+        self._save_main_window_state()
         self.Destroy()
         sys.exit(0)
+
+    def _save_main_window_state(self):
+        """Persist window geometry, sash positions and column widths."""
+        try:
+            settings = dict(self._mw_settings)
+            settings['Maximized'] = bool(self.IsMaximized())
+            if not self.IsMaximized():
+                width, height = self.GetSize()
+                pos_x, pos_y = self.GetPosition()
+                settings.update(Width=int(width), Height=int(height),
+                                X=int(pos_x), Y=int(pos_y))
+            settings['TreeSash'] = int(self.splitter.GetSashPosition())
+            settings['ListSash'] = int(self.splitterHoriz.GetSashPosition())
+            if self.listItems.GetColumnCount() >= 3:
+                settings['ColName'] = int(self.listItems.GetColumnWidth(0))
+                settings['ColTGI'] = int(self.listItems.GetColumnWidth(1))
+                settings['ColFile'] = int(self.listItems.GetColumnWidth(2))
+            page = self.nb.GetCurrentPage() if hasattr(self, 'nb') else None
+            prop_list = getattr(page, 'listProperties', None)
+            if prop_list is not None and prop_list.GetColumnCount() >= 4:
+                settings['PropColName'] = int(prop_list.GetColumnWidth(0))
+                settings['PropColNameValue'] = int(prop_list.GetColumnWidth(1))
+                settings['PropColType'] = int(prop_list.GetColumnWidth(2))
+                settings['PropColRep'] = int(prop_list.GetColumnWidth(3))
+            config.save_main_window(settings)
+        except Exception:
+            logger.exception('Failed to save main window state')
 
     def OnConfigure(self, event):
         dlg = ConfigureDialog(self)
@@ -3654,16 +3728,18 @@ class MainFrame(wx.Frame):
     def FillItemsList(self, cat):
         self.backupCat = cat.ID
         self.listItemsCat = cat
-        if self.listItems.GetColumnCount() == 3:
+        if self.listItems.GetColumnCount() == 4:
             self.listItems.DeleteAllItems()
         else:
             self.listItems.ClearAll()
             self.listItems.InsertColumn(0, itemColumName)
-            self.listItems.InsertColumn(1, itemColumFilename)
-            self.listItems.InsertColumn(2, itemColumDate)
-            self.listItems.SetColumnWidth(0, 150)
-            self.listItems.SetColumnWidth(1, 500)
-            self.listItems.SetColumnWidth(2, 200)
+            self.listItems.InsertColumn(1, itemColumTGI)
+            self.listItems.InsertColumn(2, itemColumFilename)
+            self.listItems.InsertColumn(3, itemColumDate)
+            self.listItems.SetColumnWidth(0, int(self._mw_settings['ColName']))
+            self.listItems.SetColumnWidth(1, int(self._mw_settings['ColTGI']))
+            self.listItems.SetColumnWidth(2, int(self._mw_settings['ColFile']))
+        self.listItems.columns = ['name', 'tgi', 'file', 'date']
         cat.descriptors.sort(key=functools.cmp_to_key(lambda d1, d2: basic_cmp(d2.exemplar.entry.dateUpdated, d1.exemplar.entry.dateUpdated)))
         self.listItems.list_datas = cat.descriptors
         self.listItems.SetItemCount(len(cat.descriptors))
@@ -3677,6 +3753,7 @@ class MainFrame(wx.Frame):
             self.listItems.ClearAll()
             self.listItems.InsertColumn(0, itemColumName)
             self.listItems.InsertColumn(1, itemColumFilename)
+        self.listItems.columns = ['name', 'file']
         self.listItems.list_datas = what
         self.listItems.SetItemCount(len(what))
         return
