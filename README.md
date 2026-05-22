@@ -1,35 +1,16 @@
-# sc4pim-x-decompilation
+# SC4PIM-X
 
-## Decompilation steps
-- Unpack `library.zip` in the SC4PIM directory via a quick Python script (a typical ZIP extractor will not work), like this one:
-```python
-import zipfile
+SC4PIM-X — also known as PIM-X, X-PIM or X-Tool — is a plugin manager and lot
+editor for **SimCity 4**: "a better Maxis PIM and Maxis Lot Editor". It builds
+building, prop, flora and foundation exemplars from SC4 models, creates and
+edits growable and ploppable lots, manages building/prop families, lists lot
+dependencies, and includes a 2D/3D lot editor with grid snapping.
 
-with zipfile.ZipFile('library.zip', 'r') as zip_ref:
-    zip_ref.extractall('./library')
-```
-This will yield tons of files with the `.pyo` extension in the newly extracted `library` folder
-- Install uncompyle6 (I did this from a Python 2.7 installation, but I'm not sure if that's necessary
-- Run the following for any files that you think are useful to decompile
-```bash
-uncompyle6 XYZ.pyo > XYZ.py
-```
-Replace XYZ by whatever file you wish to decompile, such as `SC4PIMApp`
-
-## Info
-- As you can see in `library/settings.py`, SC4PIM executes whatever code is in `settings.ini`. So this makes it an interesting entry point to monkey patch new instructions into the code.
-- As SC4PIM was written in Python 2.4, your code in settings.ini will also need to be compatible with Python 2.4. That's very limiting! For example, `json` wasn't even part of the standard library yet!
-- Example: these extra lines of code in `settings.ini` will make the text "Hello from DependenciesDlg!!" be written to "test.txt" each time the dependencies dialog is opened
-```python
-from DependenciesDlg import *
-old_init = DependenciesDlg.__init__
-def new_init(self, *k, **kw):
-    old_init(self, *k, **kw)
-    f = open("test.txt", "wa")
-    f.write("hello from DependenciesDlg!!")
-    f.close()
-DependenciesDlg.__init__ = new_init
-```
+This repository is a **decompilation and Python 3 modernization** of the
+original SC4PIM-X. The original was written in Python 2.4 by **wouanagaine** in 2009
+and distributed only as compiled bytecode; it has since been kept alive by the
+SimCity 4 community. This is an unofficial preservation and continuation
+project — it is **not affiliated with EA/Maxis or the original author**.
 
 ## Running from source
 
@@ -50,12 +31,16 @@ uv sync --group build
 uv run pyinstaller --clean --noconfirm SC4PIMX.spec
 ```
 
-The result is a self-contained folder in `dist/SC4PIMX/`. On Windows, zip it
-for distribution:
+The result is a self-contained folder in `dist/SC4PIMX/` (`SC4PIMX.exe` plus an
+`_internal/` folder — distribute the whole folder, not just the exe). On
+Windows, zip it for distribution:
 
 ```powershell
 Compress-Archive -Path dist/SC4PIMX -DestinationPath SC4PIMX-windows.zip
 ```
+
+Tagged releases (`vYYYY.Na`, e.g. `v2026.1a`) are built automatically for
+Windows and macOS by GitHub Actions and published as a GitHub Release.
 
 ## User data location
 
@@ -78,3 +63,34 @@ UI strings live in `assets/lang/<code>.toml`, with `en.toml` as the base
 language. To add a language, copy `en.toml` to e.g. `fr.toml`, translate the
 values, and set `Language = "fr"` in `config.toml`. Missing keys fall back to
 English, so partial translations are fine.
+
+## License
+
+No formal license has been granted for SC4PIM-X. The original was created by
+wouanagaine, who never published its source or attached a license — the source
+was lost and the tool became unmaintainable. Copyright in the original work
+remains with the original author, and all rights are reserved.
+
+This repository is a good-faith community preservation and modernization
+effort, provided as-is with no warranty. See the [`NOTICE`](NOTICE) file for
+the full provenance statement and takedown contact.
+
+## Provenance
+
+The original SC4PIM-X was recovered by decompiling its `library.zip`:
+
+1. Unpack `library.zip` from the SC4PIM directory with a short Python script
+   (a normal ZIP extractor will not work):
+   ```python
+   import zipfile
+   with zipfile.ZipFile('library.zip', 'r') as zip_ref:
+       zip_ref.extractall('./library')
+   ```
+   This yields many `.pyo` files in the `library` folder.
+2. Decompile the useful ones with [uncompyle6](https://github.com/rocky/python-uncompyle6):
+   ```sh
+   uncompyle6 SC4PIMApp.pyo > SC4PIMApp.py
+   ```
+
+The recovered Python 2.4 sources were then modernized to Python 3.11+ and a number of performance and QoL improvements were made.
+The original decompilation is preserved in the `archive/decompiled-py24` branch and tag.

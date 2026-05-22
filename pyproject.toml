@@ -4,7 +4,7 @@ version = "2026.1a"
 description = "SimCity 4 Plugin Manager Extended - Decompiled and Modernized"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-license = { text = "Unknown" }
+license = { text = "All rights reserved" }
 authors = [
     { name = "Original SC4PIM-X Developers" }
 ]
