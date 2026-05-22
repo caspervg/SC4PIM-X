@@ -3,11 +3,13 @@ import faulthandler
 import functools
 import logging
 import os.path
+import re
 import sys
 import threading
 import time
 from math import *
 
+import wx.lib.agw.ultimatelistctrl as ULC
 import wx.lib.mixins.listctrl as listmix
 
 from .SC4DataFunctions import FinalizeCategory, readCategoryDef
@@ -770,6 +772,86 @@ class MixinList(wx.ListCtrl):
         wx.ListCtrl.__init__(self, parent, identifier, pos, size, style)
 
 
+class PropListCtrl(ULC.UltimateListCtrl):
+    """The exemplar property table.
+
+    An owner-drawn UltimateListCtrl so individual cells can use their own font:
+    the ID column and any hex-valued cell of the Value column are drawn in a
+    monospace font so hex digits line up. ``ULC_SHOW_TOOLTIPS`` surfaces the
+    full text of any cell too narrow to display it. The ``InsertItem``/
+    ``SetItem`` overrides keep the wx.ListCtrl ``(index, col, label)`` calling
+    convention so the rest of the code is unchanged.
+    """
+
+    def __init__(self, parent):
+        ULC.UltimateListCtrl.__init__(
+            self, parent, -1,
+            agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_SHOW_TOOLTIPS)
+        self._mono = _monospace_font(self.GetFont())
+        # The default selection highlight (the system accent blue) is rather
+        # loud; blend it toward grey so a selected row reads as selected
+        # without dominating the table.
+        hl = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        soft = wx.Colour(*(round(c * 0.6 + 128 * 0.4)
+                           for c in (hl.Red(), hl.Green(), hl.Blue())))
+        self._mainWin._highlightBrush = wx.Brush(soft)
+        self.Bind(wx.EVT_SIZE, self._on_size)
+
+    def _apply_text(self, info, label):
+        # ULC forbids multiline cell text without ULC_HAS_VARIABLE_ROW_HEIGHT;
+        # collapse newlines for display and keep the full text as a tooltip.
+        info._mask = ULC.ULC_MASK_TEXT
+        label = label or ''
+        if '\n' in label or '\r' in label:
+            info._text = label.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+            info._tooltip = label
+            info._mask |= ULC.ULC_MASK_TOOLTIP
+        else:
+            info._text = label
+
+    def InsertItem(self, *args):
+        # One arg: native UltimateListCtrl call. Two: wx-style (index, label).
+        if len(args) == 1:
+            return ULC.UltimateListCtrl.InsertItem(self, args[0])
+        index, label = args
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        self._apply_text(info, label)
+        self._mainWin.InsertItem(info)
+        return index
+
+    def SetItem(self, *args):
+        # One arg: native UltimateListCtrl call. Three: wx-style cell setter.
+        if len(args) == 1:
+            return ULC.UltimateListCtrl.SetItem(self, args[0])
+        index, col, label = args
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        info._col = col
+        self._apply_text(info, label)
+        if col == 1 or (col == 4 and _is_hex_value(info._text)):
+            info.SetFont(self._mono)
+            info._mask |= ULC.ULC_MASK_FONT
+        self._mainWin.SetItem(info)
+        return True
+
+    def _on_size(self, event):
+        event.Skip()
+        wx.CallAfter(self.AutoFillLastColumn)
+
+    def AutoFillLastColumn(self):
+        """Stretch the last column to consume the remaining client width."""
+        if not self:
+            return
+        count = self.GetColumnCount()
+        if count < 2:
+            return
+        used = sum(self.GetColumnWidth(c) for c in range(count - 1))
+        remaining = self.GetClientSize().width - used - 4
+        if remaining > 60:
+            self.SetColumnWidth(count - 1, remaining)
+
+
 class EditDialog(sc.SizedDialog):
 
     def __init__(self, parent, title, txt):
@@ -786,6 +868,35 @@ class EditDialog(sc.SizedDialog):
         return self.editor.GetValue()
 
 
+# A property value made up solely of 0x.. hex tokens (a lone hex value, a
+# comma-separated hex list, or a space-separated TGI triple).
+_HEX_VALUE_RE = re.compile(r'^0x[0-9A-Fa-f]+(?:[\s,]+0x[0-9A-Fa-f]+)*$')
+
+
+def _is_hex_value(text):
+    return bool(_HEX_VALUE_RE.match(text.strip())) if text else False
+
+
+def _monospace_font(base_font):
+    """A monospace wx.Font for the property table.
+
+    Consolas is preferred: it was hinted by Microsoft for crisp small-size
+    rendering, which matters because UltimateListCtrl draws into a buffer and
+    so only gets grayscale (not ClearType) antialiasing -- thinner faces like
+    Cascadia Mono look mushy under it.
+    """
+    try:
+        available = set(wx.FontEnumerator.GetFacenames())
+    except Exception:
+        available = set()
+    size = base_font.GetPointSize()
+    for name in ('Consolas', 'Cascadia Mono', 'Courier New'):
+        if name in available:
+            return wx.Font(size, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
+                           wx.FONTWEIGHT_NORMAL, faceName=name)
+    return wx.Font(size, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+
+
 class NoteBookPanel(wx.Panel):
 
     def __init__(self, parent, descriptor, virtual_dat):
@@ -800,7 +911,7 @@ class NoteBookPanel(wx.Panel):
         self.bSave = wx.Button(self, -1, propertyPageSave)
         self.bSave.Enable(False)
         self.Bind(wx.EVT_BUTTON, self.OnSaveTab, self.bSave)
-        self.listProperties = AutoWidthMixinList(self, -1, style=wx.LC_REPORT | wx.LC_HRULES)
+        self.listProperties = PropListCtrl(self)
         self.listProperties.InsertColumn(0, propertyPageColumnName)
         self.listProperties.InsertColumn(1, propertyPageColumnNameValue)
         self.listProperties.InsertColumn(2, propertyPageColumnDataType)
@@ -828,13 +939,14 @@ class NoteBookPanel(wx.Panel):
         self.listProperties.Bind(wx.EVT_RIGHT_DOWN, self.OnRightClick)
 
     def OnPropColResize(self, event):
-        """Capture a user column-drag into the shared session settings."""
+        """Capture a user column-drag and re-fill the stretch column."""
         event.Skip()
         wx.CallAfter(self._capture_prop_col_widths)
 
     def _capture_prop_col_widths(self):
         if self.listProperties.GetColumnCount() < 4:
             return
+        self.listProperties.AutoFillLastColumn()
         mw = self.parent.parent._mw_settings
         mw['PropColName'] = int(self.listProperties.GetColumnWidth(0))
         mw['PropColNameValue'] = int(self.listProperties.GetColumnWidth(1))
@@ -898,6 +1010,16 @@ class NoteBookPanel(wx.Panel):
         self.FillTheList()
 
     def FillTheList(self):
+        # Build the rows frozen: the owner-drawn list otherwise repaints on
+        # every insert, which is visibly slow for large exemplars.
+        self.listProperties.Freeze()
+        try:
+            self._fill_the_list()
+        finally:
+            self.listProperties.Thaw()
+            self.listProperties.AutoFillLastColumn()
+
+    def _fill_the_list(self):
         idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(), propertyPageFilename)
         self.listProperties.SetItemBackgroundColour(idx, wx.Colour(205, 190, 112))
         self.listProperties.SetItem(idx, 4, '%s' % self.exemplar.entry.fileName)
