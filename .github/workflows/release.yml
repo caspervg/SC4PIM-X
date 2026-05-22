@@ -35,10 +35,12 @@ jobs:
           - name: Windows
             os: windows-latest
             archive: SC4PIMX-windows-x64.zip
+            sbom: SC4PIMX-windows-x64.cdx.json
             experimental: false
           - name: macOS
             os: macos-latest
             archive: SC4PIMX-macos-arm64.zip
+            sbom: SC4PIMX-macos-arm64.cdx.json
             experimental: true
 
     steps:
@@ -63,17 +65,21 @@ jobs:
       - name: Sync build environment
         run: uv sync --python 3.12 --group build
 
+      - name: Generate SBOM
+        shell: bash
+        run: uvx --from cyclonedx-bom cyclonedx-py environment .venv --output-format JSON --outfile "${{ matrix.platform.sbom }}"
+
       - name: Build executable
         run: uv run --python 3.12 pyinstaller --clean --noconfirm SC4PIMX.spec
 
-      - name: Bundle NOTICE and README (Windows)
+      - name: Bundle NOTICE, README and SBOM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Copy-Item NOTICE, README.md dist/SC4PIMX/
+        run: Copy-Item NOTICE, README.md, "${{ matrix.platform.sbom }}" dist/SC4PIMX/
 
-      - name: Bundle NOTICE and README (macOS)
+      - name: Bundle NOTICE, README and SBOM (macOS)
         if: runner.os == 'macOS'
-        run: cp NOTICE README.md dist/SC4PIMX.app/Contents/Resources/
+        run: cp NOTICE README.md "${{ matrix.platform.sbom }}" dist/SC4PIMX.app/Contents/Resources/
 
       - name: Ad-hoc sign macOS bundle
         if: runner.os == 'macOS'
@@ -92,7 +98,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform.archive }}
-          path: ${{ matrix.platform.archive }}
+          path: |
+            ${{ matrix.platform.archive }}
+            ${{ matrix.platform.sbom }}
           if-no-files-found: error
 
   publish:
