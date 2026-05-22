@@ -67,7 +67,7 @@ jobs:
 
       - name: Generate SBOM
         shell: bash
-        run: uvx --from cyclonedx-bom cyclonedx-py environment .venv --output-format JSON --outfile "${{ matrix.platform.sbom }}"
+        run: uvx --from cyclonedx-bom cyclonedx-py environment .venv --output-format JSON --output-file "${{ matrix.platform.sbom }}"
 
       - name: Build executable
         run: uv run --python 3.12 pyinstaller --clean --noconfirm SC4PIMX.spec
