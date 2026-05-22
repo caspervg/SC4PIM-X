@@ -10,7 +10,7 @@ import wx.lib.sized_controls as sc
 from OpenGL.GLU import gluUnProject
 from PIL import Image
 
-from . import FSHConverter, treeDnD
+from . import FSHConverter, SC4IconMakerDlg, treeDnD
 from .ATCReader import *
 from .config import load_lot_editor, save_lot_editor
 from .paths import asset_path, background_path, background_set_dir, background_sets
@@ -188,6 +188,38 @@ class CustomStatusBar(wx.StatusBar):
         self.SetStatusText(LEXSBEditMode0, 3)
         self.SetStatusText(LEXSBUnderMouse, 4)
         self.SetStatusText('', 5)
+
+
+class LotIconPreviewDlg(wx.Dialog):
+    """Shows the composited 176x44 four-state icon, with an option to apply it."""
+
+    def __init__(self, parent, icon, can_apply):
+        wx.Dialog.__init__(self, parent, -1, LEXIconPreviewTitle)
+        self.editor = parent
+        # The composited icon is RGBA; flatten it onto white for display.
+        icon = icon.convert('RGBA')
+        flat = Image.new('RGB', icon.size, (255, 255, 255))
+        flat.paste(icon, (0, 0), icon)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        info = LEXIconPreviewInfo if can_apply else LEXIconPreviewNotALot
+        sizer.Add(wx.StaticText(self, -1, info), 0, wx.ALL, 12)
+        big = flat.resize((flat.size[0] * 3, flat.size[1] * 3), Image.NEAREST)
+        sizer.Add(wx.StaticBitmap(self, -1, BitmapFromPIL(big)), 0, wx.ALIGN_CENTER | wx.ALL, 12)
+        sizer.Add(wx.StaticBitmap(self, -1, BitmapFromPIL(flat)), 0,
+                  wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+        buttons = wx.StdDialogButtonSizer()
+        apply_btn = wx.Button(self, wx.ID_OK, LEXIconPreviewApply)
+        apply_btn.Enable(can_apply)
+        apply_btn.Bind(wx.EVT_BUTTON, self.OnApply)
+        buttons.AddButton(apply_btn)
+        buttons.AddButton(wx.Button(self, wx.ID_CANCEL, LEXIconPreviewClose))
+        buttons.Realize()
+        sizer.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizerAndFit(sizer)
+
+    def OnApply(self, event):
+        self.editor.OnUpdateIcon(None)
+        self.EndModal(wx.ID_OK)
 
 
 class LEInspectorPanel(wx.Panel):
@@ -375,6 +407,11 @@ class LotEditorWin(wx.Frame):
         snap_btn.SetToolTip('%s  [S]\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint))
         snap_btn.Bind(wx.EVT_BUTTON, self.OnSnapButton)
         command_sizer.Add(snap_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        icon_btn = wx.Button(command_bar, -1, LEXToolbarIcon, size=(-1, 28))
+        icon_btn.SetToolTip(LEXIconPreviewTitle)
+        icon_btn.Bind(wx.EVT_BUTTON, self.OnPreviewIcon)
+        command_sizer.Add(icon_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
         # _update_edit_buttons disables these when they do not apply. Each
@@ -1490,7 +1527,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
@@ -1507,18 +1544,35 @@ class LotEditorWin(wx.Frame):
             return
         event.Skip()
 
-    def OnUpdateIcon(self, event):
-        if self.exemplar.GetProp(16)[0] == 16:
+    def CanUpdateIcon(self):
+        """True when this exemplar is a lot whose building icon can be saved."""
+        try:
+            if self.exemplar.GetProp(16)[0] != 16:
+                return False
             desc = self.virtualDAT.FindBuildingFromLot(self.exemplar)
-            if desc.exemplar.entry.tgi[0] == 1697917002:
-                if desc in self.virtualDAT.categories[3431971885].descriptors:
-                    self.on_draw()
-                    self.on_draw()
-                    img = self.Save()
-                    self.descPage.OnUpdateIcon(img)
-                    self.UpdatePIM()
-                    self.RebuildVars()
-                    return
+            return (desc.exemplar.entry.tgi[0] == 1697917002
+                    and desc in self.virtualDAT.categories[3431971885].descriptors)
+        except Exception:
+            return False
+
+    def OnUpdateIcon(self, event):
+        if not self.CanUpdateIcon():
+            return
+        self.on_draw()
+        self.on_draw()
+        img = self.Save()
+        self.descPage.OnUpdateIcon(img)
+        self.UpdatePIM()
+        self.RebuildVars()
+
+    def OnPreviewIcon(self, event=None):
+        """Show the icon the lot would generate, with an option to apply it."""
+        self.on_draw()
+        self.on_draw()
+        icon = SC4IconMakerDlg.compose_lot_icon(self.Save())
+        dlg = LotIconPreviewDlg(self, icon, self.CanUpdateIcon())
+        dlg.ShowModal()
+        dlg.Destroy()
 
     def OnToggleBackground(self, event=None):
         """Toggle the LE-view background (Ctrl+B or the toolbar button)."""

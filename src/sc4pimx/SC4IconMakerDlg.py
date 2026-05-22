@@ -8,6 +8,21 @@ from .paths import asset_path
 from .translation import IconDlgPicture, IconDlgTitle
 
 
+def compose_lot_icon(image):
+    """Composite a picture into the 176x44 four-state SC4 building icon.
+
+    The picture is resized to 44x44, tiled into the four icon states, then
+    composited with the shipped icon template through its mask.
+    """
+    image = image.convert('RGB').resize((44, 44), Resampling.BICUBIC)
+    template = Image.open(asset_path('templates', 'IconTpl.png'))
+    mask = Image.open(asset_path('templates', 'IconMaskTpl.png')).convert('L')
+    icon = Image.new('RGBA', (44 * 4, 44))
+    for cell in range(4):
+        icon.paste(image, (44 * cell, 0))
+    return Image.composite(icon, template, mask)
+
+
 class IconDlg(wx.Dialog):
 
     def __init__(self, parent, img):
@@ -40,20 +55,11 @@ class IconDlg(wx.Dialog):
         self.bitmap1.SetBitmap(wx_image.ConvertToBitmap())
 
     def fbb_callback(self, event):
-        file_name = event.GetString()
         try:
-            image = Image.open(file_name)
+            image = Image.open(event.GetString())
         except Exception:
             return
 
-        image = image.resize((44, 44), Resampling.BICUBIC)
-        template = Image.open(asset_path('templates', 'IconTpl.png'))
-        mask = Image.open(asset_path('templates', 'IconMaskTpl.png')).convert('L')
-        icon_image = Image.new('RGBA', (44 * 4, 44))
-        icon_image.paste(image, (0, 0))
-        icon_image.paste(image, (44, 0))
-        icon_image.paste(image, (88, 0))
-        icon_image.paste(image, (44 * 3, 0))
-        icon_image = Image.composite(icon_image, template, mask)
+        icon_image = compose_lot_icon(image)
         self.image = icon_image
         self.replace_img(icon_image)
