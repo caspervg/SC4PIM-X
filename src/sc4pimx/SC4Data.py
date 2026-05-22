@@ -313,7 +313,7 @@ def ConvertAPropToReadable(prop, propFormat):
             else:
                 resultat += codecs.decode(v, 'unicode_escape')
         elif prop.typeValue == 2304:
-            resultat += '%.01f' % v
+            resultat += format_float_value(v)
         elif prop.typeValue == 2048 and propFormat.ShowAsHex:
             resultat += '0x%016X' % v
         elif propFormat.ShowAsHex:
