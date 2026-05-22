@@ -786,18 +786,12 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def OnZoom(self, event):
-        zoom = self.zoom
-        key = event.GetKeyCode() if hasattr(event, 'GetKeyCode') else 43
-        if zoom < 5 and key == 43:
-            zoom += 1
-        self.SetZoom(zoom)
+        if self.zoom < 5:
+            self.SetZoom(self.zoom + 1)
 
     def OnUnzoom(self, event):
-        zoom = self.zoom
-        key = event.GetKeyCode() if hasattr(event, 'GetKeyCode') else 45
-        if zoom > 0 and key == 45:
-            zoom -= 1
-        self.SetZoom(zoom)
+        if self.zoom > 0:
+            self.SetZoom(self.zoom - 1)
 
     def OnSetZoom1(self, event):
         self.SetZoom(0)
@@ -1369,7 +1363,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
