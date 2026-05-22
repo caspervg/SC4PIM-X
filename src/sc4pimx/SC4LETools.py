@@ -627,6 +627,21 @@ class LEAssetItem(object):
         }
         return labels.get(self.kind, self.kind)
 
+    @property
+    def fav_key(self):
+        """Stable identifier for the favorites list (survives rebuilds)."""
+        try:
+            if self.kind in ('base texture', 'overlay texture'):
+                return '%s:%d' % (self.kind, self.source.tgi[2])
+            if self.kind in ('prop', 'flora'):
+                t = self.source.exemplar.entry.tgi
+                return '%s:%d-%d-%d' % (self.kind, t[0], t[1], t[2])
+            if self.kind == 'family':
+                return 'family:%d' % self.source
+        except Exception:
+            pass
+        return '%s:%s' % (self.kind, self.sublabel)
+
 
 class LEAssetThumbnailProvider(object):
 
@@ -888,12 +903,13 @@ class LEAssetGrid(wx.ScrolledWindow):
     GAP = 10
     THUMB = 72
 
-    def __init__(self, parent, thumbnail_provider, on_select=None):
+    def __init__(self, parent, thumbnail_provider, on_select=None, on_context=None):
         wx.ScrolledWindow.__init__(self, parent, -1, style=wx.BORDER_NONE | wx.VSCROLL)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.SetScrollRate(0, 24)
         self.thumbnail_provider = thumbnail_provider
         self.on_select = on_select
+        self.on_context = on_context
         self.items = []
         self.selected = -1
         self.hovered = -1
@@ -905,6 +921,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MOTION, self.OnMotion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.OnLeaveWindow)
+        self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
 
     def SetItems(self, items):
         self.items = items
@@ -1034,6 +1051,18 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.drag_start = None
         event.Skip()
 
+    def OnRightDown(self, event):
+        self._hide_state_popup()
+        idx = self._hit_test(event.GetPosition())
+        if idx != -1:
+            self.selected = idx
+            if self.on_select:
+                self.on_select(self.items[idx])
+            self.Refresh(False)
+            if self.on_context:
+                self.on_context(self.items[idx])
+        event.Skip()
+
     def OnMotion(self, event):
         idx = self._hit_test(event.GetPosition())
         if idx != self.hovered:
@@ -1097,10 +1126,11 @@ class LEAssetGrid(wx.ScrolledWindow):
 
 class LEAssetList(wx.ListCtrl):
 
-    def __init__(self, parent, on_select=None):
+    def __init__(self, parent, on_select=None, on_context=None):
         wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_SINGLE_SEL | wx.BORDER_NONE)
         self.items = []
         self.on_select = on_select
+        self.on_context = on_context
         self.InsertColumn(0, LEXInspectorName)
         self.InsertColumn(1, LEXInspectorType)
         self.InsertColumn(2, LEXInspectorID)
@@ -1109,6 +1139,7 @@ class LEAssetList(wx.ListCtrl):
         self.SetColumnWidth(2, 95)
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSelected)
         self.Bind(wx.EVT_LIST_BEGIN_DRAG, self.OnBeginDrag)
+        self.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnRightClick)
 
     def SetItems(self, items):
         self.items = items
@@ -1129,6 +1160,11 @@ class LEAssetList(wx.ListCtrl):
         idx = event.GetIndex()
         if self.on_select and 0 <= idx < len(self.items):
             self.on_select(self.items[idx])
+
+    def OnRightClick(self, event):
+        idx = event.GetIndex()
+        if self.on_context and 0 <= idx < len(self.items):
+            self.on_context(self.items[idx])
 
     def OnBeginDrag(self, event):
         idx = event.GetIndex()
@@ -1155,6 +1191,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self.kind_filter = str(settings.get('AssetFilter', 'all'))
         if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families'):
             self.kind_filter = 'all'
+        self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
         self.thumbnail_provider = LEAssetThumbnailProvider()
         root = wx.BoxSizer(wx.VERTICAL)
@@ -1196,8 +1233,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
         root.Add(filters, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
-        self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select)
-        self.list = LEAssetList(self, self._on_grid_select)
+        self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select, self._on_context)
+        self.list = LEAssetList(self, self._on_grid_select, self._on_context)
         root.Add(self.grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.list.Hide()
@@ -1218,7 +1255,26 @@ class LEAssetBrowserPanel(wx.Panel):
             'AssetFilter': self.kind_filter,
             'AssetSearch': self.search.GetValue(),
             'AssetCompact': bool(self.presentation.GetValue()),
+            'Favorites': sorted(self.favorites),
         }
+
+    def _on_context(self, item):
+        is_fav = item.fav_key in self.favorites
+        menu = wx.Menu()
+        entry = menu.Append(-1, LEXAssetRemoveFavorite if is_fav else LEXAssetAddFavorite)
+
+        def toggle(evt):
+            if is_fav:
+                self.favorites.discard(item.fav_key)
+            else:
+                self.favorites.add(item.fav_key)
+            if hasattr(self.editor, 'SaveEditorState'):
+                self.editor.SaveEditorState()
+            self.RefreshAssets()
+
+        menu.Bind(wx.EVT_MENU, toggle, entry)
+        self.PopupMenu(menu)
+        menu.Destroy()
 
     def RefreshAssets(self):
         self.all_items = self._build_items()
@@ -1274,8 +1330,6 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def _build_items(self):
         items = []
-        if self.scope == 'favorites':
-            return items
         if self.scope == 'lot':
             for iid in getattr(self.editor, 'lotBaseTextures', []):
                 entry = VirtualDat.this.getEntry(2058686020, 159781726, iid)
@@ -1325,6 +1379,8 @@ class LEAssetBrowserPanel(wx.Panel):
             for sub in category.childs:
                 if self._is_prop_family(sub.descriptors):
                     items.append(self._family_item(sub.ID))
+        if self.scope == 'favorites':
+            return [it for it in items if it.fav_key in self.favorites]
         return items
 
     def _is_prop_family(self, descriptors):
