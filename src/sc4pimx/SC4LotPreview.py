@@ -358,6 +358,7 @@ class LotEditorWin(wx.Frame):
             (LEXToolbarView, self.OnCycleViewMode, 'A'),
             (LEXToolbarZoomIn, self.OnZoom, '+'),
             (LEXToolbarZoomOut, self.OnUnzoom, '-'),
+            (LEXToolbarFitView, self.OnFitView, 'C'),
             (LEXToolbarSnap, self.OnToggleSnap, 'S'),
             (LEXToolbarDuplicate, self.OnDuplicate, 'D'),
             (LEXToolbarDelete, self.OnDelete, 'Del'),
@@ -855,6 +856,33 @@ class LotEditorWin(wx.Frame):
     def OnUnzoom(self, event):
         if self.zoom > 0:
             self.SetZoom(self.zoom - 1)
+
+    def _fit_zoom(self):
+        """Largest zoom level at which the whole lot fits in the 2D viewport."""
+        size = self.glCanvas2D.GetClientSize()
+        w = size[0] / 2 if self.panel == 3 else size[0]
+        h = size[1]
+        lot_half = max(getattr(self, 'lotSizeXOver', 16), getattr(self, 'lotSizeYOver', 16)) / 2.0 + 8
+        if w <= 0 or h <= 0 or lot_half <= 0:
+            return self.zoom
+        target = min(w, h) / 20.0 / lot_half
+        best = 0
+        for idx, scale in enumerate(LotEditorWin.zoomScale):
+            if scale <= target:
+                best = idx
+        return best
+
+    def OnFitView(self, event=None):
+        """Recentre the camera and zoom so the whole lot is visible."""
+        self.posx = 0
+        self.posy = 0
+        self.posz = 10
+        self.pos3Dx = 0
+        self.pos3Dy = 0
+        self.pos3Dz = -10
+        self.BackPosx = 0
+        self.BackPosy = 0
+        self.SetZoom(self._fit_zoom())
 
     def OnSetZoom1(self, event):
         self.SetZoom(0)
@@ -1426,7 +1454,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,9: self.OnUpdateIcon,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
