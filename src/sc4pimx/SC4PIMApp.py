@@ -3012,8 +3012,9 @@ class MainFrame(wx.Frame):
             dt = dt.days * 24 * 3600 + dt.seconds
             first = random.randrange(1, 15, 2)
             self.GID = first * 268435456 + (dt & 268435455)
-        x = struct.pack('L', self.GID)
-        self.GID = struct.unpack('L', x)[0]
+        # Clamp to 32-bit unsigned: the GID is a 32-bit DBPF group id, and
+        # struct 'L' is platform-width (8 bytes on 64-bit Unix).
+        self.GID &= 0xFFFFFFFF
 
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()
@@ -3125,7 +3126,7 @@ class MainFrame(wx.Frame):
             event.Veto()
             return
         self.Destroy()
-        sys.exit(1)
+        sys.exit(0)
 
     def OnConfigure(self, event):
         dlg = ConfigureDialog(self)
