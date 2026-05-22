@@ -282,14 +282,15 @@ class LEInspectorPanel(wx.Panel):
         self.text = wx.TextCtrl(self, -1, LEXInspectorPrompt,
                                 style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_NONE)
         self.text.SetBackgroundColour(wx.Colour(250, 251, 252))
-        box = wx.StaticBox(self, -1, 'Edit placement')
+        box = wx.StaticBox(self, -1, LEXInspectorEditPlacement)
         fields = wx.StaticBoxSizer(box, wx.VERTICAL)
         grid = wx.FlexGridSizer(3, 2, 4, 6)
         grid.AddGrowableCol(1, 1)
         self.fldX = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
         self.fldY = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
         self.fldH = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
-        for label, ctrl in [('X', self.fldX), ('Y', self.fldY), ('Height', self.fldH)]:
+        for label, ctrl in [(LEXInspectorAxisX, self.fldX), (LEXInspectorAxisY, self.fldY),
+                             (LEXInspectorHeight, self.fldH)]:
             grid.Add(wx.StaticText(self, -1, label), 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(ctrl, 1, wx.EXPAND)
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnApply)
@@ -297,15 +298,16 @@ class LEInspectorPanel(wx.Panel):
         # Rotation: one toggle button per compass direction. The lot-config
         # rotation flag is South=0, East=1, North=2, West=3.
         rot_row = wx.BoxSizer(wx.HORIZONTAL)
-        rot_row.Add(wx.StaticText(self, -1, 'Facing'), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        rot_row.Add(wx.StaticText(self, -1, LEXInspectorFacing), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.rotButtons = {}
-        for label, rot in [('N', 2), ('E', 1), ('S', 0), ('W', 3)]:
+        for label, rot in [(LEXFacingNorth, 2), (LEXFacingEast, 1),
+                            (LEXFacingSouth, 0), (LEXFacingWest, 3)]:
             btn = wx.ToggleButton(self, -1, label, size=(34, 26))
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, r=rot: self.OnRotation(r))
             self.rotButtons[rot] = btn
             rot_row.Add(btn, 0, wx.RIGHT, 2)
         fields.Add(rot_row, 0, wx.EXPAND | wx.ALL, 4)
-        self.applyBtn = wx.Button(self, -1, 'Apply', size=(-1, 26))
+        self.applyBtn = wx.Button(self, -1, LEXInspectorApply, size=(-1, 26))
         self.applyBtn.Bind(wx.EVT_BUTTON, self.OnApply)
         fields.Add(self.applyBtn, 0, wx.EXPAND | wx.ALL, 4)
         sizer.Add(self.text, 1, wx.EXPAND | wx.ALL, 6)
@@ -434,7 +436,7 @@ class LotEditorWin(wx.Frame):
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Background display: a toggle (also Ctrl+B) plus a set picker.
-        self.backgroundToggle = wx.ToggleButton(command_bar, -1, 'Background', size=(-1, 28))
+        self.backgroundToggle = wx.ToggleButton(command_bar, -1, LEXToolbarBackground, size=(-1, 28))
         self.backgroundToggle.SetValue(self.bDrawBack)
         self.backgroundToggle.Bind(wx.EVT_TOGGLEBUTTON, self.OnToggleBackground)
         command_sizer.Add(self.backgroundToggle, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
@@ -448,10 +450,10 @@ class LotEditorWin(wx.Frame):
         command_sizer.Add(self.backgroundChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
-        self.undoButton = wx.Button(command_bar, -1, 'Undo', size=(-1, 28))
+        self.undoButton = wx.Button(command_bar, -1, LEXToolbarUndo, size=(-1, 28))
         self.undoButton.Bind(wx.EVT_BUTTON, self.OnUndo)
         command_sizer.Add(self.undoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        self.redoButton = wx.Button(command_bar, -1, 'Redo', size=(-1, 28))
+        self.redoButton = wx.Button(command_bar, -1, LEXToolbarRedo, size=(-1, 28))
         self.redoButton.Bind(wx.EVT_BUTTON, self.OnRedo)
         command_sizer.Add(self.redoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.undoButton.Disable()
