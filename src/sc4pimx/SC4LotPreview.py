@@ -57,6 +57,37 @@ MODE_EDIT_PROP = 4
 MODE_EDIT_BUILDING = 8
 MODE_EDIT_FLORA = 16
 MODE_EDIT_TRANSIT = 32
+MODE_EDIT_CONSTRAINT = 64
+LAYER_BASE = 'base_textures'
+LAYER_OVERLAY = 'overlay_textures'
+LAYER_WATER = 'water_constraints'
+LAYER_LAND = 'land_constraints'
+LAYER_TRANSIT = 'transit'
+LAYER_ROAD_EDGES = 'road_edges'
+LAYER_BUILDING = 'building'
+LAYER_PROPS = 'props'
+LAYER_FLORA = 'flora'
+LAYER_SNAP_GRID = 'snap_grid'
+LAYER_SELECTION = 'selection'
+LAYER_MISSING = 'missing_markers'
+LAYER_CARDINALS = 'cardinal_labels'
+LAYER_BACKGROUND = 'terrain_background'
+LAYER_SPECS = [
+    (LAYER_BASE, LEXLayerBaseTextures),
+    (LAYER_OVERLAY, LEXLayerOverlayTextures),
+    (LAYER_WATER, LEXLayerWaterConstraints),
+    (LAYER_LAND, LEXLayerLandConstraints),
+    (LAYER_TRANSIT, LEXLayerTransit),
+    (LAYER_ROAD_EDGES, LEXLayerRoadEdges),
+    (LAYER_BUILDING, LEXLayerBuilding),
+    (LAYER_PROPS, LEXLayerProps),
+    (LAYER_FLORA, LEXLayerFlora),
+    (LAYER_SNAP_GRID, LEXLayerSnapGrid),
+    (LAYER_SELECTION, LEXLayerSelection),
+    (LAYER_MISSING, LEXLayerMissingMarkers),
+    (LAYER_CARDINALS, LEXLayerCardinalLabels),
+    (LAYER_BACKGROUND, LEXLayerTerrainBackground),
+]
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -398,8 +429,11 @@ class LotEditorWin(wx.Frame):
         root = wx.BoxSizer(wx.VERTICAL)
         command_bar = wx.Panel(panel, -1)
         settings = load_lot_editor()
-        self.bDrawBack = bool(settings.get('BackgroundEnabled', False))
         self.backgroundSet = str(settings.get('BackgroundSet', 'Default'))
+        self.visibleLayers2D = self._load_visible_layers(settings.get('VisibleLayers2D', {}))
+        self.visibleLayers3D = self._load_visible_layers(settings.get('VisibleLayers3D', {}))
+        self._layer_menu_ids = {}
+        self._background_menu_ids = {}
         self._undo_limit = max(1, int(settings.get('UndoLimit', 40)))
         command_bar.SetBackgroundColour(wx.Colour(244, 246, 248))
         command_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -418,6 +452,7 @@ class LotEditorWin(wx.Frame):
             (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
             (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
             (LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
+            (LEXConstraint, MODE_EDIT_CONSTRAINT, self.OnModeConstraint, 'W'),
         ]:
             btn = wx.ToggleButton(command_bar, -1, label, size=(-1, 28))
             btn.SetToolTip('%s  [%s]' % (label, hint))
@@ -448,6 +483,11 @@ class LotEditorWin(wx.Frame):
         icon_btn.SetToolTip(LEXIconPreviewTitle)
         icon_btn.Bind(wx.EVT_BUTTON, self.OnPreviewIcon)
         command_sizer.Add(icon_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        layers_btn = wx.Button(command_bar, -1, LEXToolbarLayers, size=(-1, 28))
+        layers_btn.SetToolTip('%s\n%s' % (LEXToolbarLayers, LEXToolbarLayersHint))
+        layers_btn.Bind(wx.EVT_BUTTON, self.OnLayersMenu)
+        command_sizer.Add(layers_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
         # _update_edit_buttons disables these when they do not apply. Each
@@ -480,24 +520,6 @@ class LotEditorWin(wx.Frame):
                 self.rotateButtons.append(btn)
             else:
                 self.mirrorButton = btn
-
-        # Background display: a toggle (also Ctrl+B) plus a set picker.
-        self.backgroundToggle = wx.ToggleButton(command_bar, -1, LEXToolbarBackground, size=(-1, 28))
-        self.backgroundToggle.SetToolTip('%s  [Shift+B]' % LEXToolbarBackground)
-        self.backgroundToggle.SetValue(self.bDrawBack)
-        self.backgroundToggle.Bind(wx.EVT_TOGGLEBUTTON, self.OnToggleBackground)
-        command_sizer.Add(self.backgroundToggle, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        set_names = [name for name, _ in background_sets()]
-        # Natural height + ALIGN_CENTER_VERTICAL: a forced 28px height leaves
-        # the Choice's text top-aligned with empty space below it.
-        self.backgroundChoice = wx.Choice(command_bar, -1, choices=set_names)
-        if self.backgroundSet in set_names:
-            self.backgroundChoice.SetStringSelection(self.backgroundSet)
-        else:
-            self.backgroundChoice.SetSelection(0)
-        self.backgroundChoice.Bind(wx.EVT_CHOICE, self.OnChooseBackgroundSet)
-        self.backgroundChoice.Enable(self.bDrawBack)
-        command_sizer.Add(self.backgroundChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
         self.undoButton = wx.Button(command_bar, -1, LEXToolbarUndo, size=(-1, 28))
@@ -546,9 +568,26 @@ class LotEditorWin(wx.Frame):
             width = self.rightSplitter.GetClientSize()[0]
             sash = self.rightSplitter.GetSashPosition()
             state['InspectorWidth'] = max(220, int(width - sash))
-        state['BackgroundEnabled'] = bool(getattr(self, 'bDrawBack', False))
         state['BackgroundSet'] = str(getattr(self, 'backgroundSet', 'Default'))
+        state['VisibleLayers2D'] = dict(getattr(self, 'visibleLayers2D', self._default_visible_layers()))
+        state['VisibleLayers3D'] = dict(getattr(self, 'visibleLayers3D', self._default_visible_layers()))
         return state
+
+    def _default_visible_layers(self):
+        return {key: True for key, _label in LAYER_SPECS}
+
+    def _load_visible_layers(self, settings):
+        layers = self._default_visible_layers()
+        if isinstance(settings, dict):
+            for key in layers:
+                if key in settings:
+                    layers[key] = bool(settings[key])
+        return layers
+
+    def _is_layer_visible(self, view, key):
+        if view == '3d':
+            return bool(getattr(self, 'visibleLayers3D', self._default_visible_layers()).get(key, True))
+        return bool(getattr(self, 'visibleLayers2D', self._default_visible_layers()).get(key, True))
 
     def SaveEditorState(self):
         try:
@@ -624,6 +663,10 @@ class LotEditorWin(wx.Frame):
             return LEXAssetTypeBaseTexture
         if values[0] == 4:
             return LEXAssetTypeFlora
+        if values[0] == 5:
+            return LEXConstraintWater
+        if values[0] == 6:
+            return LEXConstraintLand
         if values[0] == 7:
             return LEXAssetTypeTransit
         return LEXInspectorSelection
@@ -710,7 +753,12 @@ class LotEditorWin(wx.Frame):
                 lines.extend([
                     '%s: %s' % (LEXInspectorType, self._lot_config_type_label(values)),
                     '%s: %s' % (LEXInspectorID, hex2str(values[11])),
-                    '%s: %s' % (LEXInspectorName, hex2str(values[12])),
+                ])
+                # Constraint tiles (type 5/6) carry only reps 1-12, so there
+                # is no rep-13 name/reference to show.
+                if len(values) > 12:
+                    lines.append('%s: %s' % (LEXInspectorName, hex2str(values[12])))
+                lines.extend([
                     '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
                     '%s: %.2f, %.2f - %.2f, %.2f' % ((LEXInspectorBounds,) + bounds),
                     '%s: %.2f' % (LEXInspectorHeight, ToCoord(values[4])),
@@ -829,6 +877,51 @@ class LotEditorWin(wx.Frame):
             return
         self._push_undo()
         values = make_transit_values(currentID, tile_x, tile_y, self.transitDefaults)
+        self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], values[:]))
+        self.PreCacheObject(values[:])
+        self.selected = [currentID]
+        self.quadSelected = [tile_quad(tile_x, tile_y)]
+        self.UpdatePIM()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
+    def PlaceConstraint(self, tile_x, tile_y, obj_type):
+        """Create a type-5 (water) or type-6 (land) constraint tile.
+
+        Constraint tiles cover a whole 16 m tile and carry only reps 1-12
+        (no custom reps), so the value list is a plain whole-tile object.
+        """
+        if not hasattr(self, 'exemplar'):
+            return
+        lot_size = self.exemplar.GetProp(2297284496)
+        if tile_x < 0 or tile_y < 0 or tile_x >= lot_size[0] or tile_y >= lot_size[1]:
+            return
+        currentID = 0
+        lastIDProp = 2297284863
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            if values[11] > currentID:
+                currentID = values[11]
+            lastIDProp = lcp
+        currentID += 1
+        lastIDProp += 1
+        if lastIDProp >= 2297286144:
+            return
+        self._push_undo()
+        minx = tile_x * 16
+        miny = tile_y * 16
+        cx = minx + 8
+        cy = miny + 8
+        # Rep 3 (orientation) = 2: the unrotated flag used by every other
+        # whole-tile object (PlaceAsset textures, make_transit_values), so the
+        # marker texture is not drawn rotated relative to the rest of the lot.
+        values = [obj_type, 0, 2,
+                  ToUnsigned(cx * 65536), 0, ToUnsigned(cy * 65536),
+                  ToUnsigned(minx * 65536), ToUnsigned(miny * 65536),
+                  ToUnsigned((minx + 16) * 65536), ToUnsigned((miny + 16) * 65536),
+                  0, currentID]
         self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], values[:]))
         self.PreCacheObject(values[:])
         self.selected = [currentID]
@@ -1021,6 +1114,17 @@ class LotEditorWin(wx.Frame):
         self.UpdateSelectionInspector()
         self._sync_mode_buttons()
 
+    def OnModeConstraint(self, event):
+        if self.modeEdit != MODE_EDIT_CONSTRAINT:
+            self.selected = []
+            self.newIds = []
+            self.quadSelected = []
+        self.modeEdit = MODE_EDIT_CONSTRAINT
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+        self.sb.SetStatusText(LEXConstraintHint, 3)
+        self.UpdateSelectionInspector()
+        self._sync_mode_buttons()
+
     def OnCycleFamily(self, event):
         self.currentBuilding += 1
         if self.currentBuilding >= len(self.buildingViewer):
@@ -1173,6 +1277,12 @@ class LotEditorWin(wx.Frame):
                             UpdateTexData(self.texOverlays)
                     elif values[0] == 7:
                         update_cached_transit(self.te, ensure_transit_values(values))
+                    elif values[0] in (5, 6):
+                        pool = self.waters if values[0] == 5 else self.lands
+                        for texData in pool:
+                            if texData[4] == id:
+                                texData[2] = flag
+                                break
                     break
 
         return
@@ -1274,6 +1384,12 @@ class LotEditorWin(wx.Frame):
                             UpdateTexData(self.texOverlays)
                     elif values[0] == 7:
                         update_cached_transit(self.te, ensure_transit_values(values))
+                    elif values[0] in (5, 6):
+                        pool = self.waters if values[0] == 5 else self.lands
+                        for texData in pool:
+                            if texData[4] == id:
+                                texData[2] = flag
+                                break
                     break
 
         return
@@ -1492,6 +1608,12 @@ class LotEditorWin(wx.Frame):
                             UpdateTexData(self.texOverlays)
                     if values[0] == TRANSIT_OBJECT_TYPE:
                         remove_cached_transit(self.te, values[11])
+                    if values[0] in (5, 6):
+                        pool = self.waters if values[0] == 5 else self.lands
+                        for texData in list(pool):
+                            if texData[4] == id:
+                                pool.remove(texData)
+                                break
                     break
 
         self.selected = []
@@ -1671,7 +1793,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraint,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
@@ -1718,22 +1840,77 @@ class LotEditorWin(wx.Frame):
         dlg.ShowModal()
         dlg.Destroy()
 
-    def OnToggleBackground(self, event=None):
-        """Toggle the LE-view background (Ctrl+B or the toolbar button)."""
-        toggle = getattr(self, 'backgroundToggle', None)
-        if event is not None and toggle is not None and event.GetEventObject() is toggle:
-            self.bDrawBack = bool(toggle.GetValue())
+    def _append_layer_menu(self, parent, view_key, title, layers):
+        submenu = wx.Menu()
+        all_on = wx.NewIdRef()
+        all_off = wx.NewIdRef()
+        submenu.Append(all_on, LEXLayerAllOn)
+        submenu.Append(all_off, LEXLayerAllOff)
+        submenu.AppendSeparator()
+        submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, True), id=all_on)
+        submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, False), id=all_off)
+        for key, label in LAYER_SPECS:
+            menu_id = wx.NewIdRef()
+            item = submenu.AppendCheckItem(menu_id, label)
+            item.Check(bool(layers.get(key, True)))
+            self._layer_menu_ids[int(menu_id)] = (view_key, key)
+            submenu.Bind(wx.EVT_MENU, self.OnToggleLayerVisibility, id=menu_id)
+        parent.AppendSubMenu(submenu, title)
+
+    def _append_background_menu(self, parent):
+        submenu = wx.Menu()
+        for name, _path in background_sets():
+            menu_id = wx.NewIdRef()
+            item = submenu.AppendRadioItem(menu_id, name)
+            item.Check(name == self.backgroundSet)
+            self._background_menu_ids[int(menu_id)] = name
+            submenu.Bind(wx.EVT_MENU, self.OnChooseBackgroundSet, id=menu_id)
+        parent.AppendSubMenu(submenu, LEXLayerBackgroundSets)
+
+    def OnLayersMenu(self, event=None):
+        menu = wx.Menu()
+        self._layer_menu_ids = {}
+        self._background_menu_ids = {}
+        self._append_layer_menu(menu, '2d', LEXLayer2D, self.visibleLayers2D)
+        self._append_layer_menu(menu, '3d', LEXLayer3D, self.visibleLayers3D)
+        menu.AppendSeparator()
+        self._append_background_menu(menu)
+        if event is not None and hasattr(event.GetEventObject(), 'PopupMenu'):
+            event.GetEventObject().PopupMenu(menu)
         else:
-            self.bDrawBack = not self.bDrawBack
-            if toggle is not None:
-                toggle.SetValue(self.bDrawBack)
-        if hasattr(self, 'backgroundChoice'):
-            self.backgroundChoice.Enable(self.bDrawBack)
+            self.PopupMenu(menu)
+        menu.Destroy()
+
+    def OnToggleLayerVisibility(self, event):
+        view_key, layer_key = self._layer_menu_ids.get(event.GetId(), (None, None))
+        if view_key is None:
+            return
+        layers = self.visibleLayers3D if view_key == '3d' else self.visibleLayers2D
+        layers[layer_key] = not bool(layers.get(layer_key, True))
+        self.SaveEditorState()
+        self.on_draw()
+
+    def SetAllLayersVisible(self, view_key, visible):
+        layers = self.visibleLayers3D if view_key == '3d' else self.visibleLayers2D
+        for key in layers:
+            layers[key] = bool(visible)
+        self.SaveEditorState()
+        self.on_draw()
+
+    def OnToggleBackground(self, event=None):
+        """Toggle terrain background visibility in both preview views."""
+        visible = not (
+            self._is_layer_visible('2d', LAYER_BACKGROUND)
+            or self._is_layer_visible('3d', LAYER_BACKGROUND)
+        )
+        self.visibleLayers2D[LAYER_BACKGROUND] = visible
+        self.visibleLayers3D[LAYER_BACKGROUND] = visible
+        self.SaveEditorState()
         self.on_draw()
 
     def OnChooseBackgroundSet(self, event):
         """Switch to a different background set and reload its textures."""
-        name = self.backgroundChoice.GetStringSelection()
+        name = self._background_menu_ids.get(event.GetId())
         if not name:
             return
         self.backgroundSet = name
@@ -2194,11 +2371,11 @@ class LotEditorWin(wx.Frame):
                 self.floraViewers.append(viewer)
         if values[0] == 5:
             texData = [
-             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960, values[11]]
             self.waters.append(texData)
         if values[0] == 6:
             texData = [
-             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960]
+             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960, values[11]]
             self.lands.append(texData)
         if values[0] == 7:
             self.te.append(cached_transit(values))
@@ -2480,7 +2657,7 @@ class LotEditorWin(wx.Frame):
         glColor3f(1, 1, 1)
         self.highlighted = []
         self.quadHighs = []
-        if self.modeDisplay & MODE_BASETEX_ONLY:
+        if self.modeDisplay & MODE_BASETEX_ONLY and self._is_layer_visible('2d', LAYER_BASE):
             for texData in self.texBases:
                 if self.modeEdit == MODE_EDIT_BASETEX:
                     minx = texData[0] * 16
@@ -2497,7 +2674,7 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [texData[4]]
                 self.DrawQuad(texData[0], texData[1], texData[2], texData[3], False)
 
-        if self.modeDisplay & MODE_OVERTEX_ONLY:
+        if self.modeDisplay & MODE_OVERTEX_ONLY and self._is_layer_visible('2d', LAYER_OVERLAY):
             for texData in self.texOverlays:
                 if self.modeEdit == MODE_EDIT_OVERTEX:
                     minx = texData[0] * 16
@@ -2515,15 +2692,34 @@ class LotEditorWin(wx.Frame):
                 self.DrawQuad(texData[0], texData[1], texData[2], texData[3], True)
 
         if self.modeDisplay & MODE_CONSTRAINT_ONLY:
-            for texData in self.waters:
-                glColor3f(0.2, 0.2, 0.8)
-                self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True)
+            constraint_layers = (
+                (True, self.waters, LAYER_WATER),
+                (False, self.lands, LAYER_LAND),
+            )
+            for is_water, constraints, layer_key in constraint_layers:
+                if not self._is_layer_visible('2d', layer_key):
+                    continue
+                for texData in constraints:
+                    if self.modeEdit == MODE_EDIT_CONSTRAINT:
+                        minx = texData[0] * 16
+                        miny = texData[1] * 16
+                        maxx = minx + 16
+                        maxy = miny + 16
+                        if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                            self.highlighted.append(texData[4])
+                            self.quadHighs.append([minx, miny, maxx, maxy])
+                        if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                            bUnderMouse = True
+                            self.SetStatusText(LEXConstraintWater if is_water else LEXConstraintLand, 5)
+                            self.highlighted = [texData[4]]
+                            self.quadHighs = [[minx, miny, maxx, maxy]]
+                    if is_water:
+                        glColor3f(0.2, 0.2, 0.8)
+                    else:
+                        glColor3f(0.8, 0.5, 0.2)
+                    self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True)
 
-            for texData in self.lands:
-                glColor3f(0.8, 0.5, 0.2)
-                self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True)
-
-        if self.modeDisplay & MODE_TE_ONLY:
+        if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_TRANSIT):
             for texData in self.te:
                 minx = texData[0] * 16
                 miny = texData[1] * 16
@@ -2541,19 +2737,20 @@ class LotEditorWin(wx.Frame):
                 draw_transit_overlay(self, texData, self.modeEdit == MODE_EDIT_TRANSIT, rot2D, scaling)
 
         glColor3f(1, 1, 1)
-        if self.exemplar.GetProp(1246398704)[0] & 8:
-            for x in range(self.exemplar.GetProp(2297284496)[0]):
-                self.DrawQuad(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
+        if self._is_layer_visible('2d', LAYER_ROAD_EDGES):
+            if self.exemplar.GetProp(1246398704)[0] & 8:
+                for x in range(self.exemplar.GetProp(2297284496)[0]):
+                    self.DrawQuad(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
 
-        if self.exemplar.GetProp(1246398704)[0] & 1:
-            for y in range(self.exemplar.GetProp(2297284496)[1]):
-                self.DrawQuad(-1, y, 0, 641146880, True)
+            if self.exemplar.GetProp(1246398704)[0] & 1:
+                for y in range(self.exemplar.GetProp(2297284496)[1]):
+                    self.DrawQuad(-1, y, 0, 641146880, True)
 
-        if self.exemplar.GetProp(1246398704)[0] & 4:
-            for y in range(self.exemplar.GetProp(2297284496)[1]):
-                self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+            if self.exemplar.GetProp(1246398704)[0] & 4:
+                for y in range(self.exemplar.GetProp(2297284496)[1]):
+                    self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
-        if self.snapSize != 0:
+        if self.snapSize != 0 and self._is_layer_visible('2d', LAYER_SNAP_GRID):
             with pushed_modelview_matrix():
                 glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
                 glColor3f(0.5, 0, 0.2)
@@ -2561,7 +2758,7 @@ class LotEditorWin(wx.Frame):
                 glVertexPointer(2, GL_FLOAT, 0, self.snapGrids)
                 glDrawArrays(GL_LINES, 0, self.nbSnapLines)
                 glDisableClientState(GL_VERTEX_ARRAY)
-        if self.modeDisplay & MODE_BUILDING_ONLY:
+        if self.modeDisplay & MODE_BUILDING_ONLY and self._is_layer_visible('2d', LAYER_BUILDING):
             if self.building:
                 minx = ToCoord(self.building[6])
                 miny = ToCoord(self.building[7])
@@ -2582,7 +2779,7 @@ class LotEditorWin(wx.Frame):
                 self.DrawQuadColor(self.building[2], minx, miny, maxx, maxy, (0, 0, 1, alphaValue), self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] is None)
                 if self.building[4] != 0 and self.building[11] in self.selected:
                     self.glCanvas2D.text_2d(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly, '%.02f' % ToCoord(self.building[4]), rot2D, scaling)
-        if self.modeDisplay & MODE_PROP_ONLY:
+        if self.modeDisplay & MODE_PROP_ONLY and self._is_layer_visible('2d', LAYER_PROPS):
             for prop, propViewer in zip(self.props, self.propViewers):
                 minx = ToCoord(prop[6])
                 miny = ToCoord(prop[7])
@@ -2604,7 +2801,7 @@ class LotEditorWin(wx.Frame):
                 if prop[4] != 0 and prop[11] in self.selected:
                     self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
 
-        if self.modeDisplay & MODE_FLORA_ONLY:
+        if self.modeDisplay & MODE_FLORA_ONLY and self._is_layer_visible('2d', LAYER_FLORA):
             for prop in self.floras:
                 minx = ToCoord(prop[6])
                 miny = ToCoord(prop[7])
@@ -2623,20 +2820,23 @@ class LotEditorWin(wx.Frame):
                 if prop[4] != 0 and prop[11] in self.selected:
                     self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
 
-        self.DrawQuadsHighLight(self.quadHighs)
-        self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
-        if self.dragQuad is not None:
-            self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1,
-                                                                                                        1,
-                                                                                                        1))
-        with pushed_modelview_matrix():
-            glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
-            glColor3f(1, 0, 0)
-            glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
-            glDrawArrays(GL_LINES, 0, len(self.missingLines))
-            glDisableClientState(GL_VERTEX_ARRAY)
-        self.DrawCardinalLabels(rot2D, scaling)
+        if self._is_layer_visible('2d', LAYER_SELECTION):
+            self.DrawQuadsHighLight(self.quadHighs)
+            self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
+            if self.dragQuad is not None:
+                self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1,
+                                                                                                            1,
+                                                                                                            1))
+        if self._is_layer_visible('2d', LAYER_MISSING):
+            with pushed_modelview_matrix():
+                glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
+                glColor3f(1, 0, 0)
+                glEnableClientState(GL_VERTEX_ARRAY)
+                glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
+                glDrawArrays(GL_LINES, 0, len(self.missingLines))
+                glDisableClientState(GL_VERTEX_ARRAY)
+        if self._is_layer_visible('2d', LAYER_CARDINALS):
+            self.DrawCardinalLabels(rot2D, scaling)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
         if not bUnderMouse:
@@ -2665,8 +2865,6 @@ class LotEditorWin(wx.Frame):
             self.glCanvas2D.text_2d(lx, ly, label, rot2D, scaling)
 
     def DrawBackGround2(self, x=0, y=0):
-        if not getattr(self, 'bDrawBack', False):
-            return
         if not getattr(self, 'BackTextures', None):
             return
         zoom = self.zoom
@@ -2845,17 +3043,21 @@ class LotEditorWin(wx.Frame):
         # Draw the optional ground background (offset by the user's Shift+drag
         # position), then re-enable depth testing -- DrawBackGround2 disables
         # it -- for the lot's own texture quads.
-        self.DrawBackGround2(self.BackPosx, self.BackPosy)
+        background_drawn = self._is_layer_visible('3d', LAYER_BACKGROUND)
+        if background_drawn:
+            self.DrawBackGround2(self.BackPosx, self.BackPosy)
         glEnable(GL_DEPTH_TEST)
-        for texData in self.texBases:
-            self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
+        if self._is_layer_visible('3d', LAYER_BASE):
+            for texData in self.texBases:
+                self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
 
-        for texData in self.texOverlays:
-            self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
+        if self._is_layer_visible('3d', LAYER_OVERLAY):
+            for texData in self.texOverlays:
+                self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
 
         # Road edge overlays clash with a custom ground background, so skip
         # drawing them while background mode is on.
-        if not getattr(self, 'bDrawBack', False):
+        if self._is_layer_visible('3d', LAYER_ROAD_EDGES) and not background_drawn:
             if self.exemplar.GetProp(1246398704)[0] & 8:
                 for x in range(self.exemplar.GetProp(2297284496)[0]):
                     self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
@@ -2878,68 +3080,71 @@ class LotEditorWin(wx.Frame):
         rotMapping = [2, 1, 0, 3]
         lotSizeXOver = self.lotSizeXOver
         lotSizeYOver = self.lotSizeYOver
-        try:
-            if self.buildingViewer[self.currentBuilding] is not None:
-                with pushed_modelview_matrix():
-                    offsetX = ToCoord(self.building[3]) - lotSizeXOver / 2
-                    offsetZ = ToCoord(self.building[5]) - lotSizeYOver / 2
-                    offsetY = 0
-                    if self.building[12] in self.rtk4Offsets.keys():
-                        rtk4 = self.rtk4Offsets[self.building[12]]
-                    else:
-                        rtk4 = (0, 0, 0)
-                    glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
-                    self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], zoom)
-        except IndexError:
-            pass
+        if self._is_layer_visible('3d', LAYER_BUILDING):
+            try:
+                if self.buildingViewer[self.currentBuilding] is not None:
+                    with pushed_modelview_matrix():
+                        offsetX = ToCoord(self.building[3]) - lotSizeXOver / 2
+                        offsetZ = ToCoord(self.building[5]) - lotSizeYOver / 2
+                        offsetY = 0
+                        if self.building[12] in self.rtk4Offsets.keys():
+                            rtk4 = self.rtk4Offsets[self.building[12]]
+                        else:
+                            rtk4 = (0, 0, 0)
+                        glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
+                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], zoom)
+            except IndexError:
+                pass
 
         afters = []
         afterViewers = []
-        for prop, propViewer in zip(self.props, self.propViewers):
-            tempViewer = propViewer
-            if tempViewer is None:
-                tempViewer = self.LEAnimMissing
-            if tempViewer.viewingData == []:
-                pass
-            else:
-                what = tempViewer.viewingData[0]
-                if what.__class__ == ATC:
-                    afters.append(prop)
-                    afterViewers.append(tempViewer)
+        if self._is_layer_visible('3d', LAYER_PROPS):
+            for prop, propViewer in zip(self.props, self.propViewers):
+                tempViewer = propViewer
+                if tempViewer is None:
+                    tempViewer = self.LEAnimMissing
+                if tempViewer.viewingData == []:
+                    pass
                 else:
-                    with pushed_modelview_matrix():
-                        offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
-                        offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
-                        offsetY = 0
-                        if prop[12] in self.rtk4Offsets.keys():
-                            rtk4 = self.rtk4Offsets[prop[12]]
-                        else:
-                            rtk4 = (0, 0, 0)
-                        glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                        self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
+                    what = tempViewer.viewingData[0]
+                    if what.__class__ == ATC:
+                        afters.append(prop)
+                        afterViewers.append(tempViewer)
+                    else:
+                        with pushed_modelview_matrix():
+                            offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
+                            offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
+                            offsetY = 0
+                            if prop[12] in self.rtk4Offsets.keys():
+                                rtk4 = self.rtk4Offsets[prop[12]]
+                            else:
+                                rtk4 = (0, 0, 0)
+                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
 
-        for prop, propViewer in zip(self.floras, self.floraViewers):
-            tempViewer = propViewer
-            if tempViewer is None:
-                tempViewer = self.LEAnimMissing
-            if tempViewer.viewingData == []:
-                pass
-            else:
-                what = tempViewer.viewingData[0]
-                if what.__class__ == ATC:
-                    afters.append(prop)
-                    afterViewers.append(tempViewer)
+        if self._is_layer_visible('3d', LAYER_FLORA):
+            for prop, propViewer in zip(self.floras, self.floraViewers):
+                tempViewer = propViewer
+                if tempViewer is None:
+                    tempViewer = self.LEAnimMissing
+                if tempViewer.viewingData == []:
+                    pass
                 else:
-                    with pushed_modelview_matrix():
-                        offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
-                        offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
-                        offsetY = 0
-                        if prop[12] in self.rtk4Offsets.keys():
-                            rtk4 = self.rtk4Offsets[prop[12]]
-                        else:
-                            rtk4 = (0, 0, 0)
-                        glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                        self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
+                    what = tempViewer.viewingData[0]
+                    if what.__class__ == ATC:
+                        afters.append(prop)
+                        afterViewers.append(tempViewer)
+                    else:
+                        with pushed_modelview_matrix():
+                            offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
+                            offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
+                            offsetY = 0
+                            if prop[12] in self.rtk4Offsets.keys():
+                                rtk4 = self.rtk4Offsets[prop[12]]
+                            else:
+                                rtk4 = (0, 0, 0)
+                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
 
         for prop, propViewer in zip(afters, afterViewers):
             with pushed_modelview_matrix():
@@ -3363,6 +3568,14 @@ class LotEditorWin(wx.Frame):
             lot_size = self.exemplar.GetProp(2297284496)
             if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
                 self.PlaceTransitNode(tile_x, tile_y)
+                return
+        if self.modeEdit == MODE_EDIT_CONSTRAINT and self.highlighted == []:
+            tile_x = int(math.floor(px / 16.0))
+            tile_y = int(math.floor(py / 16.0))
+            lot_size = self.exemplar.GetProp(2297284496)
+            if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
+                # Plain click places a water tile, Shift+click places land.
+                self.PlaceConstraint(tile_x, tile_y, 6 if evt.ShiftDown() else 5)
                 return
         if not evt.ControlDown():
             for quad in self.quadSelected:
