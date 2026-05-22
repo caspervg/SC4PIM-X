@@ -31,6 +31,7 @@ DEFAULT_LOT_EDITOR = {
     "BackgroundSet": "Default",
     "UndoLimit": 40,
     "Favorites": [],
+    "ThumbSize": 72,
 }
 
 
