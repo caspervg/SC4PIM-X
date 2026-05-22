@@ -76,19 +76,23 @@ def readPropertyDef(node):
             maxVal = int(maxVal)
         prop.maxVal = maxVal
         prop.minVal = minVal
-        for subNode in node.childNodes:
-            if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'FORMAT':
-                prop.ShowAsMap = True
-            if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'OPTION':
-                value = subNode.getAttribute('Value').upper()
-                if value[:3] == 'COL':
-                    pass
-                elif len(value) > 2 and value[1] == 'X':
-                    value = int('0x' + value[2:], 16)
-                else:
-                    value = int(value)
-                meaning = subNode.getAttribute('Name')
-                options[value] = meaning
+    # OPTION/FORMAT children must be read for every property, not only those
+    # that declare a MinValue. Properties such as OccupantGroups list named
+    # options but have no numeric range; nesting this loop inside the
+    # MinValue branch dropped their option labels entirely.
+    for subNode in node.childNodes:
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'FORMAT':
+            prop.ShowAsMap = True
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'OPTION':
+            value = subNode.getAttribute('Value').upper()
+            if value[:3] == 'COL':
+                pass
+            elif len(value) > 2 and value[1] == 'X':
+                value = int('0x' + value[2:], 16)
+            else:
+                value = int(value)
+            meaning = subNode.getAttribute('Name')
+            options[value] = meaning
 
     prop.Options = options
     return prop
