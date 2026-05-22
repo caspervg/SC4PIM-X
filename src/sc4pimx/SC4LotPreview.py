@@ -406,12 +406,15 @@ class LotEditorWin(wx.Frame):
         self.backgroundToggle.Bind(wx.EVT_TOGGLEBUTTON, self.OnToggleBackground)
         command_sizer.Add(self.backgroundToggle, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         set_names = [name for name, _ in background_sets()]
-        self.backgroundChoice = wx.Choice(command_bar, -1, choices=set_names, size=(-1, 28))
+        # Natural height + ALIGN_CENTER_VERTICAL: a forced 28px height leaves
+        # the Choice's text top-aligned with empty space below it.
+        self.backgroundChoice = wx.Choice(command_bar, -1, choices=set_names)
         if self.backgroundSet in set_names:
             self.backgroundChoice.SetStringSelection(self.backgroundSet)
         else:
             self.backgroundChoice.SetSelection(0)
         self.backgroundChoice.Bind(wx.EVT_CHOICE, self.OnChooseBackgroundSet)
+        self.backgroundChoice.Enable(self.bDrawBack)
         command_sizer.Add(self.backgroundChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
@@ -1462,6 +1465,8 @@ class LotEditorWin(wx.Frame):
             self.bDrawBack = not self.bDrawBack
             if toggle is not None:
                 toggle.SetValue(self.bDrawBack)
+        if hasattr(self, 'backgroundChoice'):
+            self.backgroundChoice.Enable(self.bDrawBack)
         self.on_draw()
 
     def OnChooseBackgroundSet(self, event):
