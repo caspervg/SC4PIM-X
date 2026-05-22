@@ -276,8 +276,10 @@ class TransitInspectorPanel(wx.Panel):
         self.rep14Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.rep16Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
 
-        # Per-edge direction bytes, laid out as a compass cross (N top, S bottom,
-        # W left, E right) so the editor matches the lot viewport orientation.
+        # Per-edge direction bytes laid out as a cross. The 2D lot view is
+        # South-up (an orientation-0 / South-facing object faces up), so the
+        # cross is South-top / North-bottom to match the viewport; East is on
+        # the right, West on the left.
         self.dirCtrls = []
         for _name, _shift in DIRECTION_BYTE_SHIFTS:
             ctrl = wx.TextCtrl(self, -1, "00", size=(36, 22),
@@ -286,9 +288,9 @@ class TransitInspectorPanel(wx.Panel):
             self.dirCtrls.append(ctrl)
         dir_n, dir_w, dir_s, dir_e = self.dirCtrls
         cross = wx.GridSizer(3, 3, 2, 2)
-        for cell in (None, (LEXFacingNorth, dir_n), None,
+        for cell in (None, (LEXFacingSouth, dir_s), None,
                      (LEXFacingWest, dir_w), None, (LEXFacingEast, dir_e),
-                     None, (LEXFacingSouth, dir_s), None):
+                     None, (LEXFacingNorth, dir_n), None):
             if cell is None:
                 cross.Add((0, 0))
             else:
