@@ -103,6 +103,29 @@ DIR_GEOMETRY = [
     ((0.0, 0.5), (0.38, 0.5)),
 ]
 
+# The 32-bit transit direction value is four independent per-edge bytes, not a
+# bit set. SC4Tool's LotTile.GetTrafficDirection splits the hex string as
+# North/West/South/East from the most- to least-significant byte.
+DIRECTION_BYTE_SHIFTS = (("N", 24), ("W", 16), ("S", 8), ("E", 0))
+
+# SC4Tool's FormTransitDirection only offers these six per-edge values; any
+# other byte is flagged as needing expert editing (LotTile.m_MustExpert).
+VALID_DIRECTION_VALUES = (0x00, 0x01, 0x02, 0x03, 0x04, 0xFF)
+
+
+def direction_bytes(value):
+    """Split a 32-bit transit direction value into (north, west, south, east)."""
+    value = int(value) & 0xFFFFFFFF
+    return tuple((value >> shift) & 0xFF for _name, shift in DIRECTION_BYTE_SHIFTS)
+
+
+def pack_direction(north, west, south, east):
+    """Pack four per-edge bytes back into a 32-bit transit direction value."""
+    result = 0
+    for byte, (_name, shift) in zip((north, west, south, east), DIRECTION_BYTE_SHIFTS):
+        result |= (int(byte) & 0xFF) << shift
+    return result & 0xFFFFFFFF
+
 
 def is_transit_object(values):
     return bool(values) and values[0] == TRANSIT_OBJECT_TYPE
@@ -237,6 +260,7 @@ class TransitInspectorPanel(wx.Panel):
         self.editor = editor
         self._updating = False
         self._has_selection = False
+        self._dir_mask = 0
         box = wx.StaticBox(self, -1, LEXTransitInspector)
         sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
         grid = wx.FlexGridSizer(0, 2, 4, 6)
@@ -248,9 +272,31 @@ class TransitInspectorPanel(wx.Panel):
             choices=["%d - %s" % (value, label) for value, label, _short in NETWORK_TYPES],
         )
         self.directionPresetChoice = wx.Choice(self, -1, choices=EDGE_PRESET_LABELS)
-        self.directionHex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
+        self.directionHex = wx.TextCtrl(self, -1, "", style=wx.TE_READONLY | wx.TE_CENTER)
         self.rep14Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.rep16Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
+
+        # Per-edge direction bytes, laid out as a compass cross (N top, S bottom,
+        # W left, E right) so the editor matches the lot viewport orientation.
+        self.dirCtrls = []
+        for _name, _shift in DIRECTION_BYTE_SHIFTS:
+            ctrl = wx.TextCtrl(self, -1, "00", size=(36, 22),
+                               style=wx.TE_PROCESS_ENTER | wx.TE_CENTER)
+            ctrl.SetMaxLength(2)
+            self.dirCtrls.append(ctrl)
+        dir_n, dir_w, dir_s, dir_e = self.dirCtrls
+        cross = wx.GridSizer(3, 3, 2, 2)
+        for cell in (None, (LEXFacingNorth, dir_n), None,
+                     (LEXFacingWest, dir_w), None, (LEXFacingEast, dir_e),
+                     None, (LEXFacingSouth, dir_s), None):
+            if cell is None:
+                cross.Add((0, 0))
+            else:
+                pair = wx.BoxSizer(wx.HORIZONTAL)
+                pair.Add(wx.StaticText(self, -1, cell[0]), 0,
+                         wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
+                pair.Add(cell[1], 0)
+                cross.Add(pair, 0, wx.ALIGN_CENTER)
 
         for label, ctrl in [
             (LEXTransitNetworkType, self.networkChoice),
@@ -263,13 +309,18 @@ class TransitInspectorPanel(wx.Panel):
             grid.Add(ctrl, 1, wx.EXPAND)
 
         sizer.Add(grid, 0, wx.EXPAND | wx.ALL, 4)
+        # The compass cross is too wide for the label/value grid, so it gets
+        # its own full-width centred row.
+        sizer.Add(wx.StaticText(self, -1, LEXTransitDirectionEdges), 0,
+                  wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        sizer.Add(cross, 0, wx.ALIGN_CENTER | wx.ALL, 4)
         self.status = wx.StaticText(self, -1, "")
         sizer.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
         self.SetSizer(sizer)
 
-        for ctrl in (self.networkChoice, self.directionPresetChoice):
-            ctrl.Bind(wx.EVT_CHOICE, self.OnControl)
-        for ctrl in (self.directionHex, self.rep14Hex, self.rep16Hex):
+        self.networkChoice.Bind(wx.EVT_CHOICE, self.OnControl)
+        self.directionPresetChoice.Bind(wx.EVT_CHOICE, self.OnPreset)
+        for ctrl in self.dirCtrls + [self.rep14Hex, self.rep16Hex]:
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnTextControl)
             ctrl.Bind(wx.EVT_KILL_FOCUS, self.OnTextControl)
 
@@ -290,16 +341,46 @@ class TransitInspectorPanel(wx.Panel):
             self.status.SetLabel(LEXTransitDefaults)
             settings = defaults
         self.networkChoice.SetSelection(_network_index(settings["network"]))
-        self._set_mask_controls(self.directionPresetChoice, self.directionHex, settings["direction_mask"])
+        self._set_direction_fields(settings["direction_mask"])
         self.rep14Hex.SetValue(format_hex32(settings["rep14"]))
         self.rep16Hex.SetValue(format_hex32(settings["rep16"]))
         self._updating = False
         self.Show()
         self.Layout()
 
-    def _set_mask_controls(self, choice, text, mask):
-        choice.SetSelection(_preset_index(mask))
-        text.SetValue(format_hex32(mask))
+    def _set_direction_fields(self, mask):
+        """Refresh the edge cross, hex display and preset choice from a mask."""
+        self._dir_mask = int(mask) & 0xFFFFFFFF
+        for ctrl, byte in zip(self.dirCtrls, direction_bytes(self._dir_mask)):
+            ctrl.SetValue("%02X" % byte)
+            ctrl.SetBackgroundColour(wx.NullColour)
+        self.directionHex.SetValue(format_hex32(self._dir_mask))
+        self.directionPresetChoice.SetSelection(_preset_index(self._dir_mask))
+
+    def _read_direction_mask(self):
+        """Pack the four edge fields into a mask, validating each byte.
+
+        Raises ValueError if a field is not hex or not one of the six edge
+        values SC4Tool accepts (00-04, FF); the offending field is highlighted.
+        """
+        edge_bytes = []
+        invalid = []
+        for ctrl in self.dirCtrls:
+            try:
+                byte = int(ctrl.GetValue().strip() or "0", 16)
+            except ValueError:
+                byte = None
+            if byte is None or byte not in VALID_DIRECTION_VALUES:
+                invalid.append(ctrl)
+                ctrl.SetBackgroundColour(wx.Colour(255, 220, 220))
+            else:
+                ctrl.SetBackgroundColour(wx.NullColour)
+            edge_bytes.append(byte)
+        for ctrl in self.dirCtrls:
+            ctrl.Refresh()
+        if invalid:
+            raise ValueError("invalid edge direction value")
+        return pack_direction(*edge_bytes)
 
     def _choice_network(self):
         idx = self.networkChoice.GetSelection()
@@ -307,30 +388,37 @@ class TransitInspectorPanel(wx.Panel):
             idx = 0
         return NETWORK_TYPES[idx][0]
 
-    def _choice_mask(self, choice, text, force_text=False):
-        if force_text:
-            return parse_hex32(text.GetValue())
-        idx = choice.GetSelection()
-        if idx != wx.NOT_FOUND:
-            return EDGE_PRESETS[idx][1]
-        return parse_hex32(text.GetValue())
-
     def OnControl(self, event):
-        self._apply_controls(event, False)
+        self._apply_controls(event)
 
     def OnTextControl(self, event):
-        self._apply_controls(event, True)
+        self._apply_controls(event)
 
-    def _apply_controls(self, event, force_text):
+    def OnPreset(self, event):
+        if not self._updating:
+            idx = self.directionPresetChoice.GetSelection()
+            if idx != wx.NOT_FOUND:
+                self._updating = True
+                self._set_direction_fields(EDGE_PRESETS[idx][1])
+                self._updating = False
+        self._apply_controls(event)
+
+    def _apply_controls(self, event):
         if self._updating:
+            if hasattr(event, "Skip"):
+                event.Skip()
+            return
+        try:
+            direction_mask = self._read_direction_mask()
+        except ValueError:
+            self.status.SetLabel(LEXTransitInvalidDirValue)
             if hasattr(event, "Skip"):
                 event.Skip()
             return
         try:
             values = {
                 "network": self._choice_network(),
-                "direction_mask": self._choice_mask(
-                    self.directionPresetChoice, self.directionHex, force_text),
+                "direction_mask": direction_mask,
                 "rep14": parse_hex32(self.rep14Hex.GetValue()),
                 "rep16": parse_hex32(self.rep16Hex.GetValue()),
             }
@@ -339,6 +427,11 @@ class TransitInspectorPanel(wx.Panel):
             if hasattr(event, "Skip"):
                 event.Skip()
             return
+        self._updating = True
+        self.directionHex.SetValue(format_hex32(direction_mask))
+        self.directionPresetChoice.SetSelection(_preset_index(direction_mask))
+        self._dir_mask = direction_mask
+        self._updating = False
         self.editor.ApplyTransitInspectorEdit(values)
         if hasattr(event, "Skip"):
             event.Skip()

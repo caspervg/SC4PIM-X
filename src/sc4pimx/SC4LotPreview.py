@@ -264,13 +264,14 @@ class LEInspectorPanel(wx.Panel):
             grid.Add(ctrl, 1, wx.EXPAND)
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnApply)
         fields.Add(grid, 0, wx.EXPAND | wx.ALL, 4)
-        # Rotation: one toggle button per compass direction. The lot-config
-        # rotation flag is North=0, East=1, South=2, West=3.
+        # Rotation: one toggle button per compass direction. Per the
+        # LotConfigPropertyLotObject spec, rep 3 orientation is
+        # South=0, West=1, North=2, East=3.
         rot_row = wx.BoxSizer(wx.HORIZONTAL)
         rot_row.Add(wx.StaticText(self, -1, LEXInspectorFacing), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.rotButtons = {}
-        for label, rot in [(LEXFacingNorth, 0), (LEXFacingEast, 1),
-                            (LEXFacingSouth, 2), (LEXFacingWest, 3)]:
+        for label, rot in [(LEXFacingNorth, 2), (LEXFacingEast, 3),
+                            (LEXFacingSouth, 0), (LEXFacingWest, 1)]:
             btn = wx.ToggleButton(self, -1, label, size=(34, 26))
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, r=rot: self.OnRotation(r))
             self.rotButtons[rot] = btn
@@ -766,7 +767,7 @@ class LotEditorWin(wx.Frame):
         self.on_draw()
 
     def SetSelectionRotation(self, rotation):
-        """Rotate the single selection to an absolute facing (0=N,1=E,2=S,3=W)."""
+        """Rotate the single selection to an absolute facing (0=S,1=W,2=N,3=E)."""
         if len(self.selected) != 1:
             return
         values = self._lot_config_for_selection(self.selected[0])
@@ -2635,11 +2636,33 @@ class LotEditorWin(wx.Frame):
             glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
             glDrawArrays(GL_LINES, 0, len(self.missingLines))
             glDisableClientState(GL_VERTEX_ARRAY)
+        self.DrawCardinalLabels(rot2D, scaling)
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
         if not bUnderMouse:
             self.SetStatusText('', 5)
         return
+
+    def DrawCardinalLabels(self, rot2D, scaling):
+        """Paint N/E/S/W markers just outside the lot frame in the 2D view.
+
+        The labels sit at the lot-edge midpoints in (centred) lot space, so
+        they rotate with the lot as the view turns and always point at the
+        true cardinal directions: North is the far edge, South the near edge.
+        """
+        x = self.lotSizeXOffset
+        y = self.lotSizeYOffset
+        if not x or not y:
+            return
+        margin = 6.0
+        glColor3f(1.0, 0.85, 0.2)
+        for label, lx, ly in (
+            (LEXFacingNorth, -1.0, y + margin),
+            (LEXFacingSouth, -1.0, -y - margin),
+            (LEXFacingEast, x + margin, -1.0),
+            (LEXFacingWest, -x - margin, -1.0),
+        ):
+            self.glCanvas2D.text_2d(lx, ly, label, rot2D, scaling)
 
     def DrawBackGround2(self, x=0, y=0):
         if not getattr(self, 'bDrawBack', False):
