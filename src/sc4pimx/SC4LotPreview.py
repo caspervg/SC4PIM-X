@@ -448,6 +448,38 @@ class LotEditorWin(wx.Frame):
             btn.Bind(wx.EVT_BUTTON, handler)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
+        # Alignment, rotation and mirror: compact buttons (also keyboard).
+        # _update_edit_buttons disables these when they do not apply. Each
+        # button sits in a holder panel that carries the tooltip, because a
+        # disabled button does not show its own tooltip on Windows.
+        self.alignButtons = []
+        self.rotateButtons = []
+        self.mirrorButton = None
+        for label, handler, tip, group in [
+            ('◀', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align'),
+            ('▶', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align'),
+            ('▲', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align'),
+            ('▼', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align'),
+            ('↺', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate'),
+            ('↻', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate'),
+            ('⇄', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror'),
+        ]:
+            holder = wx.Panel(command_bar, -1)
+            btn = wx.Button(holder, -1, label, size=(32, 28))
+            holder.SetToolTip(tip)
+            btn.SetToolTip(tip)
+            holder_sizer = wx.BoxSizer(wx.VERTICAL)
+            holder_sizer.Add(btn, 0)
+            holder.SetSizerAndFit(holder_sizer)
+            btn.Bind(wx.EVT_BUTTON, handler)
+            command_sizer.Add(holder, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
+            if group == 'align':
+                self.alignButtons.append(btn)
+            elif group == 'rotate':
+                self.rotateButtons.append(btn)
+            else:
+                self.mirrorButton = btn
+
         # Background display: a toggle (also Ctrl+B) plus a set picker.
         self.backgroundToggle = wx.ToggleButton(command_bar, -1, LEXToolbarBackground, size=(-1, 28))
         self.backgroundToggle.SetToolTip('%s  [Shift+B]' % LEXToolbarBackground)
@@ -591,6 +623,7 @@ class LotEditorWin(wx.Frame):
         return LEXInspectorSelection
 
     def UpdateSelectionInspector(self):
+        self._update_edit_buttons()
         if not hasattr(self, 'inspector'):
             return
         if not self.selected:
@@ -695,6 +728,24 @@ class LotEditorWin(wx.Frame):
         if hasattr(self, 'modeButtons'):
             for mode, btn in self.modeButtons.items():
                 btn.SetValue(mode == self.modeEdit)
+        self._update_edit_buttons()
+
+    def _update_edit_buttons(self):
+        """Disable align/rotate/mirror buttons when they cannot act.
+
+        The tooltip lives on each button's holder panel, so it still shows
+        while the button itself is disabled.
+        """
+        if not hasattr(self, 'alignButtons'):
+            return
+        has_sel = bool(self.selected)
+        align_ok = has_sel and self.modeEdit in (MODE_EDIT_PROP, MODE_EDIT_FLORA)
+        for btn in self.alignButtons:
+            btn.Enable(align_ok)
+        for btn in self.rotateButtons:
+            btn.Enable(has_sel)
+        if self.mirrorButton is not None:
+            self.mirrorButton.Enable(has_sel and self.modeEdit in (MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX))
 
     def OnModePan(self, event):
         self.modeEdit = MODE_EDIT_PAN
@@ -985,7 +1036,7 @@ class LotEditorWin(wx.Frame):
     def OnRotateRight(self, event):
         if self.selected:
             self._push_undo()
-        if event.ShiftDown():
+        if hasattr(event, 'ShiftDown') and event.ShiftDown():
             if self.modeEdit in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
                 self.GroupRotate([3, 0, 1, 2], RotCCW)
                 self.UpdatePIM()
@@ -1009,7 +1060,7 @@ class LotEditorWin(wx.Frame):
     def OnRotateLeft(self, event):
         if self.selected:
             self._push_undo()
-        if event.ShiftDown():
+        if hasattr(event, 'ShiftDown') and event.ShiftDown():
             if self.modeEdit in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
                 self.GroupRotate([1, 2, 3, 0], RotCW)
                 self.UpdatePIM()
