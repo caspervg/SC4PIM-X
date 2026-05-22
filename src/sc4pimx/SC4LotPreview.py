@@ -300,6 +300,9 @@ class LotEditorWin(wx.Frame):
         self.s3DTexturesHolder = S3DTexturesHolder(self.glCanvas2D)
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.zoom = 3
+        # Continuous multiplier on top of the discrete zoom level, so Fit view
+        # can frame the lot exactly. Reset to 1.0 by any explicit zoom.
+        self.viewScale = 1.0
         self.rotation = 0
         self.panel = 3
         self.highlighted = []
@@ -847,6 +850,7 @@ class LotEditorWin(wx.Frame):
         zoomStrs = [
          viewerZoom1, viewerZoom2, viewerZoom3, viewerZoom4, viewerZoom5, viewerZoom5]
         self.zoom = zoom
+        self.viewScale = 1.0
         self.glCanvas2D.Refresh(False)
 
     def OnZoom(self, event):
@@ -857,23 +861,23 @@ class LotEditorWin(wx.Frame):
         if self.zoom > 0:
             self.SetZoom(self.zoom - 1)
 
-    def _fit_zoom(self):
-        """Largest zoom level at which the whole lot fits in the 2D viewport."""
+    def _exact_fit_scale(self):
+        """The 2D world scale at which the whole lot exactly fills the viewport."""
         size = self.glCanvas2D.GetClientSize()
         w = size[0] / 2 if self.panel == 3 else size[0]
         h = size[1]
-        lot_half = max(getattr(self, 'lotSizeXOver', 16), getattr(self, 'lotSizeYOver', 16)) / 2.0 + 8
-        if w <= 0 or h <= 0 or lot_half <= 0:
-            return self.zoom
-        target = min(w, h) / 20.0 / lot_half
-        best = 0
-        for idx, scale in enumerate(LotEditorWin.zoomScale):
-            if scale <= target:
-                best = idx
-        return best
+        x_half = getattr(self, 'lotSizeXOver', 16) / 2.0 + 8
+        y_half = getattr(self, 'lotSizeYOver', 16) / 2.0 + 8
+        if w <= 0 or h <= 0:
+            return LotEditorWin.zoomScale[self.zoom]
+        return min((w / 20.0) / x_half, (h / 20.0) / y_half)
 
     def OnFitView(self, event=None):
-        """Recentre the camera and zoom so the whole lot is visible."""
+        """Recentre and scale so the whole lot exactly fills the 2D viewport.
+
+        The discrete zoom still selects the texture LOD; viewScale is the
+        fractional remainder that makes the fit exact.
+        """
         self.posx = 0
         self.posy = 0
         self.posz = 10
@@ -882,7 +886,14 @@ class LotEditorWin(wx.Frame):
         self.pos3Dz = -10
         self.BackPosx = 0
         self.BackPosy = 0
-        self.SetZoom(self._fit_zoom())
+        exact = self._exact_fit_scale()
+        zoom = 0
+        for idx, scale in enumerate(LotEditorWin.zoomScale):
+            if scale <= exact:
+                zoom = idx
+        self.zoom = zoom
+        self.viewScale = exact / LotEditorWin.zoomScale[zoom]
+        self.glCanvas2D.Refresh(False)
 
     def OnSetZoom1(self, event):
         self.SetZoom(0)
@@ -2221,7 +2232,7 @@ class LotEditorWin(wx.Frame):
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         zoom = self.zoom
-        scaling = LotEditorWin.zoomScale[zoom]
+        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
         glScalef(scaling, -scaling, scaling)
         rot2D = -self.rotation * 90.0
         glTranslate(-self.posx, -self.posy, -self.posz)
@@ -2737,7 +2748,7 @@ class LotEditorWin(wx.Frame):
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         zoom = self.zoom
-        scaling = LotEditorWin.zoomScale[zoom]
+        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
         glScalef(scaling, -scaling, scaling)
         rot2D = -self.rotation * 90.0
         glTranslate(-self.posx, -self.posy, -self.posz)
