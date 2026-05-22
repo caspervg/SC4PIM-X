@@ -418,12 +418,23 @@ class LotEditorWin(wx.Frame):
         self.lotContextLabel.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         command_sizer.Add(self.lotContextLabel, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
 
+        # Edit-mode buttons are toggles in a radio group so the active mode is
+        # always visible; _sync_mode_buttons keeps them in step with the
+        # keyboard shortcuts (h/p/t/v/f/b).
+        self.modeButtons = {}
+        for label, mode, handler in [
+            (LEXPAN, MODE_EDIT_PAN, self.OnModePan),
+            (LEXProps, MODE_EDIT_PROP, self.OnModeProp),
+            (LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex),
+            (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex),
+            (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora),
+        ]:
+            btn = wx.ToggleButton(command_bar, -1, label, size=(-1, 28))
+            btn.Bind(wx.EVT_TOGGLEBUTTON, handler)
+            self.modeButtons[mode] = btn
+            command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
         for label, handler in [
-            (LEXPAN, self.OnModePan),
-            (LEXProps, self.OnModeProp),
-            (LEXBaseTexture, self.OnModeBaseTex),
-            (LEXOverlayTexture, self.OnModeOverTex),
-            (LEXFlora, self.OnModeFlora),
             (LEXToolbarView, self.OnCycleViewMode),
             (LEXToolbarZoomIn, self.OnZoom),
             (LEXToolbarZoomOut, self.OnUnzoom),
@@ -479,6 +490,7 @@ class LotEditorWin(wx.Frame):
         self.mainSplitter.SetMinimumPaneSize(260)
         root.Add(self.mainSplitter, 1, wx.EXPAND)
         panel.SetSizer(root)
+        self._sync_mode_buttons()
         # The constructor size is only the "restore" size; the lot editor is
         # cramped at 800x600, so open it maximized.
         self.Maximize(True)
@@ -674,10 +686,16 @@ class LotEditorWin(wx.Frame):
         self.UpdateSelectionInspector()
         self.on_draw()
 
+    def _sync_mode_buttons(self):
+        if hasattr(self, 'modeButtons'):
+            for mode, btn in self.modeButtons.items():
+                btn.SetValue(mode == self.modeEdit)
+
     def OnModePan(self, event):
         self.modeEdit = MODE_EDIT_PAN
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.sb.SetStatusText(LEXPAN, 3)
+        self._sync_mode_buttons()
 
     def OnModeProp(self, event):
         if self.modeEdit != MODE_EDIT_PROP:
@@ -688,6 +706,7 @@ class LotEditorWin(wx.Frame):
         self.modeEdit = MODE_EDIT_PROP
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXProps, 3)
+        self._sync_mode_buttons()
 
     def OnModeBuilding(self, event):
         if self.modeEdit != MODE_EDIT_BUILDING:
@@ -698,6 +717,7 @@ class LotEditorWin(wx.Frame):
         self.modeEdit = MODE_EDIT_BUILDING
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBuilding, 3)
+        self._sync_mode_buttons()
 
     def OnModeBaseTex(self, event):
         if self.modeEdit != MODE_EDIT_BASETEX:
@@ -707,6 +727,7 @@ class LotEditorWin(wx.Frame):
         self.modeEdit = MODE_EDIT_BASETEX
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXBaseTexture, 3)
+        self._sync_mode_buttons()
 
     def OnModeOverTex(self, event):
         if self.modeEdit != MODE_EDIT_OVERTEX:
@@ -717,6 +738,7 @@ class LotEditorWin(wx.Frame):
         self.modeEdit = MODE_EDIT_OVERTEX
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXOverlayTexture, 3)
+        self._sync_mode_buttons()
 
     def OnModeFlora(self, event):
         if self.modeEdit != MODE_EDIT_FLORA:
@@ -727,6 +749,7 @@ class LotEditorWin(wx.Frame):
         self.modeEdit = MODE_EDIT_FLORA
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
         self.sb.SetStatusText(LEXFlora, 3)
+        self._sync_mode_buttons()
 
     def OnCycleFamily(self, event):
         self.currentBuilding += 1
