@@ -969,6 +969,7 @@ class LotEditorWin(wx.Frame):
             self.Rotate([3, 0, 1, 2], RotCW)
             self.glCanvas2D.Refresh(False)
             self.UpdatePIM()
+        self.UpdateSelectionInspector()
 
     def OnRotateViewLeft(self, event):
         rot = self.rotation
@@ -992,6 +993,7 @@ class LotEditorWin(wx.Frame):
             self.Rotate([1, 2, 3, 0], RotCCW)
             self.glCanvas2D.Refresh(False)
             self.UpdatePIM()
+        self.UpdateSelectionInspector()
 
     def OnMirror(self, event):
         if self.modeEdit == MODE_EDIT_BASETEX or self.modeEdit == MODE_EDIT_OVERTEX:
