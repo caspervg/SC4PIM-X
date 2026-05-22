@@ -553,12 +553,32 @@ class LotEditorWin(wx.Frame):
             return LEXAssetTypeFlora
         return LEXInspectorSelection
 
+    def _lot_summary_text(self):
+        """Inspector text shown when nothing is selected: a lot overview."""
+        if not hasattr(self, 'exemplar'):
+            return LEXInspectorPrompt
+        lines = [LEXInspectorLotSummary, '']
+        try:
+            size = self.exemplar.GetProp(2297284496)
+            lines.append('%s: %dx%d' % (LEXInspectorLotSize, size[0], size[1]))
+        except Exception:
+            pass
+        lines.extend([
+            '%s: %d' % (LEXAssetTypeProp, len(getattr(self, 'props', []))),
+            '%s: %d' % (LEXAssetTypeFlora, len(getattr(self, 'floras', []))),
+            '%s: %d' % (LEXAssetTypeBaseTexture, len(getattr(self, 'texBases', []))),
+            '%s: %d' % (LEXAssetTypeOverlayTexture, len(getattr(self, 'texOverlays', []))),
+            '',
+            LEXInspectorNoSelection,
+        ])
+        return '\n'.join(lines)
+
     def UpdateSelectionInspector(self):
         self._update_edit_buttons()
         if not hasattr(self, 'inspector'):
             return
         if not self.selected:
-            self.inspector.SetText(LEXInspectorNoSelection)
+            self.inspector.SetText(self._lot_summary_text())
             self.inspector.HideFields()
             return
         lines = [
@@ -2037,6 +2057,7 @@ class LotEditorWin(wx.Frame):
         self._update_lot_context()
         if not bForIcon:
             self.RefreshAssetBrowser()
+            self.UpdateSelectionInspector()
         wx.EndBusyCursor()
         self.t2 = wx.CallLater(500, self.on_draw)
 
