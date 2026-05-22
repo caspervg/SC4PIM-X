@@ -18,6 +18,23 @@ from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
 from .SC4LETools import *
 from .SC4OpenGL import *
+from .SC4TransitLotTools import (
+    DEFAULT_TRANSIT_SETTINGS,
+    TRANSIT_OBJECT_TYPE,
+    TransitInspectorPanel,
+    cached_transit,
+    draw_transit_overlay,
+    ensure_transit_values,
+    format_hex32,
+    is_transit_object,
+    make_transit_values,
+    mask_label,
+    network_label,
+    quad_for_values,
+    remove_cached_transit,
+    tile_quad,
+    update_cached_transit,
+)
 from .translation import *
 
 logger = logging.getLogger(__name__)
@@ -39,6 +56,7 @@ MODE_EDIT_OVERTEX = 2
 MODE_EDIT_PROP = 4
 MODE_EDIT_BUILDING = 8
 MODE_EDIT_FLORA = 16
+MODE_EDIT_TRANSIT = 32
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -247,12 +265,12 @@ class LEInspectorPanel(wx.Panel):
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnApply)
         fields.Add(grid, 0, wx.EXPAND | wx.ALL, 4)
         # Rotation: one toggle button per compass direction. The lot-config
-        # rotation flag is South=0, East=1, North=2, West=3.
+        # rotation flag is North=0, East=1, South=2, West=3.
         rot_row = wx.BoxSizer(wx.HORIZONTAL)
         rot_row.Add(wx.StaticText(self, -1, LEXInspectorFacing), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.rotButtons = {}
-        for label, rot in [(LEXFacingNorth, 2), (LEXFacingEast, 1),
-                            (LEXFacingSouth, 0), (LEXFacingWest, 3)]:
+        for label, rot in [(LEXFacingNorth, 0), (LEXFacingEast, 1),
+                            (LEXFacingSouth, 2), (LEXFacingWest, 3)]:
             btn = wx.ToggleButton(self, -1, label, size=(34, 26))
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, r=rot: self.OnRotation(r))
             self.rotButtons[rot] = btn
@@ -261,17 +279,22 @@ class LEInspectorPanel(wx.Panel):
         self.applyBtn = wx.Button(self, -1, LEXInspectorApply, size=(-1, 26))
         self.applyBtn.Bind(wx.EVT_BUTTON, self.OnApply)
         fields.Add(self.applyBtn, 0, wx.EXPAND | wx.ALL, 4)
+        self.transitPanel = TransitInspectorPanel(self, editor)
         sizer.Add(self.text, 1, wx.EXPAND | wx.ALL, 6)
         sizer.Add(fields, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        sizer.Add(self.transitPanel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         self.SetSizer(sizer)
         self._outer = sizer
         self._fields = fields
+        self._transit = self.transitPanel
         self.HideFields()
+        self.HideTransit()
 
     def SetText(self, value):
         self.text.SetValue(value)
 
     def ShowFields(self, x, y, height, rotation):
+        self.HideTransit()
         self.fldX.SetValue('%.2f' % x)
         self.fldY.SetValue('%.2f' % y)
         self.fldH.SetValue('%.2f' % height)
@@ -282,6 +305,16 @@ class LEInspectorPanel(wx.Panel):
 
     def HideFields(self):
         self._outer.Show(self._fields, False, recursive=True)
+        self.Layout()
+
+    def ShowTransit(self, values_list, defaults):
+        self.HideFields()
+        self._transit.ShowFor(values_list, defaults)
+        self._outer.Show(self._transit, True, recursive=True)
+        self.Layout()
+
+    def HideTransit(self):
+        self._outer.Show(self._transit, False, recursive=True)
         self.Layout()
 
     def OnApply(self, event):
@@ -324,6 +357,7 @@ class LotEditorWin(wx.Frame):
         self.lotFloraDescs = []
         self.modeDisplay = MODE_DISPLAY_FULL
         self.modeEdit = MODE_EDIT_PAN
+        self.transitDefaults = dict(DEFAULT_TRANSIT_SETTINGS)
         self.glCanvas2D = MyCanvasBase(panel, size=(800, 400))
         self.glCanvas2D.SetWindowStyle(self.glCanvas2D.GetWindowStyleFlag() | wx.WANTS_CHARS)
         self.glCanvas2D.displayer = self
@@ -382,6 +416,7 @@ class LotEditorWin(wx.Frame):
             (LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex, 'T'),
             (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
             (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
+            (LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
         ]:
             btn = wx.ToggleButton(command_bar, -1, label, size=(-1, 28))
             btn.SetToolTip('%s  [%s]' % (label, hint))
@@ -588,6 +623,8 @@ class LotEditorWin(wx.Frame):
             return LEXAssetTypeBaseTexture
         if values[0] == 4:
             return LEXAssetTypeFlora
+        if values[0] == 7:
+            return LEXAssetTypeTransit
         return LEXInspectorSelection
 
     def _lot_summary_text(self):
@@ -605,6 +642,7 @@ class LotEditorWin(wx.Frame):
             '%s: %d' % (LEXAssetTypeFlora, len(getattr(self, 'floras', []))),
             '%s: %d' % (LEXAssetTypeBaseTexture, len(getattr(self, 'texBases', []))),
             '%s: %d' % (LEXAssetTypeOverlayTexture, len(getattr(self, 'texOverlays', []))),
+            '%s: %d' % (LEXAssetTypeTransit, len(getattr(self, 'te', []))),
             '',
             LEXInspectorNoSelection,
         ])
@@ -616,13 +654,46 @@ class LotEditorWin(wx.Frame):
             return
         if not self.selected:
             self.inspector.SetText(self._lot_summary_text())
-            self.inspector.HideFields()
+            if self.modeEdit == MODE_EDIT_TRANSIT:
+                self.inspector.ShowTransit([], self.transitDefaults)
+            else:
+                self.inspector.HideFields()
+                self.inspector.HideTransit()
             return
+        selected_values = []
+        for selected_id in self.selected:
+            values = self._lot_config_for_selection(selected_id)
+            if values is not None:
+                selected_values.append(values)
         lines = [
             LEXInspectorSelection,
             '',
             '%s: %d' % (LEXInspectorSelectionCount, len(self.selected)),
         ]
+        if selected_values and all(is_transit_object(values) for values in selected_values):
+            lines.extend([
+                '%s: %s' % (LEXInspectorType, LEXAssetTypeTransit),
+                '%s: %s' % (LEXTransitNetworkType,
+                            network_label(ensure_transit_values(selected_values[0][:])[12])),
+                '%s: %s' % (LEXTransitDirectionMask,
+                            mask_label(ensure_transit_values(selected_values[0][:])[14])),
+                '%s: %s' % (LEXTransitRep14,
+                            format_hex32(ensure_transit_values(selected_values[0][:])[13])),
+                '%s: %s' % (LEXTransitRep16,
+                            format_hex32(ensure_transit_values(selected_values[0][:])[15])),
+            ])
+            if len(selected_values) == 1:
+                values = ensure_transit_values(selected_values[0][:])
+                cx = ToCoord(values[3])
+                cy = ToCoord(values[5])
+                lines.extend([
+                    '%s: %s' % (LEXInspectorID, hex2str(values[11])),
+                    '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
+                    '%s: %s' % (LEXInspectorRotation, values[2] & 15),
+                ])
+            self.inspector.SetText('\n'.join(lines))
+            self.inspector.ShowTransit(selected_values, self.transitDefaults)
+            return
         editable = False
         if len(self.selected) == 1:
             values = self._lot_config_for_selection(self.selected[0])
@@ -650,6 +721,7 @@ class LotEditorWin(wx.Frame):
         self.inspector.SetText('\n'.join(lines))
         if not editable:
             self.inspector.HideFields()
+        self.inspector.HideTransit()
 
     def ApplyInspectorEdit(self, px, py, height):
         """Write inspector position/height fields back to the single selection."""
@@ -694,7 +766,7 @@ class LotEditorWin(wx.Frame):
         self.on_draw()
 
     def SetSelectionRotation(self, rotation):
-        """Rotate the single selection to an absolute facing (0=S,1=E,2=N,3=W)."""
+        """Rotate the single selection to an absolute facing (0=N,1=E,2=S,3=W)."""
         if len(self.selected) != 1:
             return
         values = self._lot_config_for_selection(self.selected[0])
@@ -708,6 +780,58 @@ class LotEditorWin(wx.Frame):
         self._push_undo()
         for _ in range(steps):
             self.Rotate([3, 0, 1, 2], RotCW)
+        self.UpdatePIM()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
+    def ApplyTransitInspectorEdit(self, settings):
+        """Apply TE defaults or selected type-7 object fields from the inspector."""
+        self.transitDefaults.update(settings)
+        targets = []
+        for selected_id in self.selected:
+            values = self._lot_config_for_selection(selected_id)
+            if values is not None and is_transit_object(values):
+                targets.append(values)
+        if not targets:
+            return
+        self._push_undo()
+        for values in targets:
+            ensure_transit_values(values)
+            values[12] = int(settings['network'])
+            values[13] = int(settings['rep14'])
+            values[14] = int(settings['direction_mask'])
+            values[15] = int(settings['rep16'])
+            update_cached_transit(self.te, values)
+        self.UpdatePIM()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
+    def PlaceTransitNode(self, tile_x, tile_y):
+        """Create a type-7 TE lot object on a whole tile."""
+        if not hasattr(self, 'exemplar'):
+            return
+        lot_size = self.exemplar.GetProp(2297284496)
+        if tile_x < 0 or tile_y < 0 or tile_x >= lot_size[0] or tile_y >= lot_size[1]:
+            return
+        currentID = 0
+        lastIDProp = 2297284863
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            if values[11] > currentID:
+                currentID = values[11]
+            lastIDProp = lcp
+        currentID += 1
+        lastIDProp += 1
+        if lastIDProp >= 2297286144:
+            return
+        self._push_undo()
+        values = make_transit_values(currentID, tile_x, tile_y, self.transitDefaults)
+        self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], values[:]))
+        self.PreCacheObject(values[:])
+        self.selected = [currentID]
+        self.quadSelected = [tile_quad(tile_x, tile_y)]
         self.UpdatePIM()
         self.UpdateSelectionInspector()
         self.on_draw()
@@ -885,6 +1009,17 @@ class LotEditorWin(wx.Frame):
         self.sb.SetStatusText(LEXFlora, 3)
         self._sync_mode_buttons()
 
+    def OnModeTransit(self, event):
+        if self.modeEdit != MODE_EDIT_TRANSIT:
+            self.selected = []
+            self.newIds = []
+            self.quadSelected = []
+        self.modeEdit = MODE_EDIT_TRANSIT
+        self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+        self.sb.SetStatusText(LEXTransit, 3)
+        self.UpdateSelectionInspector()
+        self._sync_mode_buttons()
+
     def OnCycleFamily(self, event):
         self.currentBuilding += 1
         if self.currentBuilding >= len(self.buildingViewer):
@@ -1035,6 +1170,8 @@ class LotEditorWin(wx.Frame):
                         z = UpdateTexData(self.texBases)
                         if not z:
                             UpdateTexData(self.texOverlays)
+                    elif values[0] == 7:
+                        update_cached_transit(self.te, ensure_transit_values(values))
                     break
 
         return
@@ -1134,6 +1271,8 @@ class LotEditorWin(wx.Frame):
                         z = UpdateTexData(self.texBases)
                         if not z:
                             UpdateTexData(self.texOverlays)
+                    elif values[0] == 7:
+                        update_cached_transit(self.te, ensure_transit_values(values))
                     break
 
         return
@@ -1350,6 +1489,8 @@ class LotEditorWin(wx.Frame):
 
                         if not UpdateTexData(self.texBases):
                             UpdateTexData(self.texOverlays)
+                    if values[0] == TRANSIT_OBJECT_TYPE:
+                        remove_cached_transit(self.te, values[11])
                     break
 
         self.selected = []
@@ -1365,7 +1506,7 @@ class LotEditorWin(wx.Frame):
         return
 
     def OnDuplicate(self, event):
-        if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA]:
+        if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_TRANSIT]:
             return
         if len(self.quadSelected) == 0:
             return
@@ -1390,9 +1531,11 @@ class LotEditorWin(wx.Frame):
         newQuad = []
         lastIDProp += 1
         for id, q in zip(self.selected, self.quadSelected):
-            newQuad.append(q)
+            newQuad.append(q[:])
             newSelection.append(currentID)
             v = selection[id]
+            if v[0] == TRANSIT_OBJECT_TYPE:
+                ensure_transit_values(v)
             v[11] = currentID
             self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], v[:]))
             self.PreCacheObject(v)
@@ -1527,7 +1670,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self.on_draw()
@@ -2057,9 +2200,7 @@ class LotEditorWin(wx.Frame):
              ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960]
             self.lands.append(texData)
         if values[0] == 7:
-            texData = [
-             ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], (values[12], 0), values[14]]
-            self.te.append(texData)
+            self.te.append(cached_transit(values))
 
     def PreCache(self):
         self.glCanvas2D.SetCurrent()
@@ -2383,32 +2524,20 @@ class LotEditorWin(wx.Frame):
 
         if self.modeDisplay & MODE_TE_ONLY:
             for texData in self.te:
-                glColor3f(1, 1, 1)
-                self.DrawQuad(texData[0], texData[1], 2, texData[3], True)
-                if texData[4] & 33554432:
-                    glColor3f(1, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 0) % 4, 1802442183, True)
-                if texData[4] & 512:
-                    glColor3f(1, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 2) % 4, 1802442183, True)
-                if texData[4] & 131072:
-                    glColor3f(1, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 3) % 4, 1802442183, True)
-                if texData[4] & 2:
-                    glColor3f(1, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 1) % 4, 1802442183, True)
-                if texData[4] & 67108864:
-                    glColor3f(0.5, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 0) % 4, 1802442183, True)
-                if texData[4] & 1024:
-                    glColor3f(0.5, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 2) % 4, 1802442183, True)
-                if texData[4] & 262144:
-                    glColor3f(0.5, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 3) % 4, 1802442183, True)
-                if texData[4] & 4:
-                    glColor3f(0.5, 0, 0)
-                    self.DrawQuad(texData[0], texData[1], (texData[2] + 1) % 4, 1802442183, True)
+                minx = texData[0] * 16
+                miny = texData[1] * 16
+                maxx = minx + 16
+                maxy = miny + 16
+                if self.modeEdit == MODE_EDIT_TRANSIT:
+                    if self.dragSelect and QuadInQuad([minx, miny, maxx, maxy], self.dragQuad):
+                        self.highlighted.append(texData[5])
+                        self.quadHighs.append([minx, miny, maxx, maxy])
+                    if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
+                        bUnderMouse = True
+                        self.SetStatusText('%s %s' % (network_label(texData[3][0]), mask_label(texData[4])), 5)
+                        self.highlighted = [texData[5]]
+                        self.quadHighs = [[minx, miny, maxx, maxy]]
+                draw_transit_overlay(self, texData, self.modeEdit == MODE_EDIT_TRANSIT, rot2D, scaling)
 
         glColor3f(1, 1, 1)
         if self.exemplar.GetProp(1246398704)[0] & 8:
@@ -3116,6 +3245,24 @@ class LotEditorWin(wx.Frame):
                             q[0], q[1], q[2], q[3] = UpdateTexData(self.texOverlays)
                         else:
                             q[0], q[1], q[2], q[3] = z
+                    elif values[0] == TRANSIT_OBJECT_TYPE:
+                        cx = (math.floor(ToCoord(values[3]) / 16.0) + 0.5) * 16.0
+                        cy = (math.floor(ToCoord(values[5]) / 16.0) + 0.5) * 16.0
+                        tile_x = int(math.floor(cx / 16.0))
+                        tile_y = int(math.floor(cy / 16.0))
+                        if tile_x < 0 or tile_y < 0 or tile_x >= lotSizeXOver or tile_y >= lotSizeYOver:
+                            values[:] = oldValues
+                            q[:] = oldq
+                        else:
+                            ensure_transit_values(values)
+                            values[3] = ToUnsigned(int(cx * 65536))
+                            values[5] = ToUnsigned(int(cy * 65536))
+                            values[6] = ToUnsigned(int((cx - 8.0) * 65536))
+                            values[7] = ToUnsigned(int((cy - 8.0) * 65536))
+                            values[8] = ToUnsigned(int((cx + 8.0) * 65536))
+                            values[9] = ToUnsigned(int((cy + 8.0) * 65536))
+                            q[:] = quad_for_values(values)
+                            update_cached_transit(self.te, values)
                     break
 
         return
@@ -3141,7 +3288,7 @@ class LotEditorWin(wx.Frame):
                 self.glCanvas2D.dy = 0
                 self.on_draw()
                 return
-            if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING]:
+            if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING, MODE_EDIT_TRANSIT]:
                 return
             self.SetMatForUnproj()
             h = self.size[1]
@@ -3154,7 +3301,7 @@ class LotEditorWin(wx.Frame):
             if self.dragSelect:
                 self.dragQuad[2] = cx + self.lotSizeXOffset
                 self.dragQuad[3] = cy + self.lotSizeYOffset
-            elif self.modeEdit in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX]:
+            elif self.modeEdit in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_TRANSIT]:
                 # Textures live on whole 16m tiles: snap the cursor to a tile
                 # first, then move the selection by whole-tile steps so a slow
                 # drag still tracks the pointer instead of being swallowed.
@@ -3187,6 +3334,13 @@ class LotEditorWin(wx.Frame):
         px, py, pz = gluUnProject(Xclic, h - Yclick, 0)
         px += self.lotSizeXOffset
         py += self.lotSizeYOffset
+        if self.modeEdit == MODE_EDIT_TRANSIT and self.highlighted == []:
+            tile_x = int(math.floor(px / 16.0))
+            tile_y = int(math.floor(py / 16.0))
+            lot_size = self.exemplar.GetProp(2297284496)
+            if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
+                self.PlaceTransitNode(tile_x, tile_y)
+                return
         if not evt.ControlDown():
             for quad in self.quadSelected:
                 if px >= quad[0] and px <= quad[2] and py >= quad[1] and py <= quad[3]:
@@ -3290,6 +3444,8 @@ class LotEditorWin(wx.Frame):
 
                 self.exemplar.ReindexLotConfig()
 
+            self.UpdatePIM()
+        elif self.modeEdit == MODE_EDIT_TRANSIT:
             self.UpdatePIM()
         self.on_draw()
         self.UpdateSelectionInspector()
