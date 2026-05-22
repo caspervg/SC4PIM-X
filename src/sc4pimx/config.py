@@ -34,6 +34,25 @@ DEFAULT_LOT_EDITOR = {
     "ThumbSize": 72,
 }
 
+DEFAULT_MAIN_WINDOW = {
+    "Width": 900,
+    "Height": 800,
+    "X": -1,
+    "Y": -1,
+    "Maximized": False,
+    "TreeSash": 300,
+    "ListSash": 400,
+    # Resource list (listItems) column widths; the last column auto-fills.
+    "ColName": 150,
+    "ColTGI": 220,
+    "ColFile": 460,
+    # Property detail table (listProperties) column widths; Value auto-fills.
+    "PropColName": 200,
+    "PropColNameValue": 150,
+    "PropColType": 90,
+    "PropColRep": 50,
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -88,6 +107,31 @@ def load_lot_editor() -> dict:
     if isinstance(value, dict):
         settings.update(value)
     return settings
+
+
+def load_main_window() -> dict:
+    """Persisted main-window geometry and column layout."""
+    value = load().get("MainWindow", {})
+    settings = DEFAULT_MAIN_WINDOW.copy()
+    if isinstance(value, dict):
+        settings.update(value)
+    return settings
+
+
+def save_main_window(settings: dict) -> Path:
+    """Persist main-window geometry and column layout in config.toml."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    table = doc.get("MainWindow")
+    if table is None or not hasattr(table, "update"):
+        table = tomlkit.table()
+    for key, value in settings.items():
+        table[key] = value
+    doc["MainWindow"] = table
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
 
 
 def save_folders(folders) -> Path:
