@@ -12,6 +12,9 @@ and distributed only as compiled bytecode; it has since been kept alive by the
 SimCity 4 community. This is an unofficial preservation and continuation
 project — it is **not affiliated with EA/Maxis or the original author**.
 
+> The decompilation and modernization were carried out primarily using
+> GitHub Copilot and Claude Code, supervised and verified by a human maintainer.
+
 ## Running from source
 
 Install [uv](https://docs.astral.sh/uv/), then:

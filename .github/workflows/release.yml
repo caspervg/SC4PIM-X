@@ -66,6 +66,15 @@ jobs:
       - name: Build executable
         run: uv run --python 3.12 pyinstaller --clean --noconfirm SC4PIMX.spec
 
+      - name: Bundle NOTICE and README (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item NOTICE, README.md dist/SC4PIMX/
+
+      - name: Bundle NOTICE and README (macOS)
+        if: runner.os == 'macOS'
+        run: cp NOTICE README.md dist/SC4PIMX.app/Contents/Resources/
+
       - name: Ad-hoc sign macOS bundle
         if: runner.os == 'macOS'
         run: codesign --deep --force --sign - dist/SC4PIMX.app
