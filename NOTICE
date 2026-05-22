@@ -1,0 +1,27 @@
+NOTICE
+======
+
+SC4PIM-X was originally created by wouanagaine (circa 2009) as a plugin
+manager and lot editor for SimCity 4. It was written in Python 2.4 and
+distributed only as compiled bytecode.
+
+The original source code was lost, after which the tool could no longer be
+maintained by its author. wouanagaine never published the SC4PIM source code
+and never attached a license to it. Copyright in the original work therefore
+remains with wouanagaine, and all rights are reserved.
+
+This repository is an unofficial community decompilation and Python 3
+modernization of SC4PIM-X, created and shared in good faith for the
+preservation and continued use of an abandoned SimCity 4 community tool. It is
+not affiliated with, or endorsed by, EA/Maxis or the original author.
+
+No formal license has been granted for this code. It is provided as-is, with
+no warranty of any kind. If you are the rights holder (or act on their behalf)
+and would like this repository changed or taken down, please open an issue and
+the maintainers will comply.
+
+For reference, wouanagaine did deliberately release a different tool of his,
+SC4Mapper, under a permissive BSD-style license
+(https://github.com/caspervg/SC4Mapper-2013). That reflects his general
+openness toward his SimCity 4 tools, but it is NOT a license for SC4PIM and
+does not apply to this repository.
