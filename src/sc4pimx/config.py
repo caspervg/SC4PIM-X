@@ -42,15 +42,17 @@ DEFAULT_MAIN_WINDOW = {
     "Maximized": False,
     "TreeSash": 300,
     "ListSash": 400,
-    # Resource list (listItems) column widths; the last column auto-fills.
-    "ColName": 150,
-    "ColTGI": 220,
-    "ColFile": 460,
+    # Resource list (listItems) column widths; the Date column auto-fills.
+    "ColName": 240,
+    "ColTGI": 195,
+    "ColFile": 260,
     # Property detail table (listProperties) column widths; Value auto-fills.
-    "PropColName": 200,
-    "PropColNameValue": 150,
-    "PropColType": 90,
-    "PropColRep": 50,
+    "PropColName": 210,
+    "PropColNameValue": 110,
+    "PropColType": 80,
+    "PropColRep": 45,
+    # Identifiers of tree categories that were expanded when the app last closed.
+    "TreeExpanded": [],
 }
 
 

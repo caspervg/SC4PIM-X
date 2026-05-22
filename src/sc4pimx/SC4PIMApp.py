@@ -24,7 +24,7 @@ from . import SC4IconMakerDlg, config, treeDnD
 from .logsetup import configure_logging
 from .ATCViewer import *
 from .DependenciesDlg import *
-from .paths import asset_path, ensure_user_data_dir, image_db_dir
+from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .settings import *
 from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
@@ -234,6 +234,111 @@ class MyTreeCtrl(wx.TreeCtrl):
         self.Bind(wx.EVT_TREE_BEGIN_LABEL_EDIT, self.OnBeginEdit)
         self.Bind(wx.EVT_TREE_END_LABEL_EDIT, self.OnEndEdit)
 
+    # ------------------------------------------------------------------
+    # Tree navigation helpers: descriptor counts, collapse/expand state
+    # persistence and incremental category search.
+    # ------------------------------------------------------------------
+
+    def _walk(self, item=None):
+        """Yield every tree item in pre-order (parents before children)."""
+        if item is None:
+            item = self.GetRootItem()
+        yield item
+        child, cookie = self.GetFirstChild(item)
+        while child.IsOk():
+            yield from self._walk(child)
+            child = self.GetNextSibling(child)
+
+    def _item_key(self, item):
+        """A stable string identifier for a tree item, or None if unkeyable.
+
+        Used to persist which categories the user left expanded.
+        """
+        for fixed, key in ((self.root, 'root'),
+                            (self.resources_item, 'res'),
+                            (self.standard_models_item, 'std'),
+                            (self.other_models_item, 'oth'),
+                            (self.atcs_item, 'atc'),
+                            (self.descriptions_item, 'desc')):
+            if item == fixed:
+                return key
+        data = self.GetItemData(item)
+        if data is not None and hasattr(data, 'ID') and hasattr(data, 'descriptors'):
+            return 'cat:%s' % (data.ID,)
+        return None
+
+    def RefreshCounts(self):
+        """Append a ``(N)`` descriptor count to every category label."""
+        self.Freeze()
+        try:
+            for item, base in ((self.standard_models_item, treeStdModelMsg),
+                               (self.other_models_item, treeOtherModelMsg),
+                               (self.atcs_item, treeAnimMsg)):
+                data = self.GetItemData(item)
+                count = len(data) if data is not None else 0
+                self.SetItemText(item, '%s (%d)' % (base, count))
+            for cat in self.virtual_dat.categories.values():
+                cat_item = getattr(cat, 'item', None)
+                if cat_item is None or not cat_item.IsOk():
+                    continue
+                count = len(cat.descriptors)
+                if count:
+                    self.SetItemText(cat_item, '%s (%d)' % (cat.Name, count))
+                else:
+                    self.SetItemText(cat_item, cat.Name)
+        finally:
+            self.Thaw()
+
+    def GetExpandedKeys(self):
+        """Identifiers of every currently expanded item, for persistence."""
+        keys = []
+        for item in self._walk():
+            if self.ItemHasChildren(item) and self.IsExpanded(item):
+                key = self._item_key(item)
+                if key is not None:
+                    keys.append(key)
+        return keys
+
+    def ApplyExpandedKeys(self, keys):
+        """Restore a previously saved expansion state (collapse everything else)."""
+        wanted = set(keys or [])
+        if not wanted:
+            return
+        self.Freeze()
+        try:
+            self.CollapseAll()
+            for item in self._walk():
+                if self._item_key(item) in wanted:
+                    self.Expand(item)
+        finally:
+            self.Thaw()
+
+    def FindCategory(self, text, after_selection=False):
+        """Select the next category whose label contains *text*.
+
+        Returns True on a match. With ``after_selection`` the search starts
+        just past the current selection and wraps around, so repeated calls
+        cycle through every match.
+        """
+        needle = (text or '').strip().lower()
+        if not needle:
+            return False
+        items = list(self._walk())
+        start = 0
+        if after_selection:
+            current = self.GetSelection()
+            for i, item in enumerate(items):
+                if item == current:
+                    start = i + 1
+                    break
+        order = items[start:] + items[:start]
+        for item in order:
+            if needle in self.GetItemText(item).lower():
+                self.EnsureVisible(item)
+                self.SelectItem(item)
+                return True
+        return False
+
     def OnBeginEdit(self, event):
         item = event.GetItem()
         data = self.GetItemData(item)
@@ -394,6 +499,7 @@ class MyTreeCtrl(wx.TreeCtrl):
         if do_finalize:
             FinalizeCategory(self.virtual_dat.rootCategory)
             self.parent.RefreshItemsList()
+            self.RefreshCounts()
         return
 
     def UpdateEntry(self, entry, virtual_dat, is_standard, dlg):
@@ -472,7 +578,13 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.TAB_TRAVERSAL | wx.LC_SINGLE_SEL)
         listmix.ListCtrlAutoWidthMixin.__init__(self)
         self.SetItemCount(0)
-        self.list_datas = None
+        # all_datas is the full backing list; list_datas is the filtered view
+        # that is actually displayed. They are the same object when no filter
+        # is active. Row indices everywhere refer to list_datas.
+        self.all_datas = []
+        self.list_datas = []
+        self.filter_text = ''
+        self.on_filter_change = None
         # Active column layout; FillItemsList* sets the appropriate keys.
         self.columns = ['name', 'file']
         self.sort_col = -1
@@ -481,8 +593,95 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         self.attr1.SetBackgroundColour((255, 228, 181))
         self.attr2 = wx.ItemAttr()
         self.attr2.SetBackgroundColour('light blue')
+        # Lazily-loaded row thumbnails. thumb_provider maps a list_datas entry
+        # to a JPG path (or None); thumb_index caches path -> image-list index.
+        self.thumb_size = 32
+        self.thumbs = None
+        # A 1x1 image list used when thumbnails are off: wxMSW will not shrink
+        # a list's row height back after SetImageList(None), but swapping in a
+        # tiny image list does, so non-thumbnail views keep compact rows.
+        self.thumbs_empty = None
+        self.thumb_index = {}
+        self.thumb_provider = None
         self.Bind(wx.EVT_LIST_COL_CLICK, self.OnListHeaderClick)
         return
+
+    def SetThumbnailProvider(self, provider):
+        """Show a small thumbnail per row.
+
+        *provider* is a callable mapping a ``list_datas`` entry to a thumbnail
+        JPG path, or None to disable thumbnails for the current layout. The
+        image list is created on first use and the JPGs are decoded lazily by
+        :meth:`OnGetItemImage` -- only rows actually scrolled into view pay the
+        decode cost. When disabled the image list is detached so rows without
+        thumbnails keep their normal (compact) height.
+        """
+        self.thumb_provider = provider
+        if self.thumbs is None:
+            self.thumbs = wx.ImageList(self.thumb_size, self.thumb_size, True)
+        if self.thumbs_empty is None:
+            self.thumbs_empty = wx.ImageList(1, 1, True)
+        self.SetImageList(self.thumbs if provider is not None else self.thumbs_empty,
+                          wx.IMAGE_LIST_SMALL)
+
+    def _thumb_index(self, path):
+        key = str(path)
+        cached = self.thumb_index.get(key)
+        if cached is not None:
+            return cached
+        idx = -1
+        try:
+            if os.path.exists(key):
+                img = wx.Image(key, wx.BITMAP_TYPE_JPEG)
+                if img.IsOk():
+                    if img.GetWidth() != self.thumb_size or img.GetHeight() != self.thumb_size:
+                        img = img.Scale(self.thumb_size, self.thumb_size, wx.IMAGE_QUALITY_HIGH)
+                    added = self.thumbs.Add(img.ConvertToBitmap())
+                    if added != -1:
+                        idx = added
+        except Exception:
+            logger.exception('Failed to load list thumbnail %s', key)
+            idx = -1
+        self.thumb_index[key] = idx
+        return idx
+
+    def SetData(self, datas):
+        """Replace the backing list and re-apply the current filter."""
+        self.all_datas = datas if datas is not None else []
+        self._refilter()
+
+    def SetFilter(self, text):
+        """Restrict the displayed rows to those matching *text* (name or ID)."""
+        self.filter_text = (text or '').strip().lower()
+        self._refilter()
+
+    def _haystack(self, data):
+        """Lower-cased searchable text for a row: its name and any IDs."""
+        parts = []
+        name = self._column_value(data, 'name')
+        if name:
+            parts.append(name)
+        tgi = self._column_value(data, 'tgi')
+        if tgi:
+            parts.append(tgi)
+        model = getattr(data, 'sc4Model', None)
+        if model is not None:
+            try:
+                parts.append('%08X-%08X' % (model.GID, model.IID))
+            except Exception:
+                pass
+        return ' '.join(parts).lower()
+
+    def _refilter(self):
+        if self.filter_text:
+            needle = self.filter_text
+            self.list_datas = [d for d in self.all_datas if needle in self._haystack(d)]
+        else:
+            self.list_datas = self.all_datas
+        self.DeleteAllItems()
+        self.SetItemCount(len(self.list_datas))
+        if self.on_filter_change is not None:
+            self.on_filter_change()
 
     def _column_value(self, data, key):
         try:
@@ -505,13 +704,13 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         wx.ListCtrl.Refresh(self)
 
     def OnGetItemText(self, item, col):
-        if self.list_datas is None or col >= len(self.columns):
+        if col >= len(self.columns) or item >= len(self.list_datas):
             return ''
         return self._column_value(self.list_datas[item], self.columns[col])
 
     def OnListHeaderClick(self, event):
         col = event.GetColumn()
-        if not self.list_datas or col >= len(self.columns):
+        if not self.all_datas or col >= len(self.columns):
             return
         if self.sort_col == col:
             self.sort_ascending = not self.sort_ascending
@@ -534,15 +733,22 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
             return self._column_value(data, key).upper()
 
         try:
-            self.list_datas.sort(key=sort_key, reverse=not self.sort_ascending)
+            self.all_datas.sort(key=sort_key, reverse=not self.sort_ascending)
         except Exception:
             logger.exception('Failed to sort resource list')
             return
-        self.DeleteAllItems()
-        self.SetItemCount(len(self.list_datas))
+        self._refilter()
 
     def OnGetItemImage(self, item):
-        return -1
+        if self.thumb_provider is None or item >= len(self.list_datas):
+            return -1
+        try:
+            path = self.thumb_provider(self.list_datas[item])
+        except Exception:
+            return -1
+        if not path:
+            return -1
+        return self._thumb_index(path)
 
     def OnGetItemAttr(self, item):
         if item % 2 == 1:
@@ -600,13 +806,16 @@ class NoteBookPanel(wx.Panel):
         self.listProperties.InsertColumn(2, propertyPageColumnDataType)
         self.listProperties.InsertColumn(3, propertyPageColumnRep)
         self.listProperties.InsertColumn(4, propertyPageColumnValue)
-        mw = config.load_main_window()
+        # Column widths live in the main window's session settings so a width
+        # the user drags in one tab survives into later tabs and is persisted.
+        mw = self.parent.parent._mw_settings
         self.listProperties.SetColumnWidth(0, int(mw['PropColName']))
         self.listProperties.SetColumnWidth(1, int(mw['PropColNameValue']))
         self.listProperties.SetColumnWidth(2, int(mw['PropColType']))
         self.listProperties.SetColumnWidth(3, int(mw['PropColRep']))
         self.Bind(wx.EVT_SET_FOCUS, self.parent.OnFocus, self.listProperties)
         self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivated, self.listProperties)
+        self.listProperties.Bind(wx.EVT_LIST_COL_END_DRAG, self.OnPropColResize)
         self.listProperties.DeleteAllItems()
         self.FillTheList()
         box = wx.BoxSizer(wx.VERTICAL)
@@ -617,6 +826,20 @@ class NoteBookPanel(wx.Panel):
         box.Add(horiz, 0, wx.ALIGN_CENTRE | wx.ALL, 5)
         self.SetSizer(box)
         self.listProperties.Bind(wx.EVT_RIGHT_DOWN, self.OnRightClick)
+
+    def OnPropColResize(self, event):
+        """Capture a user column-drag into the shared session settings."""
+        event.Skip()
+        wx.CallAfter(self._capture_prop_col_widths)
+
+    def _capture_prop_col_widths(self):
+        if self.listProperties.GetColumnCount() < 4:
+            return
+        mw = self.parent.parent._mw_settings
+        mw['PropColName'] = int(self.listProperties.GetColumnWidth(0))
+        mw['PropColNameValue'] = int(self.listProperties.GetColumnWidth(1))
+        mw['PropColType'] = int(self.listProperties.GetColumnWidth(2))
+        mw['PropColRep'] = int(self.listProperties.GetColumnWidth(3))
 
     def RebuildViewer(self):
         rkt0 = self.exemplar.GetProp(662775840)
@@ -3074,6 +3297,10 @@ class MainFrame(wx.Frame):
         leftPanel = wx.Panel(splitter)
         self.currentModel = None
         self.listItemsCat = None
+        # The tree node whose contents the list currently shows. Used to tell a
+        # genuine navigation (clear the filter) from a transient re-selection
+        # such as the one drag-and-drop triggers (keep the filter).
+        self._current_list_node = None
         self.virtualDAT = VirtualDat(None)
         self.virtualDAT.getEntry(0, 0, 0)
         self.tree = MyTreeCtrl(self.virtualDAT, leftPanel, self,
@@ -3081,6 +3308,20 @@ class MainFrame(wx.Frame):
                                                                                                    400))
         if not _env_true('SC4PIM_SAFE_MODE'):
             self.tree.ExpandAll()
+        self._saved_tree_expanded = self._mw_settings.get('TreeExpanded', [])
+        self.treeSearch = wx.SearchCtrl(leftPanel, -1, style=wx.TE_PROCESS_ENTER)
+        self.treeSearch.SetDescriptiveText(treeSearchHint)
+        self.treeSearch.ShowCancelButton(True)
+        self.treeSearch.Bind(wx.EVT_TEXT, self.OnTreeSearch)
+        self.treeSearch.Bind(wx.EVT_TEXT_ENTER, self.OnTreeSearchNext)
+        self.treeSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnTreeSearchNext)
+        self.treeSearch.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnTreeSearchCancel)
+        self.bTreeExpand = wx.Button(leftPanel, -1, treeExpandAll, style=wx.BU_EXACTFIT)
+        self.bTreeExpand.SetToolTip(treeExpandAllTip)
+        self.bTreeExpand.Bind(wx.EVT_BUTTON, lambda evt: self.tree.ExpandAll())
+        self.bTreeCollapse = wx.Button(leftPanel, -1, treeCollapseAll, style=wx.BU_EXACTFIT)
+        self.bTreeCollapse.SetToolTip(treeCollapseAllTip)
+        self.bTreeCollapse.Bind(wx.EVT_BUTTON, self.OnTreeCollapseAll)
         self.virtualDAT.tree = self.tree
         dt = treeDnD.DropTarget(self.tree, self.OnDrop, self.OnDropFile)
         self.tree.SetDropTarget(dt)
@@ -3121,15 +3362,28 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_COMBOBOX, self.EvtComboBoxState, self.cbStateChoice)
         self.SetModelStateChoices([])
         self.staticFileName = wx.StaticText(leftPanel, -1, '??')
+        self.listSearch = wx.SearchCtrl(rightUpPanel, -1, style=wx.TE_PROCESS_ENTER)
+        self.listSearch.SetDescriptiveText(listSearchHint)
+        self.listSearch.ShowCancelButton(True)
+        self.listSearch.Bind(wx.EVT_TEXT, self.OnListSearch)
+        self.listSearch.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnListSearchCancel)
+        self.listCount = wx.StaticText(rightUpPanel, -1, '')
         self.listItems = VirtualListCtrl(rightUpPanel)
+        self.listItems.on_filter_change = self._update_list_count
         self.listItems.InsertColumn(0, itemColumName)
         self.listItems.InsertColumn(1, itemColumFilename)
         self.listItems.Bind(wx.EVT_LIST_BEGIN_DRAG, self.OnBeginDrag)
+        self.listItems.Bind(wx.EVT_LIST_COL_END_DRAG, self.OnListColResize)
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnItemListSelected, self.listItems)
         self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnItemListSelected, self.listItems)
         self.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.OnItemListSelected, self.listItems)
         self.nb = SC4NoteBook(rightDownPanel, self)
         boxLeft = wx.BoxSizer(wx.VERTICAL)
+        treeBar = wx.BoxSizer(wx.HORIZONTAL)
+        treeBar.Add(self.treeSearch, 1, wx.ALIGN_CENTRE_VERTICAL | wx.RIGHT, 4)
+        treeBar.Add(self.bTreeExpand, 0, wx.ALIGN_CENTRE_VERTICAL | wx.RIGHT, 2)
+        treeBar.Add(self.bTreeCollapse, 0, wx.ALIGN_CENTRE_VERTICAL, 0)
+        boxLeft.Add(treeBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         boxLeft.Add(self.tree, 1, wx.ALL | wx.EXPAND, 5)
         boxLeft.Add(self.glCanvas, 0, wx.ALL | wx.CENTRE, 5)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -3140,6 +3394,10 @@ class MainFrame(wx.Frame):
         boxLeft.Add(self.staticFileName, 0, wx.ALL, 5)
         leftPanel.SetSizer(boxLeft)
         boxRight = wx.BoxSizer(wx.VERTICAL)
+        listBar = wx.BoxSizer(wx.HORIZONTAL)
+        listBar.Add(self.listSearch, 1, wx.ALIGN_CENTRE_VERTICAL | wx.RIGHT, 6)
+        listBar.Add(self.listCount, 0, wx.ALIGN_CENTRE_VERTICAL)
+        boxRight.Add(listBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         boxRight.Add(self.listItems, 1, wx.ALL | wx.GROW, 5)
         rightUpPanel.SetSizer(boxRight)
         boxRight = wx.BoxSizer(wx.VERTICAL)
@@ -3186,6 +3444,7 @@ class MainFrame(wx.Frame):
                 settings.update(Width=int(width), Height=int(height),
                                 X=int(pos_x), Y=int(pos_y))
             settings['TreeSash'] = int(self.splitter.GetSashPosition())
+            settings['TreeExpanded'] = self.tree.GetExpandedKeys()
             settings['ListSash'] = int(self.splitterHoriz.GetSashPosition())
             if self.listItems.GetColumnCount() >= 3:
                 settings['ColName'] = int(self.listItems.GetColumnWidth(0))
@@ -3212,7 +3471,9 @@ class MainFrame(wx.Frame):
         self.OnCloseWindow(event)
 
     def OnDrop(self, data, item):
-        what = self.listItemsCat[data]
+        if data < 0 or data >= len(self.listItems.list_datas):
+            return
+        what = self.listItems.list_datas[data]
         category = self.tree.GetItemData(item)
         bbox = (8, 1, 8)
         try:
@@ -3450,9 +3711,11 @@ class MainFrame(wx.Frame):
 
     def OnBeginDrag(self, event):
         idx = event.GetIndex()
-        if not isinstance(self.listItemsCat, list) or idx < 0 or idx >= len(self.listItemsCat):
+        # idx is a row in the (possibly filtered) displayed list; OnDrop
+        # resolves it the same way.
+        if not isinstance(self.listItemsCat, list) or idx < 0 or idx >= len(self.listItems.list_datas):
             return
-        what = self.listItemsCat[idx]
+        what = self.listItems.list_datas[idx]
         bOk = False
         if what.__class__ == StandardModel:
             bOk = True
@@ -3628,6 +3891,8 @@ class MainFrame(wx.Frame):
                 propLoader.Start()
             else:
                 logger.debug('Skipping prop image loading')
+            self.tree.RefreshCounts()
+            self.tree.ApplyExpandedKeys(self._saved_tree_expanded)
             self.tree.EnsureVisible(self.tree.standard_models_item)
             if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
                 wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
@@ -3740,9 +4005,9 @@ class MainFrame(wx.Frame):
             self.listItems.SetColumnWidth(1, int(self._mw_settings['ColTGI']))
             self.listItems.SetColumnWidth(2, int(self._mw_settings['ColFile']))
         self.listItems.columns = ['name', 'tgi', 'file', 'date']
+        self.listItems.SetThumbnailProvider(None)
         cat.descriptors.sort(key=functools.cmp_to_key(lambda d1, d2: basic_cmp(d2.exemplar.entry.dateUpdated, d1.exemplar.entry.dateUpdated)))
-        self.listItems.list_datas = cat.descriptors
-        self.listItems.SetItemCount(len(cat.descriptors))
+        self.listItems.SetData(cat.descriptors)
 
     def FillItemsListModel(self, what):
         self.backupCat = None
@@ -3753,10 +4018,57 @@ class MainFrame(wx.Frame):
             self.listItems.ClearAll()
             self.listItems.InsertColumn(0, itemColumName)
             self.listItems.InsertColumn(1, itemColumFilename)
+            self.listItems.SetColumnWidth(0, int(self._mw_settings['ColName']))
         self.listItems.columns = ['name', 'file']
-        self.listItems.list_datas = what
-        self.listItems.SetItemCount(len(what))
+        # Only the BAT Models section has rendered thumbnails in the image DB;
+        # other model lists would just show empty space, so skip thumbnails.
+        is_bat_models = what is self.virtualDAT.standardModels
+        self.listItems.SetThumbnailProvider(self._model_thumb_path if is_bat_models else None)
+        self.listItems.SetData(what)
         return
+
+    def _update_list_count(self):
+        """Refresh the '<shown> of <total>' label next to the list filter."""
+        shown = len(self.listItems.list_datas)
+        total = len(self.listItems.all_datas)
+        if shown == total:
+            self.listCount.SetLabel(listCountAll % total)
+        else:
+            self.listCount.SetLabel(listFilterCount % (shown, total))
+        sizer = self.listCount.GetContainingSizer()
+        if sizer is not None:
+            sizer.Layout()
+
+    def OnListColResize(self, event):
+        """Capture a user column-drag so it survives a column rebuild + close."""
+        event.Skip()
+        wx.CallAfter(self._capture_list_col_widths)
+
+    def _capture_list_col_widths(self):
+        count = self.listItems.GetColumnCount()
+        if count >= 1:
+            self._mw_settings['ColName'] = int(self.listItems.GetColumnWidth(0))
+        if count >= 3:
+            self._mw_settings['ColTGI'] = int(self.listItems.GetColumnWidth(1))
+            self._mw_settings['ColFile'] = int(self.listItems.GetColumnWidth(2))
+
+    def OnListSearch(self, event):
+        self.listItems.SetFilter(self.listSearch.GetValue())
+
+    def OnListSearchCancel(self, event):
+        self.listSearch.SetValue('')
+        self.listItems.SetFocus()
+
+    @staticmethod
+    def _model_thumb_path(data):
+        """Thumbnail JPG path for a model row in the resource list, or None."""
+        model = getattr(data, 'sc4Model', None)
+        if model is None:
+            return None
+        try:
+            return image_db_path('%s-%s.jpg' % (hex2str(model.GID), hex2str(model.IID)))
+        except Exception:
+            return None
 
     def SetModelStateChoices(self, choices):
         self.cbStateChoice.Clear()
@@ -3790,27 +4102,41 @@ class MainFrame(wx.Frame):
             self.viewer.s3d_mesh.free_3d(self.viewer.s3d_textures_holder)
             self.viewer.s3d_mesh = None
             self.viewer.refresh(False)
+        # The list may be filtered, so resolve the row through the displayed
+        # list_datas rather than indexing the (unfiltered) category.
+        if idx < 0 or idx >= len(self.listItems.list_datas):
+            return
+        row = self.listItems.list_datas[idx]
         if self.listItemsCat is not None:
             if self.listItemsCat.__class__.__name__ == 'list':
                 self.SetModelStateChoices([])
-                data = self.listItemsCat[idx].sc4Model
+                data = row.sc4Model
                 zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
                 rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
-                if zoom == -1:
-                    nZoom = 0
-                else:
-                    nZoom = zoom
                 self.viewer = data.__class__.viewer
                 self.viewer.init_gl()
                 self.viewer.s3d_mesh = None
                 self.viewer.refresh(False)
-                self.staticFileName.SetLabel(self.listItemsCat[idx].fileName)
+                self.staticFileName.SetLabel(row.fileName)
                 data.draw(self.viewer, self.staticFileName, zoom, rot)
                 self.currentModel = data
             elif self.listItemsCat.__class__.__name__ == 'DictWrapper':
-                data = self.listItemsCat.descriptors[idx]
-                self.FillPropList(data, not wx.GetKeyState(wx.WXK_CONTROL))
+                self.FillPropList(row, not wx.GetKeyState(wx.WXK_CONTROL))
         return
+
+    def OnTreeSearch(self, event):
+        self.tree.FindCategory(self.treeSearch.GetValue(), after_selection=False)
+
+    def OnTreeSearchNext(self, event):
+        self.tree.FindCategory(self.treeSearch.GetValue(), after_selection=True)
+
+    def OnTreeSearchCancel(self, event):
+        self.treeSearch.SetValue('')
+        self.tree.SetFocus()
+
+    def OnTreeCollapseAll(self, event):
+        self.tree.CollapseAll()
+        self.tree.Expand(self.tree.root)
 
     def OnSelChanged(self, event):
         logger.debug('Tree selection changed: %s', event)
@@ -3821,6 +4147,15 @@ class MainFrame(wx.Frame):
         except Exception:
             data = None
 
+        # Navigating to a *different* node starts with a clean (unfiltered)
+        # list. A re-selection of the same node -- e.g. the UnselectAll/restore
+        # that drag-and-drop performs -- must keep the active filter so the
+        # dropped row still resolves to the model the user was dragging.
+        if data is not None and data is not self._current_list_node:
+            self.listSearch.ChangeValue('')
+            self.listItems.filter_text = ''
+        if data is not None:
+            self._current_list_node = data
         if data:
             if data.__class__.__name__ == 'list':
                 self.FillItemsListModel(data)
@@ -3836,8 +4171,7 @@ class MainFrame(wx.Frame):
                     self.viewer.refresh(False)
         else:
             self.listItemsCat = None
-            self.listItems.DeleteAllItems()
-            self.listItems.SetItemCount(0)
+            self.listItems.SetData([])
             if self.viewer is not None and self.viewer.s3d_mesh is not None:
                 self.viewer.s3d_mesh.free_3d(self.viewer.s3d_textures_holder)
                 self.viewer.s3d_mesh = None
