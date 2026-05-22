@@ -30,6 +30,7 @@ DEFAULT_LOT_EDITOR = {
     "BackgroundEnabled": False,
     "BackgroundSet": "Default",
     "UndoLimit": 40,
+    "Favorites": [],
 }
 
 
