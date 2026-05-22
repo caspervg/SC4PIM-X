@@ -652,6 +652,7 @@ class LEAssetThumbnailProvider(object):
         self.cache = {}
         self.state_counts = {}
         self.state_strips = {}
+        self.thumb_size = 72
         self.placeholder = self._build_placeholder('...')
         # Pending thumbnail loads. The grid rebuilds this via RestrictTo()
         # after every repaint, so a fast scroll never leaves a backlog of
@@ -661,28 +662,44 @@ class LEAssetThumbnailProvider(object):
         self._queue_cb = {}         # key -> on_loaded callback
         self._draining = False
 
-    def _build_placeholder(self, label):
-        bmp = wx.Bitmap(72, 72)
+    def SetThumbSize(self, size):
+        """Change the thumbnail edge length and drop now-wrong cached bitmaps."""
+        size = int(size)
+        if size == self.thumb_size:
+            return
+        self.thumb_size = size
+        self.cache = {}
+        self.placeholder = self._build_placeholder('...')
+
+    def _build_placeholder(self, label, size=None):
+        size = size or self.thumb_size
+        margin = max(4, size // 12)
+        inner = size - 2 * margin
+        bmp = wx.Bitmap(size, size)
         dc = wx.MemoryDC(bmp)
         dc.SetBackground(wx.Brush(wx.Colour(232, 235, 238)))
         dc.Clear()
         dc.SetPen(wx.Pen(wx.Colour(180, 187, 194)))
         dc.SetBrush(wx.Brush(wx.Colour(245, 247, 249)))
-        dc.DrawRoundedRectangle(6, 6, 60, 60, 6)
+        dc.DrawRoundedRectangle(margin, margin, inner, inner, 6)
         dc.SetTextForeground(wx.Colour(98, 108, 118))
-        dc.DrawLabel(label, wx.Rect(6, 25, 60, 20), wx.ALIGN_CENTER)
+        dc.DrawLabel(label, wx.Rect(0, 0, size, size), wx.ALIGN_CENTER)
         dc.SelectObject(wx.NullBitmap)
         return bmp
 
-    def _bitmap_from_pil(self, image, size=(72, 72)):
+    def _bitmap_from_pil(self, image, size=None):
+        if size is None:
+            size = (self.thumb_size, self.thumb_size)
         pil = image.convert('RGB').resize(size, Image.BICUBIC)
         wx_image = wx.Image(pil.size[0], pil.size[1])
         wx_image.SetData(pil.tobytes())
         return wx_image.ConvertToBitmap()
 
-    def _scale_bitmap(self, bmp, size=(72, 72)):
+    def _scale_bitmap(self, bmp, size=None):
         if not bmp or not bmp.IsOk():
             return self.placeholder
+        if size is None:
+            size = (self.thumb_size, self.thumb_size)
         image = bmp.ConvertToImage()
         image = image.Scale(size[0], size[1], wx.IMAGE_QUALITY_HIGH)
         return image.ConvertToBitmap()
@@ -901,16 +918,16 @@ class LEAssetThumbnailProvider(object):
 
 class LEAssetGrid(wx.ScrolledWindow):
 
-    CARD_W = 142
-    CARD_H = 160
     GAP = 10
-    THUMB = 72
 
     def __init__(self, parent, thumbnail_provider, on_select=None, on_context=None, on_activate=None):
         wx.ScrolledWindow.__init__(self, parent, -1, style=wx.BORDER_NONE | wx.VSCROLL)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.SetScrollRate(0, 24)
         self.thumbnail_provider = thumbnail_provider
+        # Card size tracks the thumbnail size; CARD_W/H are derived from it.
+        self.THUMB = thumbnail_provider.thumb_size
+        self._set_card_metrics()
         self.on_select = on_select
         self.on_context = on_context
         self.on_activate = on_activate
@@ -933,6 +950,28 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.selected = -1
         self.hovered = -1
         self._hide_state_popup()
+        self._update_virtual_size()
+        self.Refresh(False)
+
+    def _set_card_metrics(self):
+        """Derive card width/height from the thumbnail size.
+
+        Small thumbnails drop the badge and sub-label so the card stays a
+        tight frame around the image instead of mostly chrome.
+        """
+        self.compact_cards = self.THUMB < 72
+        if self.compact_cards:
+            self.CARD_W = self.THUMB + 40
+            self.CARD_H = self.THUMB + 42
+        else:
+            self.CARD_W = self.THUMB + 70
+            self.CARD_H = self.THUMB + 88
+
+    def SetThumbSize(self, size):
+        """Resize the thumbnails (and the cards that frame them)."""
+        self.thumbnail_provider.SetThumbSize(size)
+        self.THUMB = self.thumbnail_provider.thumb_size
+        self._set_card_metrics()
         self._update_virtual_size()
         self.Refresh(False)
 
@@ -1026,7 +1065,15 @@ class LEAssetGrid(wx.ScrolledWindow):
             dc.SetTextForeground(wx.Colour(255, 255, 255))
             dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
             dc.DrawLabel(state_label, indicator, wx.ALIGN_CENTER)
-        badge_rect = wx.Rect(rect.x + 10, rect.y + 91, rect.width - 20, 18)
+        if self.compact_cards:
+            # Small cards: just the name under the thumbnail.
+            dc.SetTextForeground(wx.Colour(25, 29, 33))
+            dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            dc.DrawLabel(self._shorten(dc, item.label, rect.width - 10),
+                         wx.Rect(rect.x + 5, rect.y + 19 + self.THUMB, rect.width - 10, 16),
+                         wx.ALIGN_CENTER)
+            return
+        badge_rect = wx.Rect(rect.x + 10, rect.y + 19 + self.THUMB, rect.width - 20, 18)
         dc.SetBrush(wx.Brush(wx.Colour(238, 241, 244)))
         dc.SetPen(wx.Pen(wx.Colour(220, 224, 228)))
         dc.DrawRoundedRectangle(badge_rect.x, badge_rect.y, badge_rect.width, badge_rect.height, 5)
@@ -1035,10 +1082,10 @@ class LEAssetGrid(wx.ScrolledWindow):
         dc.DrawLabel(self._shorten(dc, item.badge, badge_rect.width - 8), badge_rect.Deflate(4, 0), wx.ALIGN_CENTER)
         dc.SetTextForeground(wx.Colour(25, 29, 33))
         dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        dc.DrawLabel(self._shorten(dc, item.label, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 116, rect.width - 18, 18), wx.ALIGN_CENTER)
+        dc.DrawLabel(self._shorten(dc, item.label, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 44 + self.THUMB, rect.width - 18, 18), wx.ALIGN_CENTER)
         dc.SetTextForeground(wx.Colour(96, 104, 112))
         dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        dc.DrawLabel(self._shorten(dc, item.sublabel, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 137, rect.width - 18, 18), wx.ALIGN_CENTER)
+        dc.DrawLabel(self._shorten(dc, item.sublabel, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 65 + self.THUMB, rect.width - 18, 18), wx.ALIGN_CENTER)
 
     def OnLeftDown(self, event):
         self._hide_state_popup()
@@ -1218,6 +1265,8 @@ class LEAssetList(wx.ListCtrl):
 
 class LEAssetBrowserPanel(wx.Panel):
 
+    THUMB_STEPS = [56, 72, 96, 120]
+
     def __init__(self, parent, editor):
         wx.Panel.__init__(self, parent, -1)
         self.editor = editor
@@ -1231,6 +1280,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
         self.thumbnail_provider = LEAssetThumbnailProvider()
+        self.thumbnail_provider.SetThumbSize(int(settings.get('ThumbSize', 72)))
         root = wx.BoxSizer(wx.VERTICAL)
         header = wx.BoxSizer(wx.HORIZONTAL)
         title = wx.StaticText(self, -1, LEXAssetBrowserAssets)
@@ -1269,6 +1319,13 @@ class LEAssetBrowserPanel(wx.Panel):
         filters.Add(self.filter_choice, 1, wx.EXPAND)
         self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
+        thumb_size = int(settings.get('ThumbSize', 72))
+        thumb_idx = min(range(len(self.THUMB_STEPS)),
+                        key=lambda i: abs(self.THUMB_STEPS[i] - thumb_size))
+        self.thumb_slider = wx.Slider(self, -1, thumb_idx, 0, len(self.THUMB_STEPS) - 1,
+                                      size=(90, -1))
+        self.thumb_slider.SetToolTip(LEXAssetBrowserThumbSize)
+        filters.Add(self.thumb_slider, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 6)
         root.Add(filters, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select,
                                 self._on_context, self._on_activate)
@@ -1280,6 +1337,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self.search.Bind(wx.EVT_TEXT, self.OnSearch)
         self.filter_choice.Bind(wx.EVT_CHOICE, self.OnFilter)
         self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
+        self.thumb_slider.Bind(wx.EVT_SLIDER, self.OnThumbSize)
         self._debounce = None
         self.search.SetValue(str(settings.get('AssetSearch', '')))
         compact = bool(settings.get('AssetCompact', False))
@@ -1294,7 +1352,11 @@ class LEAssetBrowserPanel(wx.Panel):
             'AssetSearch': self.search.GetValue(),
             'AssetCompact': bool(self.presentation.GetValue()),
             'Favorites': sorted(self.favorites),
+            'ThumbSize': self.grid.THUMB,
         }
+
+    def OnThumbSize(self, event):
+        self.grid.SetThumbSize(self.THUMB_STEPS[self.thumb_slider.GetValue()])
 
     def _on_context(self, item):
         is_fav = item.fav_key in self.favorites
