@@ -162,88 +162,7 @@ class LEDropTarget(wx.PyDropTarget):
             posY /= 16.0
             posX += self.frame.exemplar.GetProp(2297284496)[0] / 2.0
             posY += self.frame.exemplar.GetProp(2297284496)[1] / 2.0
-            currentID = 0
-            lastIDProp = 2297284864
-            for lcp in range(2297284864, 2297286144):
-                values = self.frame.exemplar.GetProp(lcp)
-                if values is None:
-                    break
-                if values[11] > currentID:
-                    currentID = values[11]
-                lastIDProp = lcp
-
-            currentID += 1
-            lastIDProp += 1
-            bOk = False
-            width = 0
-            depth = 0
-            v12 = 2
-            vType = 2
-            if data.__class__ == BaseProxy:
-                v12 = data.what
-                vType = 2
-                width = 1
-                depth = 1
-                posX = int(posX) + 0.5
-                posY = int(posY) + 0.5
-                bOk = True
-            elif data.__class__ == OverlayProxy:
-                v12 = data.what
-                vType = 2
-                width = 1
-                depth = 1
-                posX = int(posX) + 0.5
-                posY = int(posY) + 0.5
-                bOk = True
-            elif data.__class__ == PropProxy:
-                entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
-                exemplar = entry.exemplar
-                try:
-                    width = exemplar.GetProp(662775824)[0] / 16.0
-                    depth = exemplar.GetProp(662775824)[2] / 16.0
-                except Exception:
-                    width = 0.5
-                    depth = 0.5
-
-                v12 = data.what[2]
-                if exemplar.GetProp(16)[0] == 15:
-                    vType = 4
-                else:
-                    vType = 1
-                bOk = True
-            elif data.__class__ == FamilyProxy:
-                catID = data.what
-                exemplar = None
-                for desc in VirtualDat.this.categories[catID].descriptors:
-                    if desc.exemplar.entry.tgi[0] != 1697917002:
-                        continue
-                    if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
-                        continue
-                    exemplar = desc.exemplar
-                    width = max(width, exemplar.GetProp(662775824)[0] / 16.0)
-                    depth = max(depth, exemplar.GetProp(662775824)[2] / 16.0)
-
-                if exemplar is not None:
-                    v12 = data.what
-                    vType = 1
-                    bOk = True
-            if bOk:
-                self.frame._push_undo()
-                xmin = posX - width / 2.0
-                ymin = posY - depth / 2.0
-                xmax = posX + width / 2.0
-                ymax = posY + depth / 2.0
-                posX = ToUnsigned(posX * 1048576)
-                posY = ToUnsigned(posY * 1048576)
-                xmin = ToUnsigned(xmin * 1048576)
-                ymin = ToUnsigned(ymin * 1048576)
-                xmax = ToUnsigned(xmax * 1048576)
-                ymax = ToUnsigned(ymax * 1048576)
-                v = [vType, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, currentID, v12]
-                self.frame.exemplar.AddTextProp(CreateAProp(self.frame.virtualDAT.properties[lastIDProp], v[:]))
-                self.frame.PreCacheObject(v)
-                self.frame.UpdatePIM()
-                self.frame.RebuildVars()
+            self.frame.PlaceAsset(data, posX, posY)
         return d
 
 
@@ -723,6 +642,96 @@ class LotEditorWin(wx.Frame):
         self.UpdatePIM()
         self.UpdateSelectionInspector()
         self.on_draw()
+
+    def PlaceAsset(self, data, posX, posY):
+        """Add an asset proxy to the lot at tile-space (posX, posY)."""
+        currentID = 0
+        lastIDProp = 2297284864
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            if values[11] > currentID:
+                currentID = values[11]
+            lastIDProp = lcp
+        currentID += 1
+        lastIDProp += 1
+        bOk = False
+        width = 0
+        depth = 0
+        v12 = 2
+        vType = 2
+        if data.__class__ == BaseProxy:
+            v12 = data.what
+            vType = 2
+            width = 1
+            depth = 1
+            posX = int(posX) + 0.5
+            posY = int(posY) + 0.5
+            bOk = True
+        elif data.__class__ == OverlayProxy:
+            v12 = data.what
+            vType = 2
+            width = 1
+            depth = 1
+            posX = int(posX) + 0.5
+            posY = int(posY) + 0.5
+            bOk = True
+        elif data.__class__ == PropProxy:
+            entry = VirtualDat.this.getEntry(data.what[0], data.what[1], data.what[2])
+            exemplar = entry.exemplar
+            try:
+                width = exemplar.GetProp(662775824)[0] / 16.0
+                depth = exemplar.GetProp(662775824)[2] / 16.0
+            except Exception:
+                width = 0.5
+                depth = 0.5
+            v12 = data.what[2]
+            if exemplar.GetProp(16)[0] == 15:
+                vType = 4
+            else:
+                vType = 1
+            bOk = True
+        elif data.__class__ == FamilyProxy:
+            catID = data.what
+            exemplar = None
+            for desc in VirtualDat.this.categories[catID].descriptors:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
+                    continue
+                if desc.exemplar.GetProp(16)[0] != 30 and desc.exemplar.GetProp(16)[0] != 15:
+                    continue
+                exemplar = desc.exemplar
+                width = max(width, exemplar.GetProp(662775824)[0] / 16.0)
+                depth = max(depth, exemplar.GetProp(662775824)[2] / 16.0)
+            if exemplar is not None:
+                v12 = data.what
+                vType = 1
+                bOk = True
+        if not bOk:
+            return
+        self._push_undo()
+        xmin = posX - width / 2.0
+        ymin = posY - depth / 2.0
+        xmax = posX + width / 2.0
+        ymax = posY + depth / 2.0
+        posX = ToUnsigned(posX * 1048576)
+        posY = ToUnsigned(posY * 1048576)
+        xmin = ToUnsigned(xmin * 1048576)
+        ymin = ToUnsigned(ymin * 1048576)
+        xmax = ToUnsigned(xmax * 1048576)
+        ymax = ToUnsigned(ymax * 1048576)
+        v = [vType, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, currentID, v12]
+        self.exemplar.AddTextProp(CreateAProp(self.virtualDAT.properties[lastIDProp], v[:]))
+        self.PreCacheObject(v)
+        self.UpdatePIM()
+        self.RebuildVars()
+        self.on_draw()
+
+    def PlaceAssetCentered(self, proxy):
+        """Place an asset proxy at the centre of the lot (double-click)."""
+        if not hasattr(self, 'exemplar') or proxy is None:
+            return
+        self.PlaceAsset(proxy, self.lotSizeX / 2.0, self.lotSizeY / 2.0)
 
     def _sync_mode_buttons(self):
         if hasattr(self, 'modeButtons'):
