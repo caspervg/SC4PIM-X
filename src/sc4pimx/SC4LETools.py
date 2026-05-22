@@ -603,17 +603,20 @@ def DisplayNameForTex(entry):
 
 class LEAssetItem(object):
 
-    def __init__(self, kind, label, sublabel, proxy, source=None, badge=None):
+    def __init__(self, kind, label, sublabel, proxy, source=None, badge=None, extra_text=''):
         self.kind = kind
         self.label = label
         self.sublabel = sublabel
         self.proxy = proxy
         self.source = source
         self.badge = badge or kind
+        # Extra free text folded into search (e.g. a family's member names).
+        self.extra_text = extra_text
 
     @property
     def search_text(self):
-        return ('%s %s %s %s' % (self.kind, self.badge, self.label, self.sublabel)).lower()
+        return ('%s %s %s %s %s' % (self.kind, self.badge, self.label,
+                                    self.sublabel, self.extra_text)).lower()
 
     @property
     def type_label(self):
@@ -1360,13 +1363,30 @@ class LEAssetBrowserPanel(wx.Panel):
         badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserPropBadge
         return LEAssetItem(kind, label, hex2str(desc.exemplar.entry.tgi[2])[2:], PropProxy(desc), desc, badge)
 
+    def _family_member_names(self, cat_id):
+        names = []
+        try:
+            for desc in VirtualDat.this.categories[cat_id].descriptors:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
+                    continue
+                if desc.exemplar.GetProp(16)[0] not in (30, 15):
+                    continue
+                name = desc.exemplar.GetProp(32)
+                if name:
+                    names.append(str(name[0]))
+        except Exception:
+            pass
+        return names
+
     def _family_item(self, cat_id):
         try:
             category = VirtualDat.this.categories[cat_id]
             label = category.Name
         except Exception:
             label = hex2str(cat_id)
-        return LEAssetItem('family', label, hex2str(cat_id)[2:], FamilyProxy(cat_id), cat_id, LEXAssetBrowserFamilyBadge)
+        members = ' '.join(self._family_member_names(cat_id))
+        return LEAssetItem('family', label, hex2str(cat_id)[2:], FamilyProxy(cat_id), cat_id,
+                           LEXAssetBrowserFamilyBadge, members)
 
     def _build_items(self):
         items = []
