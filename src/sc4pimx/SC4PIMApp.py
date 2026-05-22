@@ -53,6 +53,58 @@ def _exit_after(stage):
         sys.exit(0)
 
 
+def _read_s3d_bbox(mesh):
+    """Return an S3D mesh bbox as (width, height, depth), or None if unreadable."""
+    if mesh is None or getattr(mesh, 'entry', None) is None:
+        return None
+    mesh.ReadFile()
+    return (mesh.bboxX, mesh.bboxY, mesh.bboxZ)
+
+
+def _model_occupant_bbox(model):
+    """Compute Occupant Size from the best available model mesh."""
+    if model is None:
+        return None
+    candidates = []
+    meshes = getattr(model, 's3dMeshes', None)
+    if meshes:
+        # Standard SC4 models use zoom 5 for the normal best-fit render path.
+        if len(meshes) >= 5 and isinstance(meshes[4], list) and meshes[4]:
+            candidates.append(meshes[4][0])
+        elif len(meshes) >= 5 and not isinstance(meshes[4], list):
+            candidates.append(meshes[4])
+        for group in meshes:
+            if isinstance(group, list):
+                candidates.extend(group)
+            else:
+                candidates.append(group)
+    main_mesh = getattr(model, 'mainMesh', None)
+    if main_mesh is not None:
+        candidates.append(main_mesh)
+
+    seen = set()
+    best = None
+    best_volume = -1
+    for mesh in candidates:
+        entry = getattr(mesh, 'entry', None)
+        key = getattr(entry, 'tgi', id(mesh))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            bbox = _read_s3d_bbox(mesh)
+        except Exception:
+            logger.exception('Failed to read S3D bounds for %r', key)
+            continue
+        if bbox is None:
+            continue
+        volume = bbox[0] * bbox[1] * bbox[2]
+        if volume > best_volume:
+            best = bbox
+            best_volume = volume
+    return best
+
+
 def _existing_unique_paths(paths):
     seen = set()
     result = []
@@ -2765,15 +2817,15 @@ class NoteBookPanel(wx.Panel):
     def OnRebuildOccupantSize(self, event):
         if self.view:
             try:
-                data = self.view.viewingData[0].mainMesh
-                data.read_file()
-                Height = height = round(data.bboxY, 4)
-                Width = width = round(clamp_to_tile(data.bboxX), 4)
-                Depth = depth = round(clamp_to_tile(data.bboxZ), 4)
+                bbox = _model_occupant_bbox(self.view.viewingData[0])
+                if bbox is None:
+                    raise ValueError('No readable model mesh for Occupant Size rebuild')
+                Height = height = round(bbox[1], 4)
+                Width = width = round(clamp_to_tile(bbox[0]), 4)
+                Depth = depth = round(clamp_to_tile(bbox[2]), 4)
             except Exception:
-                Height = height = 3
-                Width = width = 8
-                Depth = depth = 8
+                logger.exception('Failed to rebuild Occupant Size from model')
+                return None
 
             newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775824],
                                                '%f,%f,%f' % (Width, Height, Depth))
@@ -3601,11 +3653,9 @@ class MainFrame(wx.Frame):
         category = self.tree.GetItemData(item)
         bbox = (8, 1, 8)
         try:
-            mesh = what.sc4Model.s3dMeshes[4][0]
-            mesh.read_file()
-            bbox = (mesh.bboxX, mesh.bboxY, mesh.bboxZ)
+            bbox = _model_occupant_bbox(what.sc4Model) or bbox
         except Exception:
-            pass
+            logger.exception('Failed to read dropped model bounds for %s', getattr(what, 'name', what))
 
         self.CreateAnExamplar(what.name, (1523640343, what.sc4Model.GID, what.sc4Model.IID), bbox, category)
 
