@@ -903,13 +903,14 @@ class LEAssetGrid(wx.ScrolledWindow):
     GAP = 10
     THUMB = 72
 
-    def __init__(self, parent, thumbnail_provider, on_select=None, on_context=None):
+    def __init__(self, parent, thumbnail_provider, on_select=None, on_context=None, on_activate=None):
         wx.ScrolledWindow.__init__(self, parent, -1, style=wx.BORDER_NONE | wx.VSCROLL)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.SetScrollRate(0, 24)
         self.thumbnail_provider = thumbnail_provider
         self.on_select = on_select
         self.on_context = on_context
+        self.on_activate = on_activate
         self.items = []
         self.selected = -1
         self.hovered = -1
@@ -922,6 +923,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.Bind(wx.EVT_MOTION, self.OnMotion)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.OnLeaveWindow)
         self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
+        self.Bind(wx.EVT_LEFT_DCLICK, self.OnDoubleClick)
 
     def SetItems(self, items):
         self.items = items
@@ -1063,6 +1065,12 @@ class LEAssetGrid(wx.ScrolledWindow):
                 self.on_context(self.items[idx])
         event.Skip()
 
+    def OnDoubleClick(self, event):
+        idx = self._hit_test(event.GetPosition())
+        if idx != -1 and self.on_activate:
+            self.on_activate(self.items[idx])
+        event.Skip()
+
     def OnMotion(self, event):
         idx = self._hit_test(event.GetPosition())
         if idx != self.hovered:
@@ -1126,11 +1134,12 @@ class LEAssetGrid(wx.ScrolledWindow):
 
 class LEAssetList(wx.ListCtrl):
 
-    def __init__(self, parent, on_select=None, on_context=None):
+    def __init__(self, parent, on_select=None, on_context=None, on_activate=None):
         wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_SINGLE_SEL | wx.BORDER_NONE)
         self.items = []
         self.on_select = on_select
         self.on_context = on_context
+        self.on_activate = on_activate
         self.InsertColumn(0, LEXInspectorName)
         self.InsertColumn(1, LEXInspectorType)
         self.InsertColumn(2, LEXInspectorID)
@@ -1140,6 +1149,7 @@ class LEAssetList(wx.ListCtrl):
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSelected)
         self.Bind(wx.EVT_LIST_BEGIN_DRAG, self.OnBeginDrag)
         self.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnRightClick)
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivated)
 
     def SetItems(self, items):
         self.items = items
@@ -1165,6 +1175,11 @@ class LEAssetList(wx.ListCtrl):
         idx = event.GetIndex()
         if self.on_context and 0 <= idx < len(self.items):
             self.on_context(self.items[idx])
+
+    def OnActivated(self, event):
+        idx = event.GetIndex()
+        if self.on_activate and 0 <= idx < len(self.items):
+            self.on_activate(self.items[idx])
 
     def OnBeginDrag(self, event):
         idx = event.GetIndex()
@@ -1233,8 +1248,9 @@ class LEAssetBrowserPanel(wx.Panel):
         self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
         root.Add(filters, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
-        self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select, self._on_context)
-        self.list = LEAssetList(self, self._on_grid_select, self._on_context)
+        self.grid = LEAssetGrid(self, self.thumbnail_provider, self._on_grid_select,
+                                self._on_context, self._on_activate)
+        self.list = LEAssetList(self, self._on_grid_select, self._on_context, self._on_activate)
         root.Add(self.grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.list.Hide()
@@ -1306,6 +1322,11 @@ class LEAssetBrowserPanel(wx.Panel):
     def _on_grid_select(self, item):
         if hasattr(self.editor, 'UpdateAssetInspector'):
             self.editor.UpdateAssetInspector(item)
+
+    def _on_activate(self, item):
+        """Double-click / Enter: drop the asset at the centre of the lot."""
+        if hasattr(self.editor, 'PlaceAssetCentered'):
+            self.editor.PlaceAssetCentered(item.proxy)
 
     def _texture_item(self, entry, overlay):
         iid = entry.tgi[2] - 3
