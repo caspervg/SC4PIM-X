@@ -362,7 +362,6 @@ class LotEditorWin(wx.Frame):
             (LEXToolbarZoomIn, self.OnZoom, '+'),
             (LEXToolbarZoomOut, self.OnUnzoom, '-'),
             (LEXToolbarFitView, self.OnFitView, 'C'),
-            (LEXToolbarSnap, self.OnToggleSnap, 'S'),
             (LEXToolbarDuplicate, self.OnDuplicate, 'D'),
             (LEXToolbarDelete, self.OnDelete, 'Del'),
         ]:
@@ -370,6 +369,12 @@ class LotEditorWin(wx.Frame):
             btn.SetToolTip('%s  [%s]' % (label, hint))
             btn.Bind(wx.EVT_BUTTON, handler)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        # Snap: plain click toggles the grid, Ctrl+click sets the grid size.
+        snap_btn = wx.Button(command_bar, -1, LEXToolbarSnap, size=(-1, 28))
+        snap_btn.SetToolTip('%s  [S]\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint))
+        snap_btn.Bind(wx.EVT_BUTTON, self.OnSnapButton)
+        command_sizer.Add(snap_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
         # _update_edit_buttons disables these when they do not apply. Each
@@ -1552,6 +1557,14 @@ class LotEditorWin(wx.Frame):
             self.snapGrids = numpy.asarray(snapGrids, 'f').tobytes()
         else:
             self.snapSize = 0
+
+    def OnSnapButton(self, event):
+        """Toolbar Snap button: click toggles, Ctrl+click sets the grid size."""
+        if wx.GetKeyState(wx.WXK_CONTROL):
+            self.OnSetSnap(event)
+        else:
+            self.OnToggleSnap(event)
+        self.on_draw()
 
     def OnSetSnap(self, event):
         dlg = wx.TextEntryDialog(self, LEXSnapGripSize, 'LE-X', '%.01f' % self.currentSnapSize)
