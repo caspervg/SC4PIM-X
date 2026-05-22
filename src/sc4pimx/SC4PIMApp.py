@@ -3280,7 +3280,6 @@ class ConfigureDialog(sc.SizedDialog):
         self.lb1.SetSizerProp('proportion', 1)
         for checked in self.to_check:
             self.lb1.Check(checked)
-
         buttonPane = sc.SizedPanel(pane, -1)
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
@@ -3373,9 +3372,11 @@ class ConfigureDialog(sc.SizedDialog):
         config.save_user_plugins_root(self.rootFolder)
         folders = []
         maxis_root = self._normalise_path(self.maxisFolder) if self.maxisFolder else ''
+        plugins_root = self._normalise_path(self.rootFolder) if self.rootFolder else ''
         for i, path in enumerate(self.listFolder):
             if path and self.lb1.IsChecked(i):
-                recurse = self._normalise_path(path) != maxis_root
+                normalised = self._normalise_path(path)
+                recurse = normalised not in (maxis_root, plugins_root)
                 folders.append((path, recurse))
         config.save_folders(folders)
 
@@ -3915,6 +3916,10 @@ class MainFrame(wx.Frame):
                 jobs.append(('file', os.path.join(self.maxisFolder,
                                                   self._maxis_locale_file()), False))
             else:
+                normalised = os.path.normcase(os.path.normpath(path))
+                plugins_root = os.path.normcase(os.path.normpath(self.rootFolder))
+                if normalised == plugins_root:
+                    recurse = False
                 jobs.append(('folder', path, recurse))
 
         logger.debug('Showing data loading progress dialog')
