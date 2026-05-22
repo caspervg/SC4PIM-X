@@ -422,32 +422,35 @@ class LotEditorWin(wx.Frame):
         # always visible; _sync_mode_buttons keeps them in step with the
         # keyboard shortcuts (h/p/t/v/f/b).
         self.modeButtons = {}
-        for label, mode, handler in [
-            (LEXPAN, MODE_EDIT_PAN, self.OnModePan),
-            (LEXProps, MODE_EDIT_PROP, self.OnModeProp),
-            (LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex),
-            (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex),
-            (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora),
+        for label, mode, handler, hint in [
+            (LEXPAN, MODE_EDIT_PAN, self.OnModePan, 'H'),
+            (LEXProps, MODE_EDIT_PROP, self.OnModeProp, 'P'),
+            (LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex, 'T'),
+            (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
+            (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
         ]:
             btn = wx.ToggleButton(command_bar, -1, label, size=(-1, 28))
+            btn.SetToolTip('%s  [%s]' % (label, hint))
             btn.Bind(wx.EVT_TOGGLEBUTTON, handler)
             self.modeButtons[mode] = btn
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        for label, handler in [
-            (LEXToolbarView, self.OnCycleViewMode),
-            (LEXToolbarZoomIn, self.OnZoom),
-            (LEXToolbarZoomOut, self.OnUnzoom),
-            (LEXToolbarSnap, self.OnToggleSnap),
-            (LEXToolbarDuplicate, self.OnDuplicate),
-            (LEXToolbarDelete, self.OnDelete),
+        for label, handler, hint in [
+            (LEXToolbarView, self.OnCycleViewMode, 'A'),
+            (LEXToolbarZoomIn, self.OnZoom, '+'),
+            (LEXToolbarZoomOut, self.OnUnzoom, '-'),
+            (LEXToolbarSnap, self.OnToggleSnap, 'S'),
+            (LEXToolbarDuplicate, self.OnDuplicate, 'D'),
+            (LEXToolbarDelete, self.OnDelete, 'Del'),
         ]:
             btn = wx.Button(command_bar, -1, label, size=(-1, 28))
+            btn.SetToolTip('%s  [%s]' % (label, hint))
             btn.Bind(wx.EVT_BUTTON, handler)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Background display: a toggle (also Ctrl+B) plus a set picker.
         self.backgroundToggle = wx.ToggleButton(command_bar, -1, LEXToolbarBackground, size=(-1, 28))
+        self.backgroundToggle.SetToolTip('%s  [Shift+B]' % LEXToolbarBackground)
         self.backgroundToggle.SetValue(self.bDrawBack)
         self.backgroundToggle.Bind(wx.EVT_TOGGLEBUTTON, self.OnToggleBackground)
         command_sizer.Add(self.backgroundToggle, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
@@ -462,9 +465,11 @@ class LotEditorWin(wx.Frame):
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
         self.undoButton = wx.Button(command_bar, -1, LEXToolbarUndo, size=(-1, 28))
+        self.undoButton.SetToolTip('%s  [Ctrl+Z]' % LEXToolbarUndo)
         self.undoButton.Bind(wx.EVT_BUTTON, self.OnUndo)
         command_sizer.Add(self.undoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.redoButton = wx.Button(command_bar, -1, LEXToolbarRedo, size=(-1, 28))
+        self.redoButton.SetToolTip('%s  [Ctrl+Y]' % LEXToolbarRedo)
         self.redoButton.Bind(wx.EVT_BUTTON, self.OnRedo)
         command_sizer.Add(self.redoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.undoButton.Disable()
