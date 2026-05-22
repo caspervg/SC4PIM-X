@@ -100,9 +100,9 @@ class ATC(object):
             rot *= 2
         if rot >= len(self.avps[zoom].chunks):
             return False
-        self.current_frame += 1
-        if self.current_frame == self.num_frames:
-            self.current_frame = 0
+        # Freeze on the first frame: the lot/model preview is a layout tool,
+        # and a self-advancing animation only flickered as the view redrew.
+        self.current_frame = 0
         avp_data = self.avps[zoom].chunks[rot]
         self.hotspot = avp_data[3]
         self.current_layer = avp_data[0]
@@ -113,7 +113,8 @@ class ATC(object):
             avp_data[1][0] + avp_data[2][0],
             avp_data[1][1] + avp_data[2][1],
         ]
-        self.quad_uvs = self.quad_uvs_frame0
+        # Copy: the loop below mutates quad_uvs in place.
+        self.quad_uvs = list(self.quad_uvs_frame0)
         for frame in range(self.current_frame):
             self.quad_uvs[0] += avp_data[2][0]
             self.quad_uvs[2] += avp_data[2][0]
