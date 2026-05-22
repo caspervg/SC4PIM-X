@@ -1071,11 +1071,30 @@ class LEAssetGrid(wx.ScrolledWindow):
             self.on_activate(self.items[idx])
         event.Skip()
 
+    def _card_tooltip(self, item):
+        lines = [item.label, item.type_label]
+        if item.sublabel and item.sublabel != item.label:
+            lines.append(item.sublabel)
+        try:
+            source = item.source
+            file_name = getattr(source, 'fileName', None)
+            if file_name is None and hasattr(source, 'exemplar'):
+                file_name = source.exemplar.entry.fileName
+            if file_name:
+                lines.append(os.path.split(file_name)[1])
+        except Exception:
+            pass
+        return '\n'.join(lines)
+
     def OnMotion(self, event):
         idx = self._hit_test(event.GetPosition())
         if idx != self.hovered:
             self.hovered = idx
             self._show_state_popup(idx, event.GetPosition())
+            if idx == -1:
+                self.UnsetToolTip()
+            else:
+                self.SetToolTip(self._card_tooltip(self.items[idx]))
         if not event.Dragging() or not event.LeftIsDown() or self.drag_start is None:
             event.Skip()
             return
