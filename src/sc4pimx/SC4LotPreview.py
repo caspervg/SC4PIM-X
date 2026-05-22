@@ -271,6 +271,81 @@ class CustomStatusBar(wx.StatusBar):
         self.SetStatusText('', 5)
 
 
+class LEInspectorPanel(wx.Panel):
+    """Inspector pane: a read-only summary plus editable position fields."""
+
+    def __init__(self, parent, editor):
+        wx.Panel.__init__(self, parent, -1)
+        self.editor = editor
+        self.SetBackgroundColour(wx.Colour(250, 251, 252))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        self.text = wx.TextCtrl(self, -1, LEXInspectorPrompt,
+                                style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_NONE)
+        self.text.SetBackgroundColour(wx.Colour(250, 251, 252))
+        box = wx.StaticBox(self, -1, 'Edit placement')
+        fields = wx.StaticBoxSizer(box, wx.VERTICAL)
+        grid = wx.FlexGridSizer(3, 2, 4, 6)
+        grid.AddGrowableCol(1, 1)
+        self.fldX = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
+        self.fldY = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
+        self.fldH = wx.TextCtrl(self, -1, '', style=wx.TE_PROCESS_ENTER)
+        for label, ctrl in [('X', self.fldX), ('Y', self.fldY), ('Height', self.fldH)]:
+            grid.Add(wx.StaticText(self, -1, label), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(ctrl, 1, wx.EXPAND)
+            ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnApply)
+        fields.Add(grid, 0, wx.EXPAND | wx.ALL, 4)
+        # Rotation: one toggle button per compass direction. The lot-config
+        # rotation flag is South=0, East=1, North=2, West=3.
+        rot_row = wx.BoxSizer(wx.HORIZONTAL)
+        rot_row.Add(wx.StaticText(self, -1, 'Facing'), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.rotButtons = {}
+        for label, rot in [('N', 2), ('E', 1), ('S', 0), ('W', 3)]:
+            btn = wx.ToggleButton(self, -1, label, size=(34, 26))
+            btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, r=rot: self.OnRotation(r))
+            self.rotButtons[rot] = btn
+            rot_row.Add(btn, 0, wx.RIGHT, 2)
+        fields.Add(rot_row, 0, wx.EXPAND | wx.ALL, 4)
+        self.applyBtn = wx.Button(self, -1, 'Apply', size=(-1, 26))
+        self.applyBtn.Bind(wx.EVT_BUTTON, self.OnApply)
+        fields.Add(self.applyBtn, 0, wx.EXPAND | wx.ALL, 4)
+        sizer.Add(self.text, 1, wx.EXPAND | wx.ALL, 6)
+        sizer.Add(fields, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        self.SetSizer(sizer)
+        self._outer = sizer
+        self._fields = fields
+        self.HideFields()
+
+    def SetText(self, value):
+        self.text.SetValue(value)
+
+    def ShowFields(self, x, y, height, rotation):
+        self.fldX.SetValue('%.2f' % x)
+        self.fldY.SetValue('%.2f' % y)
+        self.fldH.SetValue('%.2f' % height)
+        for rot, btn in self.rotButtons.items():
+            btn.SetValue(rot == rotation)
+        self._outer.Show(self._fields, True, recursive=True)
+        self.Layout()
+
+    def HideFields(self):
+        self._outer.Show(self._fields, False, recursive=True)
+        self.Layout()
+
+    def OnApply(self, event):
+        try:
+            x = float(self.fldX.GetValue())
+            y = float(self.fldY.GetValue())
+            height = float(self.fldH.GetValue())
+        except ValueError:
+            return
+        self.editor.ApplyInspectorEdit(x, y, height)
+
+    def OnRotation(self, rotation):
+        for rot, btn in self.rotButtons.items():
+            btn.SetValue(rot == rotation)
+        self.editor.SetSelectionRotation(rotation)
+
+
 class LotEditorWin(wx.Frame):
     zoomScale = [
      1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2]
@@ -393,9 +468,7 @@ class LotEditorWin(wx.Frame):
         viewport_sizer = wx.BoxSizer(wx.VERTICAL)
         viewport_sizer.Add(self.glCanvas2D, 1, wx.EXPAND | wx.ALL, 6)
         viewport_panel.SetSizer(viewport_sizer)
-        self.inspector = wx.TextCtrl(self.rightSplitter, -1, LEXInspectorPrompt,
-                                     style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_NONE)
-        self.inspector.SetBackgroundColour(wx.Colour(250, 251, 252))
+        self.inspector = LEInspectorPanel(self.rightSplitter, self)
         inspector_width = int(settings.get('InspectorWidth', 280))
         self.rightSplitter.SplitVertically(viewport_panel, self.inspector, -inspector_width)
         self.rightSplitter.SetMinimumPaneSize(220)
@@ -469,7 +542,8 @@ class LotEditorWin(wx.Frame):
                 lines.append('%s: %s' % (LEXInspectorFile, os.path.split(file_name)[1]))
         except Exception:
             pass
-        self.inspector.SetValue('\n'.join(lines))
+        self.inspector.SetText('\n'.join(lines))
+        self.inspector.HideFields()
 
     def _lot_config_for_selection(self, selected_id):
         if not hasattr(self, 'exemplar'):
@@ -501,13 +575,15 @@ class LotEditorWin(wx.Frame):
         if not hasattr(self, 'inspector'):
             return
         if not self.selected:
-            self.inspector.SetValue(LEXInspectorNoSelection)
+            self.inspector.SetText(LEXInspectorNoSelection)
+            self.inspector.HideFields()
             return
         lines = [
             LEXInspectorSelection,
             '',
             '%s: %d' % (LEXInspectorSelectionCount, len(self.selected)),
         ]
+        editable = False
         if len(self.selected) == 1:
             values = self._lot_config_for_selection(self.selected[0])
             if values is not None:
@@ -528,7 +604,73 @@ class LotEditorWin(wx.Frame):
                     '%s: %.2f' % (LEXInspectorHeight, ToCoord(values[4])),
                     '%s: %s' % (LEXInspectorRotation, values[2]),
                 ])
-        self.inspector.SetValue('\n'.join(lines))
+                if values[0] in (0, 1, 4):
+                    editable = True
+                    self.inspector.ShowFields(cx, cy, ToCoord(values[4]), values[2] & 15)
+        self.inspector.SetText('\n'.join(lines))
+        if not editable:
+            self.inspector.HideFields()
+
+    def ApplyInspectorEdit(self, px, py, height):
+        """Write inspector position/height fields back to the single selection."""
+        if len(self.selected) != 1 or not self.quadSelected:
+            return
+        sel_id = self.selected[0]
+        target = None
+        for lcp in range(2297284864, 2297286144):
+            values = self.exemplar.GetProp(lcp)
+            if values is None:
+                break
+            if values[11] == sel_id:
+                target = values
+                break
+        if target is None or target[0] not in (0, 1, 4):
+            return
+        self._push_undo()
+        dx = px - ToCoord(target[3])
+        dy = py - ToCoord(target[5])
+        target[3] = ToUnsigned(int(px * 65536))
+        target[5] = ToUnsigned(int(py * 65536))
+        for idx in (6, 8):
+            target[idx] = ToUnsigned(int((ToCoord(target[idx]) + dx) * 65536))
+        for idx in (7, 9):
+            target[idx] = ToUnsigned(int((ToCoord(target[idx]) + dy) * 65536))
+        target[4] = ToUnsigned(int(height * 65536))
+        if target[0] == 0:
+            self.building[:-1] = target[:]
+        else:
+            what = self.floras if target[0] == 4 else self.props
+            for prop in what:
+                if prop[11] == sel_id:
+                    prop[:13] = target
+                    break
+        q = self.quadSelected[0]
+        q[0] = ToCoord(target[6])
+        q[1] = ToCoord(target[7])
+        q[2] = ToCoord(target[8])
+        q[3] = ToCoord(target[9])
+        self.UpdatePIM()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
+    def SetSelectionRotation(self, rotation):
+        """Rotate the single selection to an absolute facing (0=S,1=E,2=N,3=W)."""
+        if len(self.selected) != 1:
+            return
+        values = self._lot_config_for_selection(self.selected[0])
+        if values is None or values[0] not in (0, 1, 4):
+            return
+        # A CW Rotate step maps the rotation flag c -> (c - 1) mod 4, so to
+        # reach an absolute facing the step count is (current - target).
+        steps = ((values[2] & 15) - rotation) % 4
+        if steps == 0:
+            return
+        self._push_undo()
+        for _ in range(steps):
+            self.Rotate([3, 0, 1, 2], RotCW)
+        self.UpdatePIM()
+        self.UpdateSelectionInspector()
+        self.on_draw()
 
     def OnModePan(self, event):
         self.modeEdit = MODE_EDIT_PAN
