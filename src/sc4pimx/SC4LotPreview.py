@@ -1590,7 +1590,11 @@ class LotEditorWin(wx.Frame):
         dlg = wx.TextEntryDialog(self, LEXSnapGripSize, 'LE-X', '%.01f' % self.currentSnapSize)
         if dlg.ShowModal() == wx.ID_OK:
             try:
-                self.currentSnapSize = float(dlg.GetValue())
+                value = float(dlg.GetValue())
+                # A snap size <= 0 makes the grid-building loops never advance.
+                if value <= 0:
+                    raise ValueError
+                self.currentSnapSize = value
                 self.snapSize = 0
                 self.OnToggleSnap(event)
             except ValueError:
