@@ -26,6 +26,21 @@ binProp = 0
 # resolved ExemplarType (property 16) so each Prop need not re-resolve it.
 _KIND_UNSET = object()
 
+
+def format_float_value(v):
+    """Format a Float32 property value for display.
+
+    Uses 8 decimal places (the editor's serialisation precision) then strips
+    redundant trailing zeros, keeping one digit after the dot so the value
+    still reads as a float. Small values keep their significant digits
+    (0.0067), large values lose the noise (22500.0), no scientific notation.
+    """
+    s = ('%.8f' % v).rstrip('0')
+    if s.endswith('.'):
+        s += '0'
+    return s
+
+
 def CreateAProp(prop, values):
     count = prop.Count
     if count == 1:
@@ -281,17 +296,7 @@ class Prop():
         if self.typeValue == 3072:
             return v
         if self.typeValue == 2304:
-            s = '%.8f' % v
-            while 1:
-                if s[-1] == '0':
-                    s = s[:-1]
-                elif s[-1] == '.':
-                    s = s[:-1]
-                    break
-                else:
-                    break
-
-            return s
+            return format_float_value(v)
         if self.typeValue == 2816:
             if v == 0:
                 return 'False'
