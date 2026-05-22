@@ -14,10 +14,25 @@ from OpenGL.GL import (
     glTranslatef,
     glViewport,
 )
-from OpenGL.GLUT import glutStrokeCharacter
+from OpenGL.GLUT import glutInit, glutStrokeCharacter
 from OpenGL.GLUT.fonts import GLUT_STROKE_ROMAN
 from wx import glcanvas
 from wx.glcanvas import GLContext
+
+# glutStrokeCharacter aborts the process ("called without first calling
+# glutInit") unless GLUT has been initialised. Do it lazily and once.
+_glut_ready = None
+
+
+def _glut_available():
+    global _glut_ready
+    if _glut_ready is None:
+        try:
+            glutInit()
+            _glut_ready = True
+        except Exception:
+            _glut_ready = False
+    return _glut_ready
 
 
 class MyCanvasBase(glcanvas.GLCanvas):
@@ -73,6 +88,8 @@ class MyCanvasBase(glcanvas.GLCanvas):
         super().SetCurrent(context if context is not None else self.context)
 
     def text_2d(self, x, y, text, rot_2d, scaling):
+        if not _glut_available():
+            return
         glPushMatrix()
         glTranslatef(x, y, 0)
         glRotatef(-rot_2d, 0, 0, 1)
