@@ -1883,7 +1883,8 @@ class NoteBookPanel(wx.Panel):
         if IsFromCategory(self.virtual_dat.categories[1821359580], self.exemplar):
             needed = 3049262776
             lowStage = 4
-        ogs = range(needed + 1, needed + 8)
+        stage_count = 10 if needed == 3049262112 else 7
+        ogs = range(needed + 1, needed + stage_count + 1)
         options = self.virtual_dat.properties[2854081430].Options
         lst = [options.get(x, hex2str(x)) for x in ogs]
         missing_options = [hex2str(x) for x in ogs if x not in options]
