@@ -316,6 +316,11 @@ class S3D(object):
                 continue
 
             try:
+                primBlock = self.primBlocks[frameInfo['primBlock']]
+            except IndexError:
+                continue
+
+            try:
                 material = self.matBlocks[frameInfo['matsBlock']]
             except IndexError:
                 continue
@@ -359,7 +364,23 @@ class S3D(object):
             glEnableClientState(GL_TEXTURE_COORD_ARRAY)
             glVertexPointer(3, GL_FLOAT, 0, vertexBuffer[0])
             glTexCoordPointer(2, GL_FLOAT, 0, vertexBuffer[1])
-            glDrawElements(GL_TRIANGLES, indexBuffer[1], GL_UNSIGNED_SHORT, indexBuffer[0])
+            # Per the S3D Prim wiki each PRIM sub-entry has a first-index
+            # offset and a triangle-index count; the parent INDX block may
+            # back several sub-prims or carry padding past them. Draw each
+            # sub-prim explicitly rather than blasting the whole INDX.
+            idx_bytes = indexBuffer[0]
+            idx_count = indexBuffer[1]
+            for typePrim, first, length in primBlock:
+                if length == 0 or first + length > idx_count:
+                    continue
+                if typePrim != 0:
+                    # Maxis content uses type 0 (triangle list). Strips (1) and
+                    # quads (2) are rare in the wild; log so they surface.
+                    logger.debug('S3D PRIM type %d not supported (first=%d length=%d) tgi=%r',
+                                 typePrim, first, length, getattr(self, 'tgi', None))
+                    continue
+                glDrawElements(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
+                               idx_bytes[first * 2:])
             glDisableClientState(GL_VERTEX_ARRAY)
             glDisableClientState(GL_TEXTURE_COORD_ARRAY)
 
