@@ -15,7 +15,7 @@ from .ATCReader import *
 from .config import load_lot_editor, save_lot_editor
 from .paths import asset_path, background_path, background_set_dir, background_sets
 from .SC4Data import *
-from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned
+from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, night_state_for
 from .SC4LETools import *
 from .SC4OpenGL import *
 from .SC4TransitLotTools import (
@@ -445,6 +445,8 @@ class LotEditorWin(wx.Frame):
         self.backgroundSet = str(settings.get('BackgroundSet', 'Default'))
         self.visibleLayers2D = self._load_visible_layers(settings.get('VisibleLayers2D', {}))
         self.visibleLayers3D = self._load_visible_layers(settings.get('VisibleLayers3D', {}))
+        self.nightMode = bool(settings.get('NightMode', False))
+        self.s3DTexturesHolder.SetNightMode(self.nightMode)
         self._layer_menu_ids = {}
         self._background_menu_ids = {}
         self._undo_limit = max(1, int(settings.get('UndoLimit', 40)))
@@ -580,6 +582,7 @@ class LotEditorWin(wx.Frame):
         state['BackgroundSet'] = str(getattr(self, 'backgroundSet', 'Default'))
         state['VisibleLayers2D'] = dict(getattr(self, 'visibleLayers2D', self._default_visible_layers()))
         state['VisibleLayers3D'] = dict(getattr(self, 'visibleLayers3D', self._default_visible_layers()))
+        state['NightMode'] = bool(getattr(self, 'nightMode', False))
         return state
 
     def _default_visible_layers(self):
@@ -1884,11 +1887,26 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, '3d', LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
         self._append_background_menu(menu)
+        menu.AppendSeparator()
+        night_id = wx.NewIdRef()
+        night_item = menu.AppendCheckItem(int(night_id), LEXLayerNightMode)
+        night_item.Check(bool(getattr(self, 'nightMode', False)))
+        menu.Bind(wx.EVT_MENU, self.OnToggleNightMode, id=int(night_id))
         if event is not None and hasattr(event.GetEventObject(), 'PopupMenu'):
             event.GetEventObject().PopupMenu(menu)
         else:
             self.PopupMenu(menu)
         menu.Destroy()
+
+    def OnToggleNightMode(self, event=None):
+        self.nightMode = not bool(getattr(self, 'nightMode', False))
+        if getattr(self, 's3DTexturesHolder', None) is not None:
+            try:
+                self.s3DTexturesHolder.SetNightMode(self.nightMode)
+            except Exception:
+                logger.exception('Failed to switch night-light mode')
+        self.SaveEditorState()
+        self.on_draw()
 
     def OnToggleLayerVisibility(self, event):
         view_key, layer_key = self._layer_menu_ids.get(event.GetId(), (None, None))
@@ -2157,6 +2175,8 @@ class LotEditorWin(wx.Frame):
                 buildingViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
             elif rkt5:
                 buildingViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
+            if buildingViewer is not None:
+                buildingViewer.night_state = night_state_for(desc.exemplar)
             self.buildingViewer.append(buildingViewer)
             try:
                 self.buildingViewer[-1].PreLoad(self.virtualDAT, self.s3DTexturesHolder)
@@ -2272,6 +2292,8 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
         elif rkt5:
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
+        if propViewer is not None:
+            propViewer.night_state = night_state_for(selectedDesc.exemplar)
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -2316,6 +2338,8 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
         elif rkt5:
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
+        if propViewer is not None:
+            propViewer.night_state = night_state_for(selectedDesc.exemplar)
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -2953,7 +2977,16 @@ class LotEditorWin(wx.Frame):
             return
         if resource.viewingData == []:
             return
-        what = resource.viewingData[0]
+        # Props with exemplar property 0x49C9C93C ("Nighttime State Change")
+        # render a different model state at night. The property's value is the
+        # destination state index; fall through to state 0 if it points out
+        # of range (e.g. an RKT0/1 prop with only one viewing entry).
+        state_idx = 0
+        if getattr(self, 'nightMode', False):
+            night_state = int(getattr(resource, 'night_state', 0) or 0)
+            if 0 < night_state < len(resource.viewingData):
+                state_idx = night_state
+        what = resource.viewingData[state_idx]
         if what.__class__ == SC4Model:
             rotMapping = [
              180, -90, 0, 90]

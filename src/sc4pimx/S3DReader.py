@@ -303,7 +303,8 @@ class S3D(object):
         funcTableReverse = [GL_ALWAYS, GL_GEQUAL, GL_NOTEQUAL, GL_GREATER, GL_LEQUAL, GL_EQUAL, GL_LESS, GL_NEVER]
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
         sample_alpha_to_coverage = globals().get('GL_SAMPLE_ALPHA_TO_COVERAGE')
-        for mesh in meshes:
+        mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
+        for mi, mesh in enumerate(meshes):
             frameInfo = mesh['frames'][self.currentFrame]
             try:
                 vertexBuffer = self.vertexBuffers[frameInfo['vertBlock']]
@@ -326,13 +327,22 @@ class S3D(object):
                 continue
 
             texInfo = material['textures'][0]
-            s3DTexturesHolder.SetCurrentTex(
-                (self.tgi2search[1], texInfo['textureID']),
-                min_filter=texInfo.get('minFilter'),
-                mag_filter=texInfo.get('magFilter'),
-                wrap_s=texInfo.get('wrapS'),
-                wrap_t=texInfo.get('wrapT'),
-            )
+            # Use the per-mesh key resolved in LEInit. Fall back to the
+            # historical single tgi2search if the per-mesh list is missing
+            # (older code path, defensive).
+            tex_key = None
+            if mi < len(mesh_tex_keys):
+                tex_key = mesh_tex_keys[mi]
+            if tex_key is None and hasattr(self, 'tgi2search'):
+                tex_key = (self.tgi2search[1], texInfo['textureID'])
+            if tex_key is not None:
+                s3DTexturesHolder.SetCurrentTex(
+                    tex_key,
+                    min_filter=texInfo.get('minFilter'),
+                    mag_filter=texInfo.get('magFilter'),
+                    wrap_s=texInfo.get('wrapS'),
+                    wrap_t=texInfo.get('wrapT'),
+                )
             flags = material['flags']
             if flags & 1:
                 glEnable(GL_ALPHA_TEST)
@@ -436,7 +446,16 @@ class S3D(object):
             return
         self.ReadFile()
         meshes = self.anims['animatedMeshes']
-        for mesh in meshes:
+        # Per-mesh resolved (group, instance) cache keys so draw() does not
+        # need to share a single self.tgi2search across meshes with different
+        # textures.
+        self.mesh_tex_keys = [None] * len(meshes)
+        FSH_TYPE = 2058686020       # 0x7AB50E44
+        SHARED_GROUP = 448690301    # 0x1ABE787D
+        MAXIS_S3D_GROUP = 3134937073  # 0xBADB57F1
+        NIGHT_OFFSET = 0x8000       # RKT1 group-of-20 convention per the
+                                    # S3D Mats wiki; widely applied by modders.
+        for mi, mesh in enumerate(meshes):
             frameInfo = mesh['frames'][0]
             try:
                 material = self.matBlocks[frameInfo['matsBlock']]
@@ -450,26 +469,28 @@ class S3D(object):
 
             # Per the S3D Mats wiki the texture is normally in the S3D's own
             # group; transit / Maxis-shared content lives in 0x1ABE787D. Try
-            # own group first, then the shared group as fallback.
-            FSH_TYPE = 2058686020       # 0x7AB50E44
-            SHARED_GROUP = 448690301    # 0x1ABE787D
-            MAXIS_S3D_GROUP = 3134937073  # 0xBADB57F1 — Maxis content rarely
-                                          # ships its own group's textures, so
-                                          # try shared first to save a miss.
-            if self.tgi[1] == MAXIS_S3D_GROUP:
-                candidate_groups = (SHARED_GROUP,)
-            elif self.tgi[1] == SHARED_GROUP:
+            # own group first, then the shared group as fallback. Maxis content
+            # rarely ships its own group's textures, so try shared first there.
+            if self.tgi[1] in (MAXIS_S3D_GROUP, SHARED_GROUP):
                 candidate_groups = (SHARED_GROUP,)
             else:
                 candidate_groups = (self.tgi[1], SHARED_GROUP)
-            entry = None
+            day_entry = None
             resolved_group = candidate_groups[0]
             for group in candidate_groups:
-                entry = virtualDAT.getEntry(FSH_TYPE, group, textureID)
-                if entry is not None:
+                day_entry = virtualDAT.getEntry(FSH_TYPE, group, textureID)
+                if day_entry is not None:
                     resolved_group = group
                     break
+            # Night sibling lives in the same group as the resolved day
+            # texture, at instance + 0x8000. Silent fallback if absent.
+            night_entry = virtualDAT.getEntry(
+                FSH_TYPE, resolved_group, textureID + NIGHT_OFFSET)
+            key = (resolved_group, textureID)
+            self.mesh_tex_keys[mi] = key
+            # Back-compat: legacy callers read self.tgi2search; keep the
+            # last-resolved entry available for them.
             self.tgi2search = (FSH_TYPE, resolved_group, textureID)
-            s3DTexturesHolder.PrecacheTex((resolved_group, textureID), entry)
+            s3DTexturesHolder.PrecacheTex(key, day_entry, night_entry=night_entry)
 
         return

@@ -8,6 +8,33 @@ from .util import DictWrapper, basic_cmp
 logger = logging.getLogger(__name__)
 
 
+# Exemplar property 0x49C9C93C — "Nighttime State Change" (Uint8). When
+# non-zero, the prop renders its state-N model variant at night instead of
+# state 0.
+NIGHTTIME_STATE_CHANGE_PROP = 0x49C9C93C
+
+
+def night_state_for(exemplar):
+    """Return the model state to display under night lighting for *exemplar*.
+
+    Reads exemplar property 0x49C9C93C ("Nighttime State Change"). Returns 0
+    when the property is missing, zero, or unreadable — in which case the
+    daytime state is used unchanged.
+    """
+    if exemplar is None:
+        return 0
+    try:
+        val = exemplar.GetProp(NIGHTTIME_STATE_CHANGE_PROP)
+    except Exception:
+        return 0
+    if not val:
+        return 0
+    try:
+        return int(val[0])
+    except (TypeError, ValueError, IndexError):
+        return 0
+
+
 def ReadStageVsDensity(node):
     purpose = str(node.getAttribute('purpose'))
     wealth = int(node.getAttribute('wealth'))
