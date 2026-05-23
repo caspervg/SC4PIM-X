@@ -182,11 +182,11 @@ class AVP(object):
             storage_type = struct.unpack("B", buffer[1:2])[0]
             offset = struct.unpack("H", buffer[2:4])[0]
             x_start = offset % img_width
-            y_start = offset / img_width
+            y_start = offset // img_width
             width = struct.unpack("B", buffer[4:5])[0]
             height = struct.unpack("B", buffer[5:6])[0]
-            hot_spot_x = width / 2 - struct.unpack("B", buffer[6:7])[0]
-            hot_spot_y = height / 2 - struct.unpack("B", buffer[7:8])[0]
+            hot_spot_x = width // 2 - struct.unpack("B", buffer[6:7])[0]
+            hot_spot_y = height // 2 - struct.unpack("B", buffer[7:8])[0]
             self.chunks.append([plane, (x_start, y_start), (width, height), (hot_spot_x, hot_spot_y)])
             buffer = buffer[8:]
 
