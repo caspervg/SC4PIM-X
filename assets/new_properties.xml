@@ -13181,6 +13181,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x1FDDE184"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Subway Station" ID="0x0c8fbcf9" ParentID="0x0c8fbc5e">
@@ -13214,6 +13217,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x231A97D3"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Passenger Train Station" ID="0x0c8fbd07" ParentID="0x0c8fbc5e">
@@ -13246,6 +13252,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x35380C75"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Freight Train Station" ID="0x6c8fbd13" ParentID="0x0c8fbc5e">
@@ -13282,6 +13291,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x3557F0A1"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Railyard without station" ID="0x6c8fbd14" ParentID="0x0c8fbc5e">
@@ -13348,6 +13360,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x00000000"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Monorail Station" ID="0x0cb23934" ParentID="0x0c8fbc5e">
@@ -13382,6 +13397,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x00000000"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Garage" ID="0xacbb8bb5" ParentID="0x0c8fbc5e">
@@ -13415,6 +13433,9 @@
         <PROPERTY ID="0xEA54D285" Value="0xCA550301"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xAA1DD399" Eval="0x217B6C35"/><!--OccupantGroups for SubMenu-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Toll Booth" ID="0xacb23926" ParentID="0x0c8fbc5e">
@@ -13448,6 +13469,9 @@
         <PROPERTY ID="0xEA54D284" Value="0x00000006"/><!--Budget Item: Line-->
         <PROPERTY ID="0xEA54D285" Value="0x0C3BF549"/><!--Budget Item: Purpose-->
       </PROPERTIES>
+      <PRESET Name="Standard" Type="Transit">
+        <PROPERTIES/>
+      </PRESET>
     </CATEGORY>
 
     <CATEGORY Name="Passenger Ferry Terminal" ID="0x6cb2392a" ParentID="0x0c8fbc5e">
