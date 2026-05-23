@@ -723,6 +723,9 @@ class VirtualListCtrl(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
         tgi = self._column_value(data, 'tgi')
         if tgi:
             parts.append(tgi)
+        file_name = getattr(data, 'fileName', '') or ''
+        if file_name:
+            parts.append(file_name)
         model = getattr(data, 'sc4Model', None)
         if model is not None:
             try:

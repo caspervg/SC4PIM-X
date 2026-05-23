@@ -615,8 +615,17 @@ class LEAssetItem(object):
 
     @property
     def search_text(self):
-        return ('%s %s %s %s %s' % (self.kind, self.badge, self.label,
-                                    self.sublabel, self.extra_text)).lower()
+        file_name = ''
+        try:
+            src = self.source
+            if hasattr(src, 'fileName'):
+                file_name = src.fileName or ''
+            elif hasattr(src, 'exemplar'):
+                file_name = src.exemplar.entry.fileName or ''
+        except Exception:
+            file_name = ''
+        return ('%s %s %s %s %s %s' % (self.kind, self.badge, self.label,
+                                       self.sublabel, self.extra_text, file_name)).lower()
 
     @property
     def type_label(self):
