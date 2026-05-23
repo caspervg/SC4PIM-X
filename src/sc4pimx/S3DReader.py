@@ -325,6 +325,8 @@ class S3D(object):
                 (self.tgi2search[1], texInfo['textureID']),
                 min_filter=texInfo.get('minFilter'),
                 mag_filter=texInfo.get('magFilter'),
+                wrap_s=texInfo.get('wrapS'),
+                wrap_t=texInfo.get('wrapT'),
             )
             flags = material['flags']
             if flags & 1:
