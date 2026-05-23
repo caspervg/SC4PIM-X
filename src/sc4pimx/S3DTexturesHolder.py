@@ -1,4 +1,5 @@
 """S3D textures holder for OpenGL rendering."""
+import numpy as np
 from OpenGL.GL import (
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
@@ -36,107 +37,187 @@ def _delete_texture(value):
     glDeleteTextures([_texture_name(value)])
 
 
+def _decode_layers(entry):
+    """Decode an FSH entry into a list of (size, rgba_bytes) per layer.
+
+    Returns None on any failure. Reads entry.content in place and clears it.
+    """
+    try:
+        entry.read_file(None, True, True)
+        nbrLayers, _trueAlpha, img, alpha, size = FSHConverter.decodeFSH(entry.content)
+    except Exception:
+        try:
+            entry.content = None
+            entry.rawContent = None
+        except Exception:
+            pass
+        return None
+    try:
+        nbOfBytes = size[0] * size[1]
+        expected_img = nbOfBytes * 3 * nbrLayers
+        expected_alpha = nbOfBytes * nbrLayers
+        if len(img) < expected_img or len(alpha) < expected_alpha:
+            nbrLayers = 1
+        layers = []
+        for li in range(nbrLayers):
+            rgb = img[nbOfBytes * 3 * li:nbOfBytes * 3 * (li + 1)]
+            a = alpha[nbOfBytes * li:nbOfBytes * (li + 1)]
+            imBmp = Image.frombytes('RGB', size, rgb)
+            imAlpha = Image.frombytes('L', size, a)
+            im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
+            layers.append((size, im.tobytes('raw', 'RGBA')))
+        return layers
+    finally:
+        entry.content = None
+        entry.rawContent = None
+
+
+def _blend_night_over_day(day_rgba, night_rgba):
+    """Alpha-composite the night layer over the day layer.
+
+    Night FSHes are sparse (mostly transparent except window/light pixels);
+    a straight swap would render the building black, so we blend night.rgb
+    over day.rgb using night.a as the mix factor. The composite *keeps the
+    day alpha* — the night layer is meant to modulate the existing day
+    surface, not extend it. If we used max(day.a, night.a) instead, any
+    halo or bleed in the night FSH outside the day silhouette would suddenly
+    pass the alpha test and reveal whatever LOD / shadow plane sits behind
+    the building.
+    """
+    d = np.frombuffer(day_rgba, dtype=np.uint8).reshape(-1, 4).astype(np.uint16)
+    n = np.frombuffer(night_rgba, dtype=np.uint8).reshape(-1, 4).astype(np.uint16)
+    a = n[:, 3:4]
+    inv = 255 - a
+    out = np.empty_like(d)
+    out[:, 0:3] = (d[:, 0:3] * inv + n[:, 0:3] * a) // 255
+    out[:, 3:4] = d[:, 3:4]
+    return out.astype(np.uint8).tobytes()
+
+
 class S3DTexturesHolder(object):
     __module__ = __name__
 
     def __init__(self, glCanvas):
+        # textures[key] = {'day': entry|None, 'night': entry|None, 'gl_layers': None|list}
+        # gl_layers is the uploaded GL texture names for the current night_mode.
         self.textures = {}
         self.glCanvas = glCanvas
+        self.night_mode = False
+
+    def SetNightMode(self, enabled):
+        """Toggle night-lighting composition. Invalidates uploaded textures so
+        the next bind re-composes from the stored day/night entry pair.
+
+        Returns True when the mode actually changed (caller should trigger a
+        repaint), False when this was a no-op.
+        """
+        enabled = bool(enabled)
+        if enabled == self.night_mode:
+            return False
+        self.night_mode = enabled
+        self.glCanvas.SetCurrent()
+        for cached in self.textures.values():
+            self._free_gl_layers(cached)
+        return True
+
+    def _free_gl_layers(self, cached):
+        layers = cached.get('gl_layers')
+        if layers:
+            for name in layers:
+                _delete_texture(name)
+        cached['gl_layers'] = None
 
     def Free(self):
         self.glCanvas.SetCurrent()
-        for texID, texture in self.textures.items():
-            if texture[1] is not None:
-                for layer in texture[1]:
-                    _delete_texture(layer)
+        for cached in self.textures.values():
+            self._free_gl_layers(cached)
 
-                texture[1] = None
+    def PrecacheTex(self, textureID, entry, night_entry=None):
+        """Register a texture under textureID.
 
-        return
-
-    def PrecacheTex(self, textureID, entry):
+        entry is the daytime FSH entry; night_entry, when provided, is the
+        nightlight sibling (typically the day instance + 0x8000 in the same
+        group) — composited over day when night_mode is on.
+        """
         try:
             self.glCanvas.SetCurrent()
-            texture = self.textures[textureID]
-            if texture[1] is not None:
-                for layer in texture[1]:
-                    _delete_texture(layer)
-
-            texture[0] = None
-            texture[1] = None
+            old = self.textures[textureID]
+            self._free_gl_layers(old)
         except Exception:
             pass
+        self.textures[textureID] = {'day': entry, 'night': night_entry, 'gl_layers': None}
 
-        self.textures[textureID] = [
-         entry, None]
-        return
+    def _upload_layers(self, cached):
+        """Decode + (optionally) blend + upload GL textures for this cache entry.
+
+        Populates cached['gl_layers'] in place (empty list on full failure).
+        """
+        day = cached.get('day')
+        night = cached.get('night')
+        day_layers = _decode_layers(day) if day is not None else None
+        night_layers = None
+        if self.night_mode and night is not None:
+            night_layers = _decode_layers(night)
+
+        if self.night_mode and day_layers and night_layers:
+            chosen = []
+            for i, (size, day_rgba) in enumerate(day_layers):
+                if i < len(night_layers):
+                    n_size, night_rgba = night_layers[i]
+                    if n_size == size:
+                        chosen.append((size, _blend_night_over_day(day_rgba, night_rgba)))
+                        continue
+                chosen.append((size, day_rgba))
+        elif self.night_mode and night_layers and not day_layers:
+            # Pathological: night exists, day missing. Render night as-is.
+            chosen = night_layers
+        else:
+            chosen = day_layers or []
+
+        cached['gl_layers'] = []
+        for size, rgba in chosen:
+            try:
+                texName = _texture_name(glGenTextures(1))
+                cached['gl_layers'].append(texName)
+                glBindTexture(GL_TEXTURE_2D, texName)
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+                # S3D buildings are often split across several FSH tiles.
+                # Per-tile mipmaps can average dark padding into tile edges.
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1],
+                             0, GL_RGBA, GL_UNSIGNED_BYTE, rgba)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            except Exception:
+                continue
 
     def SetCurrentTex(self, textureID, layer=0, min_filter=None, mag_filter=None,
                       wrap_s=None, wrap_t=None):
         glEnable(GL_TEXTURE_2D)
-        if textureID not in self.textures:
+        cached = self.textures.get(textureID)
+        if cached is None:
             glDisable(GL_TEXTURE_2D)
             return
         self.glCanvas.SetCurrent()
-        texture = self.textures[textureID]
-        if texture[0] is None:
+        if cached.get('day') is None and cached.get('night') is None:
             glColor3f(1, 0, 0)
             glDisable(GL_TEXTURE_2D)
             return
-        if texture[1] is None:
-            try:
-                texture[0].read_file(None, True, True)
-                nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(texture[0].content)
-            except Exception:
-                texture[0].content = None
-                texture[0].rawContent = None
-                glDisable(GL_TEXTURE_2D)
-                return
-            nbOfBytes = size[0] * size[1]
-            expected_img = nbOfBytes * 3 * nbrLayers
-            expected_alpha = nbOfBytes * nbrLayers
-            if len(img) < expected_img or len(alpha) < expected_alpha:
-                nbrLayers = 1
-            texture[0].content = None
-            texture[0].rawContent = None
-            texture[1] = []
-            for layerIdx in range(nbrLayers):
-                try:
-                    start_rgb = nbOfBytes * 3 * layerIdx
-                    end_rgb = nbOfBytes * 3 * (layerIdx + 1)
-                    start_a = nbOfBytes * layerIdx
-                    end_a = nbOfBytes * (layerIdx + 1)
-                    imBmp = Image.frombytes('RGB', size, img[start_rgb:end_rgb])
-                    imAlpha = Image.frombytes('L', size, alpha[start_a:end_a])
-                    im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
-                    im = im.tobytes('raw', 'RGBA')
-                    texName = _texture_name(glGenTextures(1))
-                    texture[1].append(texName)
-                    glBindTexture(GL_TEXTURE_2D, texName)
-                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-                    # S3D buildings are often split across several FSH tiles.
-                    # Per-tile mipmaps can average dark padding into tile edges.
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1],
-                                 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-                except Exception:
-                    continue
-
-        if texture[1] == []:
+        if cached.get('gl_layers') is None:
+            self._upload_layers(cached)
+        layers = cached.get('gl_layers') or []
+        if not layers:
             glDisable(GL_TEXTURE_2D)
             glColor3f(1, 1, 1)
             return
         # The requested layer (e.g. an ATC animation plane) can run past the
         # number of decoded layers; clamp instead of raising IndexError.
-        if layer >= len(texture[1]):
-            layer = len(texture[1]) - 1
+        if layer >= len(layers):
+            layer = len(layers) - 1
         elif layer < 0:
             layer = 0
-        texName = texture[1][layer]
-        glBindTexture(GL_TEXTURE_2D, texName)
+        glBindTexture(GL_TEXTURE_2D, layers[layer])
         # Maxis default per S3D Mats wiki is NEAREST; bilinear is the special
         # case (mainly road textures). Caller passes 0 for nearest, >0 for
         # linear; None preserves the upload-time default.

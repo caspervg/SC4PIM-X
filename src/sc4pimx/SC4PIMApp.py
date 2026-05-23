@@ -12,7 +12,7 @@ from math import *
 import wx.lib.agw.ultimatelistctrl as ULC
 import wx.lib.mixins.listctrl as listmix
 
-from .SC4DataFunctions import FinalizeCategory, readCategoryDef
+from .SC4DataFunctions import FinalizeCategory, night_state_for, readCategoryDef
 
 try:
     import win32api
@@ -1227,10 +1227,8 @@ class NoteBookPanel(wx.Panel):
         if self.view:
             zoom = self.parent.parent.cbZoom.GetClientData(self.parent.parent.cbZoom.GetSelection())
             rot = self.parent.parent.cbRotation.GetClientData(self.parent.parent.cbRotation.GetSelection())
-            try:
-                state = self.parent.parent.cbStateChoice.GetClientData(self.parent.parent.cbStateChoice.GetSelection())
-            except Exception:
-                state = 0
+            state, night = self.parent.parent._resolve_state()
+            self.parent.parent._apply_night_mode(night)
 
             if zoom == -1:
                 nZoom = 0
@@ -3189,9 +3187,9 @@ class SC4NoteBook(wx.Notebook):
             for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
-            self.parent.SetModelStateChoices(choices)
+            self.parent.SetModelStateChoices(choices, exemplar=exemplar)
         else:
-            self.parent.SetModelStateChoices([])
+            self.parent.SetModelStateChoices([], exemplar=exemplar)
         try:
             self.GetPage(newPage).RebuildViewer()
             view = self.GetPage(newPage).view
@@ -3201,10 +3199,8 @@ class SC4NoteBook(wx.Notebook):
         if view:
             zoom = self.parent.cbZoom.GetClientData(self.parent.cbZoom.GetSelection())
             rot = self.parent.cbRotation.GetClientData(self.parent.cbRotation.GetSelection())
-            try:
-                state = self.parent.cbStateChoice.GetClientData(self.parent.cbStateChoice.GetSelection())
-            except Exception:
-                state = 0
+            state, night = self.parent._resolve_state()
+            self.parent._apply_night_mode(night)
 
             if zoom == -1:
                 nZoom = 0
@@ -4108,11 +4104,8 @@ class MainFrame(wx.Frame):
             if self.currentModel.__class__ == ATC:
                 self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot)
             else:
-                try:
-                    state = self.cbStateChoice.GetClientData(self.cbStateChoice.GetSelection())
-                except Exception:
-                    state = 0
-
+                state, night = self._resolve_state()
+                self._apply_night_mode(night)
                 self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
             self.t2.Restart(100)
             return
@@ -4122,10 +4115,8 @@ class MainFrame(wx.Frame):
     def EvtComboBoxState(self, evt):
         zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
         rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
-        try:
-            state = self.cbStateChoice.GetClientData(self.cbStateChoice.GetSelection())
-        except Exception:
-            state = 0
+        state, night = self._resolve_state()
+        self._apply_night_mode(night)
 
         if zoom == -1:
             nZoom = 0
@@ -4137,10 +4128,8 @@ class MainFrame(wx.Frame):
     def EvtComboBoxRotation(self, evt):
         zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
         rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
-        try:
-            state = self.cbStateChoice.GetClientData(self.cbStateChoice.GetSelection())
-        except Exception:
-            state = 0
+        state, night = self._resolve_state()
+        self._apply_night_mode(night)
 
         if zoom == -1:
             nZoom = 0
@@ -4152,10 +4141,8 @@ class MainFrame(wx.Frame):
     def EvtComboBoxZoom(self, evt):
         zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
         rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
-        try:
-            state = self.cbStateChoice.GetClientData(self.cbStateChoice.GetSelection())
-        except Exception:
-            state = 0
+        state, night = self._resolve_state()
+        self._apply_night_mode(night)
 
         if zoom == -1:
             nZoom = 0
@@ -4252,16 +4239,61 @@ class MainFrame(wx.Frame):
         except Exception:
             return None
 
-    def SetModelStateChoices(self, choices):
+    def SetModelStateChoices(self, choices, exemplar=None):
         self.cbStateChoice.Clear()
         if choices:
             for label, data in choices:
                 self.cbStateChoice.Append(label, data)
-            self.cbStateChoice.SetSelection(0)
         else:
             self.cbStateChoice.Append(viewerModel, 0)
-            self.cbStateChoice.SetSelection(0)
+        # Track the state index to render under night lighting (exemplar
+        # property 0x49C9C93C). _resolve_state() reads this when "Night" is
+        # selected; defaults to 0 when the property is absent / zero.
+        self._currentNightState = night_state_for(exemplar)
+        self.cbStateChoice.Append(viewerNight, 'night')
+        self.cbStateChoice.SetSelection(0)
         return
+
+    def _resolve_state(self):
+        """Return (state_index, night_mode) for the current cbStateChoice
+        selection. The 'Night' entry is encoded with the client-data string
+        ``'night'``; everything else is a plain integer index."""
+        sel = self.cbStateChoice.GetSelection()
+        if sel < 0:
+            return 0, False
+        try:
+            raw = self.cbStateChoice.GetClientData(sel)
+        except Exception:
+            return 0, False
+        if raw == 'night':
+            return int(getattr(self, '_currentNightState', 0) or 0), True
+        try:
+            return int(raw), False
+        except (TypeError, ValueError):
+            return 0, False
+
+    def _apply_night_mode(self, night):
+        """Push the night-lighting flag to the active viewer's texture holder
+        so the next bind composites accordingly. Forces a canvas refresh when
+        the mode actually flipped, because the subsequent model.draw() call
+        early-returns in S3D.initialize when the mesh has not changed and so
+        on its own does not trigger a repaint."""
+        viewer = getattr(self, 'viewer', None)
+        if viewer is None:
+            return
+        holder = getattr(viewer, 's3d_textures_holder', None)
+        if holder is None:
+            return
+        try:
+            changed = holder.SetNightMode(night)
+        except Exception:
+            logger.exception('Failed to set night-light mode on model viewer')
+            return
+        if changed:
+            try:
+                viewer.refresh(False)
+            except Exception:
+                pass
 
     def FillPropList(self, descriptor, bAdd):
         exemplar = descriptor.exemplar
@@ -4271,9 +4303,9 @@ class MainFrame(wx.Frame):
             for z in range(len(rkt4) // 8):
                 choices.append(('Model #%d' % z, z))
 
-            self.SetModelStateChoices(choices)
+            self.SetModelStateChoices(choices, exemplar=exemplar)
         else:
-            self.SetModelStateChoices([])
+            self.SetModelStateChoices([], exemplar=exemplar)
         self.nb.AddNewDesc(descriptor, self.virtualDAT, bAdd)
         return
 

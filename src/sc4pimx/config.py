@@ -33,6 +33,7 @@ DEFAULT_LOT_EDITOR = {
     "UndoLimit": 40,
     "Favorites": [],
     "ThumbSize": 72,
+    "NightMode": False,
 }
 
 DEFAULT_MAIN_WINDOW = {
