@@ -15,9 +15,10 @@ from .ATCReader import *
 from .config import load_lot_editor, save_lot_editor
 from .paths import asset_path, background_path, background_set_dir, background_sets
 from .SC4Data import *
-from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, night_state_for
+from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
 from .SC4LETools import *
 from .SC4OpenGL import *
+from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
 from .SC4TransitLotTools import (
     DEFAULT_TRANSIT_SETTINGS,
     TRANSIT_OBJECT_TYPE,
@@ -396,6 +397,7 @@ class LotEditorWin(wx.Frame):
         dt = LEDropTarget(self.glCanvas2D)
         self.glCanvas2D.SetDropTarget(dt)
         self.s3DTexturesHolder = S3DTexturesHolder(self.glCanvas2D)
+        self.s3d_shader_program = None
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.zoom = 3
         # Continuous multiplier on top of the discrete zoom level, so Fit view
@@ -1908,6 +1910,19 @@ class LotEditorWin(wx.Frame):
         self.SaveEditorState()
         self.on_draw()
 
+    def _ensure_s3d_shader_program(self):
+        if self.s3d_shader_program is None:
+            self.s3d_shader_program = SC4LightingProgram()
+        return self.s3d_shader_program
+
+    def _lot_lighting_state(self, exemplar):
+        state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
+        state['prelit'] = model_is_prelit(exemplar)
+        return state
+
+    def _lot_environment_light(self):
+        return approximate_model_light(self._lot_lighting_state(None))
+
     def OnToggleLayerVisibility(self, event):
         view_key, layer_key = self._layer_menu_ids.get(event.GetId(), (None, None))
         if view_key is None:
@@ -2177,6 +2192,7 @@ class LotEditorWin(wx.Frame):
                 buildingViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
             if buildingViewer is not None:
                 buildingViewer.night_state = night_state_for(desc.exemplar)
+                buildingViewer.lighting_exemplar = desc.exemplar
             self.buildingViewer.append(buildingViewer)
             try:
                 self.buildingViewer[-1].PreLoad(self.virtualDAT, self.s3DTexturesHolder)
@@ -2294,6 +2310,7 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
         if propViewer is not None:
             propViewer.night_state = night_state_for(selectedDesc.exemplar)
+            propViewer.lighting_exemplar = selectedDesc.exemplar
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -2340,6 +2357,7 @@ class LotEditorWin(wx.Frame):
             propViewer = ResourceViewer(662775845, rkt5, self.virtualDAT, None)
         if propViewer is not None:
             propViewer.night_state = night_state_for(selectedDesc.exemplar)
+            propViewer.lighting_exemplar = selectedDesc.exemplar
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -2913,6 +2931,8 @@ class LotEditorWin(wx.Frame):
             offsetX = x - self.lotSizeXOffset
             offsetY = y - self.lotSizeYOffset
             with pushed_modelview_matrix():
+                env_light = self._lot_environment_light()
+                glColor3f(env_light[0], env_light[1], env_light[2])
                 glRotatef(-self.ry, 0.0, 1.0, 0.0)
                 glRotatef(self.rx, 1.0, 0.0, 0.0)
                 scales = [
@@ -2935,6 +2955,7 @@ class LotEditorWin(wx.Frame):
                 glTexCoord2i(1, 1)
                 glVertex3f(w, -0.1, 0)
                 glEnd()
+                glColor3f(1.0, 1.0, 1.0)
         return
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
@@ -2957,6 +2978,8 @@ class LotEditorWin(wx.Frame):
         offsetY = y * 16 - self.lotSizeYOffset
         tex_coords = texture_coords_for_flag(flag)
         with pushed_modelview_matrix():
+            env_light = self._lot_environment_light()
+            glColor3f(env_light[0], env_light[1], env_light[2])
             glTranslate(offsetX, 0, offsetY)
             glMatrixMode(GL_TEXTURE)
             glLoadIdentity()
@@ -2971,6 +2994,7 @@ class LotEditorWin(wx.Frame):
             glTexCoord2f(*tex_coords[3])
             glVertex3f(16, 0, 16)
             glEnd()
+            glColor3f(1.0, 1.0, 1.0)
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom):
         if resource is None:
@@ -2987,6 +3011,8 @@ class LotEditorWin(wx.Frame):
             if 0 < night_state < len(resource.viewingData):
                 state_idx = night_state
         what = resource.viewingData[state_idx]
+        shader_program = self._ensure_s3d_shader_program()
+        lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
         if what.__class__ == SC4Model:
             rotMapping = [
              180, -90, 0, 90]
@@ -2994,14 +3020,14 @@ class LotEditorWin(wx.Frame):
             glTranslate(rtk[0], rtk[1], rtk[2])
             glRotatef(rotMapping[rotFlag], 0, 1, 0)
             glRotatef(-rot2D, 0, 1, 0)
-            what.s3dMeshes[zoom][rot].draw(self.s3DTexturesHolder)
+            what.s3dMeshes[zoom][rot].draw(self.s3DTexturesHolder, shader_program, lighting_state)
         elif what.__class__ == SC4Model1MeshPerZoom:
-            what.s3dMeshes[zoom].draw(self.s3DTexturesHolder)
+            what.s3dMeshes[zoom].draw(self.s3DTexturesHolder, shader_program, lighting_state)
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [
              180, -90, 0, 90]
             glRotatef(rotMapping[rotFlag], 0, 1, 0)
-            what.mainMesh.draw(self.s3DTexturesHolder)
+            what.mainMesh.draw(self.s3DTexturesHolder, shader_program, lighting_state)
         elif what.__class__ == ATC:
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
@@ -3031,14 +3057,16 @@ class LotEditorWin(wx.Frame):
         glDisable(GL_DEPTH_TEST)
         glDisable(GL_TEXTURE_2D)
         glDisable(GL_BLEND)
+        env_light = self._lot_environment_light()
         glBegin(GL_QUADS)
-        glColor3f(0.15, 0.17, 0.20)
+        glColor3f(0.15 * env_light[0], 0.17 * env_light[1], 0.20 * env_light[2])
         glVertex3f(-valW, -valH, 0)
         glVertex3f(valW, -valH, 0)
-        glColor3f(0.36, 0.39, 0.42)
+        glColor3f(0.36 * env_light[0], 0.39 * env_light[1], 0.42 * env_light[2])
         glVertex3f(valW, valH, 0)
         glVertex3f(-valW, valH, 0)
         glEnd()
+        glColor3f(1.0, 1.0, 1.0)
 
     def Draw3D(self):
         self.glCanvas2D.SetCurrent()

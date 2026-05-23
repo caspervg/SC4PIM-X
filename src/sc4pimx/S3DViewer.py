@@ -36,6 +36,7 @@ from OpenGL.GL import (
     glViewport,
 )
 
+from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram
 from .S3DTexturesHolder import S3DTexturesHolder
 from .SC4OpenGL import rotate_around_x, rotate_around_y
 
@@ -54,6 +55,10 @@ class S3DViewer(object):
         self.angle_mul = 1
         self.pre_angle = 0
         self.drawAxis = True
+        self.shader_program = None
+        self.is_night = False
+        self.is_prelit = False
+        self.lighting_state = dict(DAY_PRESET)
 
     @property
     def useBestFit(self):
@@ -93,6 +98,9 @@ class S3DViewer(object):
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
         glMatrixMode(GL_MODELVIEW)
         glDisable(GL_CULL_FACE)
+        if self.shader_program is None:
+            self.shader_program = SC4LightingProgram()
+        self._update_lighting_state()
 
     def reinitialize(self):
         self.openGLCanvas.displayer = self
@@ -195,6 +203,7 @@ class S3DViewer(object):
         glTranslate(-self.posx, -self.posy, -self.posz)
         glRotatef(self.rx, 1.0, 0.0, 0.0)
         glRotatef(self.ry, 0.0, 1.0, 0.0)
+        self._update_lighting_state()
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         glDisable(GL_TEXTURE_2D)
         glColor3f(0.0, 0.5, 1.0)
@@ -243,7 +252,7 @@ class S3DViewer(object):
             glEnd()
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glEnable(GL_TEXTURE_2D)
-        self.s3d_mesh.draw(self.s3d_textures_holder)
+        self.s3d_mesh.draw(self.s3d_textures_holder, self.shader_program, self.lighting_state)
         self.openGLCanvas.SwapBuffers()
         return
 
@@ -269,3 +278,25 @@ class S3DViewer(object):
         glVertex3f(1, 1, 0)
         glVertex3f(0, 1, 0)
         glEnd()
+
+    def set_night_mode(self, enabled):
+        enabled = bool(enabled)
+        if enabled == self.is_night:
+            return False
+        self.is_night = enabled
+        self._update_lighting_state()
+        return True
+
+    def set_prelit(self, enabled):
+        enabled = bool(enabled)
+        if enabled == self.is_prelit:
+            return False
+        self.is_prelit = enabled
+        self._update_lighting_state()
+        return True
+
+    def _update_lighting_state(self):
+        preset = NIGHT_PRESET if self.is_night else DAY_PRESET
+        state = dict(preset)
+        state['prelit'] = self.is_prelit
+        self.lighting_state = state

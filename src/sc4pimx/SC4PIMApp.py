@@ -12,7 +12,12 @@ from math import *
 import wx.lib.agw.ultimatelistctrl as ULC
 import wx.lib.mixins.listctrl as listmix
 
-from .SC4DataFunctions import FinalizeCategory, night_state_for, readCategoryDef
+from .SC4DataFunctions import (
+    FinalizeCategory,
+    model_is_prelit,
+    night_state_for,
+    readCategoryDef,
+)
 
 try:
     import win32api
@@ -4241,6 +4246,7 @@ class MainFrame(wx.Frame):
 
     def SetModelStateChoices(self, choices, exemplar=None):
         self.cbStateChoice.Clear()
+        self._currentPreviewExemplar = exemplar
         if choices:
             for label, data in choices:
                 self.cbStateChoice.Append(label, data)
@@ -4285,11 +4291,15 @@ class MainFrame(wx.Frame):
         if holder is None:
             return
         try:
-            changed = holder.SetNightMode(night)
+            holder_changed = holder.SetNightMode(night)
+            lighting_changed = bool(viewer.set_night_mode(night))
+            lighting_changed = bool(
+                viewer.set_prelit(model_is_prelit(getattr(self, '_currentPreviewExemplar', None)))
+            ) or lighting_changed
         except Exception:
             logger.exception('Failed to set night-light mode on model viewer')
             return
-        if changed:
+        if holder_changed or lighting_changed:
             try:
                 viewer.refresh(False)
             except Exception:
