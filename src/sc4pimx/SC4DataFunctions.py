@@ -53,68 +53,66 @@ def model_is_prelit(exemplar):
 
 
 def ReadStageVsDensity(node):
-    purpose = str(node.getAttribute('purpose'))
-    wealth = int(node.getAttribute('wealth'))
-    ratio = [float(x) for x in str(node.getAttribute('ratio')).split(',')]
-    baseTex = int(node.getAttribute('baseTex'), 16)
-    return (
-        ratio, purpose, wealth, baseTex)
+    purpose = str(node.getAttribute("purpose"))
+    wealth = int(node.getAttribute("wealth"))
+    ratio = [float(x) for x in str(node.getAttribute("ratio")).split(",")]
+    baseTex = int(node.getAttribute("baseTex"), 16)
+    return (ratio, purpose, wealth, baseTex)
 
 
 def ReadZoning(node):
-    purpose = str(node.getAttribute('purpose'))
-    value = int(node.getAttribute('value'))
-    stages = [int(x) for x in str(node.getAttribute('stages')).split(',')]
-    height = int(node.getAttribute('height'))
-    return (
-        purpose, value, stages, height)
+    purpose = str(node.getAttribute("purpose"))
+    value = int(node.getAttribute("value"))
+    stages = [int(x) for x in str(node.getAttribute("stages")).split(",")]
+    height = int(node.getAttribute("height"))
+    return (purpose, value, stages, height)
 
 
 def readPropertyDef(node):
     prop = DictWrapper({})
-    prop.Name = str(node.getAttribute('Name'))
-    id = node.getAttribute('ID').upper()
-    if id[:2] == '0X':
-        prop.ID = int(node.getAttribute('ID'), 16)
+    prop.Name = str(node.getAttribute("Name"))
+    id = node.getAttribute("ID").upper()
+    if id[:2] == "0X":
+        prop.ID = int(node.getAttribute("ID"), 16)
     else:
-        prop.ID = node.getAttribute('ID').upper()
-    prop.Type = str(node.getAttribute('Type'))
-    count = node.getAttribute('Count').upper()
-    if count == '':
-        count = '1'
+        prop.ID = node.getAttribute("ID").upper()
+    prop.Type = str(node.getAttribute("Type"))
+    count = node.getAttribute("Count").upper()
+    if count == "":
+        count = "1"
     prop.Count = int(count)
-    if node.getAttribute('ShowAsHex').upper() == 'Y':
+    if node.getAttribute("ShowAsHex").upper() == "Y":
         prop.ShowAsHex = True
     else:
         prop.ShowAsHex = False
     options = {}
     prop.ShowAsMap = False
-    minVal = node.getAttribute('MinValue')
-    maxVal = node.getAttribute('MaxValue')
-    if minVal is None or minVal == '':
-        if prop.Type == 'Uint32' or prop.Type == 'Uint8':
+    minVal = node.getAttribute("MinValue")
+    maxVal = node.getAttribute("MaxValue")
+    if minVal is None or minVal == "":
+        if prop.Type == "Uint32" or prop.Type == "Uint8":
             minVal = 0
-        if prop.Type == 'Sint32' or prop.Type == 'Sint64':
+        if prop.Type == "Sint32" or prop.Type == "Sint64":
             minVal = -100000000
-        if prop.Type == 'Float32':
+        if prop.Type == "Float32":
             minVal = -100000000.0
     else:
-        if len(minVal) > 1 and minVal[1] == 'x':
+        if len(minVal) > 1 and minVal[1] == "x":
             minVal = int(minVal, 16)
         else:
             minVal = int(minVal)
-        if maxVal is None or maxVal == '':
-            if prop.Type == 'Uint32':
+        if maxVal is None or maxVal == "":
+            if prop.Type == "Uint32":
                 maxVal = 4294967295
-            if prop.Type == 'Uint8':
+            if prop.Type == "Uint8":
                 maxVal = 255
-            if prop.Type == 'Sint32':
+            if prop.Type == "Sint32":
                 maxVal = 2147483647
-            if prop.Type == 'Sint64':
+            if prop.Type == "Sint64":
                 maxVal = 9223372036854775807
-            if prop.Type == 'Float32':
+            if prop.Type == "Float32":
                 maxVal = 100000000.0
-        elif len(maxVal) > 1 and maxVal[1] == 'x':
+        elif len(maxVal) > 1 and maxVal[1] == "x":
             maxVal = int(maxVal, 16)
         else:
             maxVal = int(maxVal)
@@ -125,17 +123,17 @@ def readPropertyDef(node):
     # options but have no numeric range; nesting this loop inside the
     # MinValue branch dropped their option labels entirely.
     for subNode in node.childNodes:
-        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'FORMAT':
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "FORMAT":
             prop.ShowAsMap = True
-        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'OPTION':
-            value = subNode.getAttribute('Value').upper()
-            if value[:3] == 'COL':
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "OPTION":
+            value = subNode.getAttribute("Value").upper()
+            if value[:3] == "COL":
                 pass
-            elif len(value) > 2 and value[1] == 'X':
-                value = int('0x' + value[2:], 16)
+            elif len(value) > 2 and value[1] == "X":
+                value = int("0x" + value[2:], 16)
             else:
                 value = int(value)
-            meaning = subNode.getAttribute('Name')
+            meaning = subNode.getAttribute("Name")
             options[value] = meaning
 
     prop.Options = options
@@ -156,9 +154,9 @@ def ToTile(val):
     # the unsigned range before packing, matching Python 2 overflow masking.
     try:
         masked = int(val) & 0xFFFFFFFF
-        return float(struct.unpack('l', struct.pack('L', masked))[0]) / float(1048576)
+        return float(struct.unpack("l", struct.pack("L", masked))[0]) / float(1048576)
     except Exception:
-        logger.exception('Failed to convert value to tile coordinate: %r (%s)', val, type(val).__name__)
+        logger.exception("Failed to convert value to tile coordinate: %r (%s)", val, type(val).__name__)
         raise
 
 
@@ -167,12 +165,67 @@ def ToCoord(val):
 
 
 def getText(nodelist):
-    rc = ''
+    rc = ""
     for node in nodelist:
         if node.nodeType == node.TEXT_NODE:
             rc = rc + node.data
 
     return rc
+
+
+def _init_props_container(obj):
+    """Attach the empty prop-collection dicts every category / preset needs."""
+    obj.code = []
+    obj.setProperties = DictWrapper({})
+    obj.factorProperties = DictWrapper({})
+    obj.pairedFactorProperties = DictWrapper({})
+    obj.programProperties = DictWrapper({})
+    obj.evalProperties = DictWrapper({})
+    obj.removeProperties = DictWrapper({})
+
+
+def _parse_properties_block(properties_node, target):
+    """Read a ``<PROPERTIES>`` element into a category-shaped target object.
+
+    Shared by ``<CATEGORY>`` and its child ``<PRESET>`` elements so both go
+    through the existing prop-generation pipeline unchanged.
+    """
+    for subsubNode in properties_node.childNodes:
+        if subsubNode.nodeType != properties_node.ELEMENT_NODE:
+            continue
+        if subsubNode.tagName == "eval":
+            name = subsubNode.getAttribute("name")
+            expr = subsubNode.getAttribute("value")
+            target.code.append((name, expr))
+            continue
+        if subsubNode.tagName != "PROPERTY":
+            continue
+        id = subsubNode.getAttribute("ID").upper()
+        if id[:2] == "0X":
+            id = int(id.lower(), 16)
+        else:
+            id = int(id)
+        removep = subsubNode.getAttribute("Remove")
+        if removep:
+            target.removeProperties[id] = removep
+        value = subsubNode.getAttribute("Value")
+        if value:
+            target.setProperties[id] = value
+        factor = subsubNode.getAttribute("Factor")
+        if factor:
+            target.factorProperties[id] = [float(f) for f in factor.split(",")]
+        pairedFactor = subsubNode.getAttribute("PairedFactor")
+        if pairedFactor:
+            paired = pairedFactor.split(",")
+            target.pairedFactorProperties[id] = []
+            for i in range(len(paired) // 2):
+                target.pairedFactorProperties[id].append((paired[i * 2], float(paired[i * 2 + 1])))
+        setVal = subsubNode.getAttribute("Set")
+        if setVal:
+            target.programProperties[id] = setVal
+        evalVal = subsubNode.getAttribute("Eval")
+        if evalVal:
+            target.evalProperties[id] = evalVal
 
 
 def readCategoryDef(node):
@@ -181,109 +234,80 @@ def readCategoryDef(node):
     cat.parent = None
     cat.imgName = None
     cat.imgIdx = None
-    cat.imgName = node.getAttribute('img')
-    cat.Name = node.getAttribute('Name')
-    id = node.getAttribute('ID').upper()
-    if id[:2] == '0X':
-        cat.ID = int(node.getAttribute('ID'), 16)
+    cat.imgName = node.getAttribute("img")
+    cat.Name = node.getAttribute("Name")
+    id = node.getAttribute("ID").upper()
+    if id[:2] == "0X":
+        cat.ID = int(node.getAttribute("ID"), 16)
     else:
-        cat.ID = node.getAttribute('ID').upper()
-    parentID = node.getAttribute('ParentID').upper()
-    if parentID[:2] == '0X':
-        cat.parentID = int(node.getAttribute('ParentID'), 16)
+        cat.ID = node.getAttribute("ID").upper()
+    parentID = node.getAttribute("ParentID").upper()
+    if parentID[:2] == "0X":
+        cat.parentID = int(node.getAttribute("ParentID"), 16)
     else:
-        cat.parentID = node.getAttribute('ParentID').upper()
+        cat.parentID = node.getAttribute("ParentID").upper()
     if cat.ID in categoryLocalized:
         cat.Name = categoryLocalized[cat.ID]
-    cat.code = []
     cat.childs = []
     cat.filters = DictWrapper({})
     cat.filters.needed = []
     cat.filters.notallowed = []
-    cat.setProperties = DictWrapper({})
-    cat.factorProperties = DictWrapper({})
-    cat.pairedFactorProperties = DictWrapper({})
-    cat.programProperties = DictWrapper({})
-    cat.evalProperties = DictWrapper({})
-    cat.removeProperties = DictWrapper({})
+    _init_props_container(cat)
+    # ``<PRESET>`` children of a CATEGORY: each becomes a category-shaped
+    # sub-object whose .parent is this CATEGORY, so the existing prop
+    # pipeline walks up into the category for defaults / eval aliases.
+    cat.presets = []
     for subNode in node.childNodes:
-        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'PROPERTIES':
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "PROPERTIES":
+            _parse_properties_block(subNode, cat)
+        elif subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "PRESET":
+            preset = DictWrapper({})
+            preset.Name = subNode.getAttribute("Name") or "Default"
+            preset.Type = subNode.getAttribute("Type").strip()
+            # Synthesise an ID so debug logs and any future de-dup behave.
+            preset.ID = "%s::%s" % (cat.ID, preset.Name)
+            preset.parent = cat
+            preset.childs = []
+            preset.descriptors = []
+            preset.filters = DictWrapper({})
+            preset.filters.needed = []
+            preset.filters.notallowed = []
+            _init_props_container(preset)
+            for ppNode in subNode.childNodes:
+                if ppNode.nodeType == node.ELEMENT_NODE and ppNode.tagName == "PROPERTIES":
+                    _parse_properties_block(ppNode, preset)
+            cat.presets.append(preset)
+
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "FILTERS":
             for subsubNode in subNode.childNodes:
-                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == 'eval':
-                    name = subsubNode.getAttribute('name')
-                    expr = subsubNode.getAttribute('value')
-                    cat.code.append((name, expr))
-                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == 'PROPERTY':
-                    id = subsubNode.getAttribute('ID').upper()
-                    if id[:2] == '0X':
+                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == "NEEDED":
+                    id = subsubNode.getAttribute("ID").upper()
+                    if id[:2] == "0X":
                         id = int(id.lower(), 16)
                     else:
                         id = int(id)
-                    removep = subsubNode.getAttribute('Remove')
-                    if removep == '':
-                        removep = None
-                    else:
-                        cat.removeProperties[id] = removep
-                    value = subsubNode.getAttribute('Value')
-                    if value == '':
-                        value = None
-                    if value:
-                        cat.setProperties[id] = value
-                    factor = subsubNode.getAttribute('Factor')
-                    if factor == '':
-                        factor = None
-                    if factor:
-                        cat.factorProperties[id] = [float(f) for f in factor.split(',')]
-                    pairedFactor = subsubNode.getAttribute('PairedFactor')
-                    if pairedFactor == '':
-                        pairedFactor = None
-                    if pairedFactor:
-                        paired = pairedFactor.split(',')
-                        cat.pairedFactorProperties[id] = []
-                        for i in range(len(paired) // 2):
-                            cat.pairedFactorProperties[id].append((paired[i * 2], float(paired[i * 2 + 1])))
-
-                    setVal = subsubNode.getAttribute('Set')
-                    if setVal == '':
-                        setVal = None
-                    if setVal:
-                        cat.programProperties[id] = setVal
-                    evalVal = subsubNode.getAttribute('Eval')
-                    if evalVal == '':
-                        evalVal = None
-                    if evalVal:
-                        cat.evalProperties[id] = evalVal
-
-        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == 'FILTERS':
-            for subsubNode in subNode.childNodes:
-                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == 'NEEDED':
-                    id = subsubNode.getAttribute('ID').upper()
-                    if id[:2] == '0X':
-                        id = int(id.lower(), 16)
-                    else:
-                        id = int(id)
-                    value = subsubNode.getAttribute('Value')
-                    if value == '':
+                    value = subsubNode.getAttribute("Value")
+                    if value == "":
                         value = None
                     if value:
                         value = value.upper()
-                        if value[:2] == '0X':
+                        if value[:2] == "0X":
                             value = int(value.lower(), 16)
                         else:
                             value = int(value)
                     cat.filters.needed.append((id, value))
-                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == 'NOT':
-                    id = subsubNode.getAttribute('ID').upper()
-                    if id[:2] == '0X':
+                if subsubNode.nodeType == node.ELEMENT_NODE and subsubNode.tagName == "NOT":
+                    id = subsubNode.getAttribute("ID").upper()
+                    if id[:2] == "0X":
                         id = int(id.lower(), 16)
                     else:
                         id = int(id)
-                    value = subsubNode.getAttribute('Value')
-                    if value == '':
+                    value = subsubNode.getAttribute("Value")
+                    if value == "":
                         value = None
                     if value:
                         value = value.upper()
-                        if value[:2] == '0X':
+                        if value[:2] == "0X":
                             value = int(value.lower(), 16)
                         else:
                             value = int(value)
@@ -300,8 +324,8 @@ def DuplicateProp(dup, new_instance_id):
     prop.Count = dup.Count
     prop.ShowAsHex = dup.ShowAsHex
     prop.ShowAsMap = dup.ShowAsMap
-    prop.maxVal = dup.maxVal if hasattr(dup, 'maxVal') else None
-    prop.minVal = dup.minVal if hasattr(dup, 'minVal') else None
+    prop.maxVal = dup.maxVal if hasattr(dup, "maxVal") else None
+    prop.minVal = dup.minVal if hasattr(dup, "minVal") else None
     prop.Options = dup.Options
     return prop
 

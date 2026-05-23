@@ -58,6 +58,181 @@ def _exit_after(stage):
         sys.exit(0)
 
 
+def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
+    """Apply a category's eval/program/set/factor properties to an exemplar.
+
+    Walks the category up to the root collecting ``<eval>`` variables, then
+    generates the prop strings each level dictates (child wins over parent
+    via ``propCreated`` dedup). Returns the list of text-prop lines, sorted,
+    filtered for UVNK/IDK presence, with ``category.removeProperties``
+    excluded. Caller is responsible for calling ``exemplar.AddTextProp``
+    on each line and for running ``category.removeProperties`` removals.
+
+    ``scope`` is the locals dict the expressions evaluate against; the helper
+    needs at minimum ``Volume``/``volume``/``IID``/``GID``/``exemplarName`` and
+    whatever variables the category eval blocks reference (typically
+    ``Height``/``Width``/``Depth``/``LotSizeX``/``LotSizeY``/``fillingDegree``).
+    Built-ins from ``from math import *`` and the helpers from
+    ``from .settings import *`` are reachable via module globals.
+
+    This is the shared core of ``OnRebuildProperties`` and the Transit Preset
+    wizard. Behavior must stay byte-identical for the rebuild path.
+    """
+    cat = category
+    variablesName = []
+    variables = []
+    while 1:
+        for variable, what in cat.code:
+            if variable not in variablesName:
+                variablesName.append(variable)
+                variables.append((variable, '(' + what + ')'))
+
+        if cat.parent is not None:
+            cat = cat.parent
+        else:
+            break
+
+    props = []
+    propCreated = []
+    walker = category
+    volume = scope.get('volume', scope.get('Volume', 0))
+    IID = scope.get('IID')
+    GID = scope.get('GID')
+    exemplarName = scope.get('exemplarName', '')
+
+    while 1:
+        for prop2CreatID in walker.evalProperties.keys():
+            if prop2CreatID == 662775825:
+                pass
+            elif prop2CreatID in propCreated:
+                pass
+            else:
+                propCreated.append(prop2CreatID)
+                codetxt = walker.evalProperties[prop2CreatID]
+                initialCode = codetxt
+                try:
+                    while 1:
+                        codetxt2 = codetxt
+                        for variable, what in variables:
+                            codetxt = codetxt.replace(variable, what)
+
+                        if codetxt == codetxt2:
+                            break
+
+                    values = eval(codetxt, globals(), scope)
+                except Exception:
+                    logger.exception(
+                        'Error evaluating property %s\n  initial: %s\n  final: %s\n  variables: %s',
+                        hex2str(prop2CreatID), initialCode, codetxt, variables)
+                    raise
+
+                prop2CreatValue = []
+                if not isinstance(values, tuple):
+                    values = (values,)
+                for v in values:
+                    if virtual_dat.properties[prop2CreatID].Type == 'Float32':
+                        prop2CreatValue.append(str(v))
+                    elif virtual_dat.properties[prop2CreatID].Type == 'Sint64':
+                        prop2CreatValue.append(hex2str(v, 64))
+                    elif virtual_dat.properties[prop2CreatID].Type[-2:] == '32':
+                        prop2CreatValue.append(hex2str(v, 32))
+                    else:
+                        prop2CreatValue.append(hex2str(v, 8))
+
+                props.append(
+                    CreateAPropFromString(virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
+
+        for prop2CreatID in walker.programProperties.keys():
+            if prop2CreatID in propCreated:
+                pass
+            elif exemplar.GetProp(prop2CreatID) is not None:
+                pass
+            else:
+                propCreated.append(prop2CreatID)
+                prop2CreatValue = walker.programProperties[prop2CreatID]
+                props.append(CreateAPropFromString(
+                    virtual_dat.properties[prop2CreatID],
+                    str(prop2CreatValue.replace('IID', '0x%08X' % IID).replace(
+                        'GID', '0x%08X' % GID).replace('exemplarName', exemplarName))))
+
+        for prop2CreatID in walker.setProperties.keys():
+            if prop2CreatID in propCreated:
+                pass
+            elif prop2CreatID == 2317746857 and exemplar.GetProp(2319542937):
+                pass
+            elif prop2CreatID == 2308635565 and exemplar.GetProp(3393284789):
+                pass
+            else:
+                propCreated.append(prop2CreatID)
+                prop2CreatValue = walker.setProperties[prop2CreatID]
+                props.append(CreateAPropFromString(
+                    virtual_dat.properties[prop2CreatID], str(prop2CreatValue)))
+
+        for prop2CreatID in walker.factorProperties.keys():
+            if prop2CreatID in propCreated:
+                pass
+            else:
+                propCreated.append(prop2CreatID)
+                factors = walker.factorProperties[prop2CreatID]
+                prop2CreatValue = []
+                for factor in factors:
+                    v = factor * volume
+                    v = Clamp(virtual_dat.properties[prop2CreatID], v)
+                    if virtual_dat.properties[prop2CreatID].Type == 'Float32':
+                        prop2CreatValue.append(str(v))
+                    elif virtual_dat.properties[prop2CreatID].Type == 'Sint64':
+                        prop2CreatValue.append(hex2str(v, 64))
+                    elif virtual_dat.properties[prop2CreatID].Type[:-2] == 32:
+                        prop2CreatValue.append(hex2str(v, 32))
+                    else:
+                        prop2CreatValue.append(hex2str(v, 8))
+
+                props.append(CreateAPropFromString(
+                    virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
+
+        for prop2CreatID in walker.pairedFactorProperties.keys():
+            if prop2CreatID in propCreated:
+                pass
+            else:
+                propCreated.append(prop2CreatID)
+                factors = walker.pairedFactorProperties[prop2CreatID]
+                prop2CreatValue = []
+                for factor in factors:
+                    v = factor[1] * volume
+                    v = Clamp(virtual_dat.properties[prop2CreatID], v)
+                    if virtual_dat.properties[prop2CreatID].Type == 'Float32':
+                        prop2CreatValue.append(factor[0])
+                        prop2CreatValue.append(str(v))
+                    elif virtual_dat.properties[prop2CreatID].Type == 'Sint64':
+                        prop2CreatValue.append(factor[0])
+                        prop2CreatValue.append(hex2str(v, 64))
+                    elif virtual_dat.properties[prop2CreatID].Type[:-2] == 32:
+                        prop2CreatValue.append(factor[0])
+                        prop2CreatValue.append(hex2str(v, 32))
+                    else:
+                        prop2CreatValue.append(factor[0])
+                        prop2CreatValue.append(hex2str(v, 8))
+
+                props.append(CreateAPropFromString(
+                    virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
+
+        if walker.parent is not None:
+            walker = walker.parent
+        else:
+            break
+
+    props.sort(key=functools.cmp_to_key(lambda x, y: basic_cmp(x[2:2 + 8], y[2:2 + 8])))
+    props = [p for p in props if str(p[2:2 + 8].upper()) not in category.removeProperties.values()]
+
+    UVNK = exemplar.GetProp(2319542937)
+    IDK = exemplar.GetProp(3393284789)
+    if UVNK is not None:
+        props = [p for p in props if str(p[2:2 + 8].upper()) != '899AFBAD']
+    if IDK is not None:
+        props = [p for p in props if str(p[2:2 + 8].upper()) != '8A2602A9']
+    return props
+
+
 def _read_s3d_bbox(mesh):
     """Return an S3D mesh bbox as (width, height, depth), or None if unreadable."""
     if mesh is None or getattr(mesh, 'entry', None) is None:
@@ -1369,6 +1544,11 @@ class NoteBookPanel(wx.Panel):
         if prop.id == 662775825:
             self.OnRebuildProperties(1)
             return
+        if prop.id == 0xE90E25A1:
+            # Transit Switch Point: route to the dedicated TSEC editor
+            # instead of the generic comma-separated hex text-entry dialog.
+            self.OnEditTransitSwitches(event)
+            return
         try:
             name = self.virtual_dat.properties[prop.id].Name
         except KeyError:
@@ -1524,6 +1704,8 @@ class NoteBookPanel(wx.Panel):
             self.popupID35 = wx.NewIdRef()
             self.popupID36 = wx.NewIdRef()
             self.popupID37 = wx.NewIdRef()
+            self.popupID38 = wx.NewIdRef()  # Edit Transit Switches…
+            self.popupID39 = wx.NewIdRef()  # Apply Transit Preset…
             self.popupID1 = wx.NewIdRef()
             self.popupID2 = wx.NewIdRef()
             self.popupID3 = wx.NewIdRef()
@@ -1574,6 +1756,8 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnCamStage, id=self.popupID37)
             self.Bind(wx.EVT_MENU, self.OnChangeIcon, id=self.popupID35)
             self.Bind(wx.EVT_MENU, self.OnOpenLotWithProp, id=self.popupID36)
+            self.Bind(wx.EVT_MENU, self.OnEditTransitSwitches, id=self.popupID38)
+            self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
         menu = wx.Menu()
         if bAdvancedUser:
             menu.Append(self.popupID1, popupPropertyMenuItem1)
@@ -1783,9 +1967,116 @@ class NoteBookPanel(wx.Panel):
                             bSep = True
                             menu.AppendSeparator()
                         menu.Append(self.popupID31, popupPropertyMenuItem31)
+        # Transit Switch editor / Preset wizard: building exemplars only,
+        # and only when Occupant Size is present (Volume is needed for any
+        # eval-driven preset formula).
+        if (self.exemplar.GetProp(16)[0] == 2
+                and self.exemplar.GetProp(662775824) is not None):
+            menu.AppendSeparator()
+            menu.Append(self.popupID38, LEXTransitSwitchEditor)
+            from . import SC4TransitPresets as _tp
+            if _tp.list_transit_presets(self.virtual_dat):
+                menu.Append(self.popupID39, LEXTransitPresetMenuItem)
         self.PopupMenu(menu)
         menu.Destroy()
         return
+
+    def OnEditTransitSwitches(self, event):
+        from . import SC4TransitPresets as _tp
+        from . import SC4TransitSwitchTools as _tsw
+        switch_prop = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_POINT) or []
+        cost_prop = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_ENTRY_COST)
+        cap_prop = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY)
+        cost_val = cost_prop[0] if cost_prop else None
+        cap_val = cap_prop[0] if cap_prop else None
+
+        dlg = wx.Dialog(self, -1, LEXTransitSwitchEditorTitle,
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        def _open_preset_wizard():
+            wiz = _tp.PresetWizardDialog(
+                dlg, self.virtual_dat, self.exemplar, self.parent.parent.GID)
+            try:
+                if wiz.ShowModal() == wx.ID_OK and wiz.GetAppliedCount() > 0:
+                    # Repopulate the panel from the freshly-written props so
+                    # the user sees what the preset emitted; they can still
+                    # tweak rows before closing the outer dialog.
+                    new_switch = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_POINT) or []
+                    new_cost_prop = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_ENTRY_COST)
+                    new_cap_prop = self.exemplar.GetProp(_tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY)
+                    panel.set_state(
+                        new_switch,
+                        new_cost_prop[0] if new_cost_prop else None,
+                        new_cap_prop[0] if new_cap_prop else None,
+                    )
+                    self.bSave.Enable(True)
+            finally:
+                wiz.Destroy()
+
+        panel = _tsw.TSECTablePanel(dlg, on_apply_preset=_open_preset_wizard)
+        panel.set_state(switch_prop, cost_val, cap_val)
+        sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 6)
+
+        btns = wx.StdDialogButtonSizer()
+        ok_btn = wx.Button(dlg, wx.ID_OK)
+        ok_btn.SetDefault()
+        cancel_btn = wx.Button(dlg, wx.ID_CANCEL)
+        btns.AddButton(ok_btn)
+        btns.AddButton(cancel_btn)
+        btns.Realize()
+        sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 6)
+        dlg.SetSizerAndFit(sizer)
+
+        try:
+            if dlg.ShowModal() == wx.ID_OK:
+                rows, cost, capacity = panel.get_state()
+                self._write_transit_switch_props(rows, cost, capacity)
+                self.listProperties.DeleteAllItems()
+                self.FillTheList()
+                self.bSave.Enable(True)
+        finally:
+            dlg.Destroy()
+
+    def OnApplyTransitPreset(self, event):
+        from . import SC4TransitPresets as _tp
+        dlg = _tp.PresetWizardDialog(
+            self, self.virtual_dat, self.exemplar, self.parent.parent.GID)
+        try:
+            if dlg.ShowModal() == wx.ID_OK and dlg.GetAppliedCount() > 0:
+                self.listProperties.DeleteAllItems()
+                self.FillTheList()
+                self.bSave.Enable(True)
+        finally:
+            dlg.Destroy()
+
+    def _write_transit_switch_props(self, rows, cost, capacity):
+        """Commit the TSEC editor's three properties back to the exemplar.
+
+        Empty TSEC rows remove the property entirely (so a building can be
+        de-transit-enabled by clearing every row). Float fields with a blank
+        value are likewise removed; otherwise written as Float32.
+        """
+        from . import SC4TransitSwitchTools as _tsw
+        encoded = _tsw.encode_switch_array(rows)
+        if encoded:
+            values = ','.join('0x%02x' % b for b in encoded)
+            line = CreateAPropFromString(
+                self.virtual_dat.properties[_tsw.PROP_TRANSIT_SWITCH_POINT], values)
+            self.exemplar.AddTextProp(line)
+        else:
+            self.exemplar.RemoveProp(_tsw.PROP_TRANSIT_SWITCH_POINT)
+        for prop_id, value in (
+            (_tsw.PROP_TRANSIT_SWITCH_ENTRY_COST, cost),
+            (_tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY, capacity),
+        ):
+            if value is None:
+                self.exemplar.RemoveProp(prop_id)
+            else:
+                line = CreateAPropFromString(
+                    self.virtual_dat.properties[prop_id], str(float(value)))
+                self.exemplar.AddTextProp(line)
+        self.exemplar.modified = True
 
     def OnChangeIcon(self, event):
         IID = self.exemplar.entry.tgi[2]
@@ -2621,7 +2912,6 @@ class NoteBookPanel(wx.Panel):
     def OnRebuildProperties(self, event):
         bCategorized, includedCats = GetCategories(self.virtual_dat.rootCategory, self.descriptor)
         category = self.virtual_dat.categories[includedCats[0][1]]
-        props = []
         IID = self.exemplar.entry.tgi[2]
         Height = height = self.exemplar.GetProp(662775824)[1]
         Width = width = self.exemplar.GetProp(662775824)[0]
@@ -2656,155 +2946,21 @@ class NoteBookPanel(wx.Panel):
                     dlg.Destroy()
                     return
         Volume = volume = Height * Width * Depth * fillingDegree
-        cat = category
-        variablesName = []
-        variables = []
-        while 1:
-            for variable, what in cat.code:
-                if variable not in variablesName:
-                    variablesName.append(variable)
-                    variables.append((variable, '(' + what + ')'))
+        scope = {
+            'Height': Height, 'height': height,
+            'Width': Width, 'width': width,
+            'Depth': Depth, 'depth': depth,
+            'Volume': Volume, 'volume': volume,
+            'LotSizeX': LotSizeX, 'LotSizeY': LotSizeY,
+            'fillingDegree': fillingDegree,
+            'IID': IID, 'GID': self.parent.parent.GID,
+            'exemplarName': exemplarName,
+        }
+        props = build_category_props_for_preset(
+            self.virtual_dat, self.exemplar, category, scope)
 
-            if cat.parent is not None:
-                cat = cat.parent
-            else:
-                break
-
-        del variablesName
-        propCreated = []
-        while 1:
-            for prop2CreatID in category.evalProperties.keys():
-                if prop2CreatID == 662775825:
-                    pass
-                elif prop2CreatID in propCreated:
-                    pass
-                else:
-                    propCreated.append(prop2CreatID)
-                    codetxt = category.evalProperties[prop2CreatID]
-                    initialCode = codetxt
-                    try:
-                        while 1:
-                            codetxt2 = codetxt
-                            for variable, what in variables:
-                                codetxt = codetxt.replace(variable, what)
-
-                            if codetxt == codetxt2:
-                                break
-
-                        values = eval(codetxt)
-                    except Exception:
-                        logger.exception(
-                            'Error evaluating property %s\n  initial: %s\n  final: %s\n  variables: %s',
-                            hex2str(prop2CreatID), initialCode, codetxt, variables)
-                        raise
-
-                    prop2CreatValue = []
-                    if not isinstance(values, tuple):
-                        values = (
-                            values,)
-                    for v in values:
-                        if self.virtual_dat.properties[prop2CreatID].Type == 'Float32':
-                            prop2CreatValue.append(str(v))
-                        elif self.virtual_dat.properties[prop2CreatID].Type == 'Sint64':
-                            prop2CreatValue.append(hex2str(v, 64))
-                        elif self.virtual_dat.properties[prop2CreatID].Type[-2:] == '32':
-                            prop2CreatValue.append(hex2str(v, 32))
-                        else:
-                            prop2CreatValue.append(hex2str(v, 8))
-
-                    props.append(
-                        CreateAPropFromString(self.virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
-
-            for prop2CreatID in category.programProperties.keys():
-                if prop2CreatID in propCreated:
-                    pass
-                elif self.exemplar.GetProp(prop2CreatID) is not None:
-                    pass
-                else:
-                    propCreated.append(prop2CreatID)
-                    prop2CreatValue = category.programProperties[prop2CreatID]
-                    props.append(CreateAPropFromString(self.virtual_dat.properties[prop2CreatID],
-                                                       str(prop2CreatValue.replace('IID', '0x%08X' % IID).replace('GID',
-                                                                                                                  '0x%08X' % self.parent.parent.GID).replace(
-                                                           'exemplarName', exemplarName))))
-
-            for prop2CreatID in category.setProperties.keys():
-                if prop2CreatID in propCreated:
-                    pass
-                elif prop2CreatID == 2317746857 and self.exemplar.GetProp(2319542937):
-                    pass
-                elif prop2CreatID == 2308635565 and self.exemplar.GetProp(3393284789):
-                    pass
-                else:
-                    propCreated.append(prop2CreatID)
-                    prop2CreatValue = category.setProperties[prop2CreatID]
-                    props.append(CreateAPropFromString(self.virtual_dat.properties[prop2CreatID], str(prop2CreatValue)))
-
-            for prop2CreatID in category.factorProperties.keys():
-                if prop2CreatID in propCreated:
-                    pass
-                else:
-                    propCreated.append(prop2CreatID)
-                    factors = category.factorProperties[prop2CreatID]
-                    prop2CreatValue = []
-                    for factor in factors:
-                        v = factor * volume
-                        v = Clamp(self.virtual_dat.properties[prop2CreatID], v)
-                        if self.virtual_dat.properties[prop2CreatID].Type == 'Float32':
-                            prop2CreatValue.append(str(v))
-                        elif self.virtual_dat.properties[prop2CreatID].Type == 'Sint64':
-                            prop2CreatValue.append(hex2str(v, 64))
-                        elif self.virtual_dat.properties[prop2CreatID].Type[:-2] == 32:
-                            prop2CreatValue.append(hex2str(v, 32))
-                        else:
-                            prop2CreatValue.append(hex2str(v, 8))
-
-                    props.append(
-                        CreateAPropFromString(self.virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
-
-            for prop2CreatID in category.pairedFactorProperties.keys():
-                if prop2CreatID in propCreated:
-                    pass
-                else:
-                    propCreated.append(prop2CreatID)
-                    factors = category.pairedFactorProperties[prop2CreatID]
-                    prop2CreatValue = []
-                    for factor in factors:
-                        v = factor[1] * volume
-                        v = Clamp(self.virtual_dat.properties[prop2CreatID], v)
-                        if self.virtual_dat.properties[prop2CreatID].Type == 'Float32':
-                            prop2CreatValue.append(factor[0])
-                            prop2CreatValue.append(str(v))
-                        elif self.virtual_dat.properties[prop2CreatID].Type == 'Sint64':
-                            prop2CreatValue.append(factor[0])
-                            prop2CreatValue.append(hex2str(v, 64))
-                        elif self.virtual_dat.properties[prop2CreatID].Type[:-2] == 32:
-                            prop2CreatValue.append(factor[0])
-                            prop2CreatValue.append(hex2str(v, 32))
-                        else:
-                            prop2CreatValue.append(factor[0])
-                            prop2CreatValue.append(hex2str(v, 8))
-
-                    props.append(
-                        CreateAPropFromString(self.virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
-
-            if category.parent is not None:
-                category = category.parent
-            else:
-                break
-
-        props.sort(key=functools.cmp_to_key(lambda x, y: basic_cmp(x[2:2 + 8], y[2:2 + 8])))
-        category = self.virtual_dat.categories[includedCats[0][1]]
-        props = [p for p in props if str(p[2:2 + 8].upper()) not in category.removeProperties.values()]
         for prop in category.removeProperties.keys():
             self.exemplar.RemoveProp(prop)
-
-        UVNK = self.exemplar.GetProp(2319542937)
-        IDK = self.exemplar.GetProp(3393284789)
-        if UVNK is not None:
-            props = [p for p in props if str(p[2:2 + 8].upper()) != '899AFBAD']
-        if IDK is not None:
-            props = [p for p in props if str(p[2:2 + 8].upper()) != '8A2602A9']
         for prop in props:
             self.exemplar.AddTextProp(prop)
 
