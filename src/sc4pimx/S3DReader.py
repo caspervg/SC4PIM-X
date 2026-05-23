@@ -348,6 +348,17 @@ class S3D(object):
                 glDepthFunc(funcTable[material['depthFunc']])
             else:
                 glDisable(GL_DEPTH_TEST)
+            # Backface culling flag. Wiki lists Mats checkboxes in the order
+            # alpha-test (bit 0=1), depth-test (bit 1=2), backface-culling,
+            # framebuffer-blending (bit 4=16), texturing — so culling sits at
+            # bit 2 (value 4). Maxis convention is CCW = visible, CW = culled,
+            # which matches GL defaults (glFrontFace=GL_CCW, GL_CULL_FACE=GL_BACK).
+            if flags & 4:
+                glEnable(GL_CULL_FACE)
+                glCullFace(GL_BACK)
+                glFrontFace(GL_CCW)
+            else:
+                glDisable(GL_CULL_FACE)
             if flags & 16:
                 glEnable(GL_BLEND)
                 try:
