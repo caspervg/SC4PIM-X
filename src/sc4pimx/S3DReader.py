@@ -416,13 +416,28 @@ class S3D(object):
             except IndexError:
                 continue
 
-            if self.tgi[1] == 3134937073:
-                self.tgi2search = (
-                 2058686020, 448690301, textureID)
+            # Per the S3D Mats wiki the texture is normally in the S3D's own
+            # group; transit / Maxis-shared content lives in 0x1ABE787D. Try
+            # own group first, then the shared group as fallback.
+            FSH_TYPE = 2058686020       # 0x7AB50E44
+            SHARED_GROUP = 448690301    # 0x1ABE787D
+            MAXIS_S3D_GROUP = 3134937073  # 0xBADB57F1 — Maxis content rarely
+                                          # ships its own group's textures, so
+                                          # try shared first to save a miss.
+            if self.tgi[1] == MAXIS_S3D_GROUP:
+                candidate_groups = (SHARED_GROUP,)
+            elif self.tgi[1] == SHARED_GROUP:
+                candidate_groups = (SHARED_GROUP,)
             else:
-                self.tgi2search = (
-                 2058686020, self.tgi[1], textureID)
-            entry = virtualDAT.getEntry(self.tgi2search[0], self.tgi2search[1], self.tgi2search[2])
-            s3DTexturesHolder.PrecacheTex((self.tgi2search[1], textureID), entry)
+                candidate_groups = (self.tgi[1], SHARED_GROUP)
+            entry = None
+            resolved_group = candidate_groups[0]
+            for group in candidate_groups:
+                entry = virtualDAT.getEntry(FSH_TYPE, group, textureID)
+                if entry is not None:
+                    resolved_group = group
+                    break
+            self.tgi2search = (FSH_TYPE, resolved_group, textureID)
+            s3DTexturesHolder.PrecacheTex((resolved_group, textureID), entry)
 
         return
