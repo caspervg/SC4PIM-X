@@ -73,7 +73,6 @@ class S3D(object):
         self.vertexBuffers = []
         bounds_set = False
         for x in range(nbrBlock):
-            vb = []
             flag = struct.unpack('H', buffer[0:2])[0]
             count = struct.unpack('H', buffer[2:4])[0]
             if self.minorRevision >= 4:
@@ -129,17 +128,22 @@ class S3D(object):
                     colorsNb = 1
                     texsNb = 2
                 vertexSize = 3 * 4 * coordsNb + 4 * colorsNb + 2 * 4 * texsNb
+                stride = vertexSize
             buffer = buffer[8:]
-            # Vectorised vertex read: the old per-vertex struct.unpack loop
-            # cost milliseconds per model. Slice the fixed-stride block with
-            # numpy instead -- coords are the first 12 bytes of each vertex,
-            # the UV pair the next 8.
+            # Vectorized vertex read. S3D stores positions first and may
+            # append packed color and one or more UV sets depending on format.
             nbytes = count * stride
             arr = numpy.frombuffer(buffer[:nbytes], dtype=numpy.uint8).reshape(count, stride)
             buffer = buffer[nbytes:]
-            vertices = numpy.ascontiguousarray(arr[:, 0:12]).view('<f4')
-            if stride >= 20:
-                uvs = numpy.ascontiguousarray(arr[:, 12:20]).view('<f4')
+            vertices = numpy.ascontiguousarray(arr[:, 0:12]).view('<f4').reshape(count, 3)
+            offset = 12 * coordsNb
+            colors = None
+            if colorsNb:
+                color_bytes = colorsNb * 4
+                colors = numpy.ascontiguousarray(arr[:, offset:offset + color_bytes])
+                offset += color_bytes
+            if texsNb:
+                uvs = numpy.ascontiguousarray(arr[:, offset:offset + 8]).view('<f4').reshape(count, 2)
             else:
                 uvs = numpy.zeros((count, 2), dtype=numpy.float32)
             if count:
@@ -156,10 +160,15 @@ class S3D(object):
                     self.maxy = max(self.maxy, float(bmax[1]))
                     self.minz = min(self.minz, float(bmin[2]))
                     self.maxz = max(self.maxz, float(bmax[2]))
-            self.vertexBuffers.append((vertices.tobytes(), uvs.tobytes()))
+            self.vertexBuffers.append({
+                'positions': numpy.ascontiguousarray(vertices, dtype=numpy.float32),
+                'uvs': numpy.ascontiguousarray(uvs, dtype=numpy.float32),
+                'colors': colors,
+            })
 
         if not bounds_set:
             self.minx = self.maxx = self.miny = self.maxy = self.minz = self.maxz = 0.0
+        self._normal_cache = {}
         return buffer
 
     def ReadIndx(self, buffer):
@@ -285,7 +294,7 @@ class S3D(object):
 
         return buffer
 
-    def draw(self, s3DTexturesHolder):
+    def draw(self, s3DTexturesHolder, shader_program, lighting_state):
         if self.entry is None:
             return
         glColor3f(1.0, 1.0, 1.0)
@@ -304,6 +313,7 @@ class S3D(object):
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
         sample_alpha_to_coverage = globals().get('GL_SAMPLE_ALPHA_TO_COVERAGE')
         mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
+        shader_program.bind(lighting_state)
         for mi, mesh in enumerate(meshes):
             frameInfo = mesh['frames'][self.currentFrame]
             try:
@@ -381,10 +391,13 @@ class S3D(object):
 
             else:
                 glDisable(GL_BLEND)
+            normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
             glEnableClientState(GL_VERTEX_ARRAY)
+            glEnableClientState(GL_NORMAL_ARRAY)
             glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-            glVertexPointer(3, GL_FLOAT, 0, vertexBuffer[0])
-            glTexCoordPointer(2, GL_FLOAT, 0, vertexBuffer[1])
+            glVertexPointer(3, GL_FLOAT, 0, vertexBuffer['positions'])
+            glNormalPointer(GL_FLOAT, 0, normals)
+            glTexCoordPointer(2, GL_FLOAT, 0, vertexBuffer['uvs'])
             # Per the S3D Prim wiki each PRIM sub-entry has a first-index
             # offset and a triangle-index count; the parent INDX block may
             # back several sub-prims or carry padding past them. Draw each
@@ -403,11 +416,45 @@ class S3D(object):
                 glDrawElements(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
                                idx_bytes[first * 2:])
             glDisableClientState(GL_VERTEX_ARRAY)
+            glDisableClientState(GL_NORMAL_ARRAY)
             glDisableClientState(GL_TEXTURE_COORD_ARRAY)
 
         if sample_alpha_to_coverage is not None:
             glDisable(sample_alpha_to_coverage)
+        shader_program.unbind()
         return
+
+    def _normal_buffer(self, frame_info, vertex_buffer, index_buffer, prim_block):
+        key = (frame_info['vertBlock'], frame_info['indexBlock'], frame_info['primBlock'])
+        cached = self._normal_cache.get(key)
+        if cached is not None:
+            return cached
+        positions = vertex_buffer['positions']
+        normals = numpy.zeros_like(positions, dtype=numpy.float32)
+        idx_bytes, idx_count = index_buffer
+        for type_prim, first, length in prim_block:
+            if type_prim != 0 or length < 3 or first + length > idx_count:
+                continue
+            indices = numpy.frombuffer(idx_bytes, dtype=numpy.uint16, count=length, offset=first * 2)
+            tri_count = length // 3
+            if tri_count <= 0:
+                continue
+            triangles = indices[:tri_count * 3].reshape(tri_count, 3)
+            tri_pos = positions[triangles]
+            edge1 = tri_pos[:, 1] - tri_pos[:, 0]
+            edge2 = tri_pos[:, 2] - tri_pos[:, 0]
+            face_normals = numpy.cross(edge1, edge2)
+            for corner in range(3):
+                numpy.add.at(normals, triangles[:, corner], face_normals)
+        lengths = numpy.linalg.norm(normals, axis=1)
+        zero_mask = lengths <= 1.0e-6
+        if numpy.any(~zero_mask):
+            normals[~zero_mask] /= lengths[~zero_mask][:, numpy.newaxis]
+        if numpy.any(zero_mask):
+            normals[zero_mask] = numpy.array([0.0, 1.0, 0.0], dtype=numpy.float32)
+        normals = numpy.ascontiguousarray(normals, dtype=numpy.float32)
+        self._normal_cache[key] = normals
+        return normals
 
     def FreeAll(self, s3DTexturesHolder):
         s3DTexturesHolder.Free()

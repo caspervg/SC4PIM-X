@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # non-zero, the prop renders its state-N model variant at night instead of
 # state 0.
 NIGHTTIME_STATE_CHANGE_PROP = 0x49C9C93C
+MODEL_IS_PRELIT_PROP = 0x6A845768
 
 
 def night_state_for(exemplar):
@@ -33,6 +34,22 @@ def night_state_for(exemplar):
         return int(val[0])
     except (TypeError, ValueError, IndexError):
         return 0
+
+
+def model_is_prelit(exemplar):
+    """Return whether *exemplar* disables game lighting for its model."""
+    if exemplar is None:
+        return False
+    try:
+        val = exemplar.GetProp(MODEL_IS_PRELIT_PROP)
+    except Exception:
+        return False
+    if not val:
+        return False
+    try:
+        return bool(int(val[0]))
+    except (TypeError, ValueError, IndexError):
+        return True
 
 
 def ReadStageVsDensity(node):
