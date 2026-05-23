@@ -2,7 +2,9 @@
 from OpenGL.GL import (
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
+    GL_MIRRORED_REPEAT,
     GL_NEAREST,
+    GL_REPEAT,
     GL_RGBA,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -69,7 +71,8 @@ class S3DTexturesHolder(object):
          entry, None]
         return
 
-    def SetCurrentTex(self, textureID, layer=0, min_filter=None, mag_filter=None):
+    def SetCurrentTex(self, textureID, layer=0, min_filter=None, mag_filter=None,
+                      wrap_s=None, wrap_t=None):
         glEnable(GL_TEXTURE_2D)
         if textureID not in self.textures:
             glDisable(GL_TEXTURE_2D)
@@ -143,4 +146,12 @@ class S3DTexturesHolder(object):
         if mag_filter is not None:
             glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
                             GL_LINEAR if mag_filter > 0 else GL_NEAREST)
+        # S3D Mats wrap values: 0 = repeat, 1 = "clamb" (Maxis-speak for
+        # mirrored repeat per the wiki). None preserves upload-time default.
+        if wrap_s is not None:
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+                            GL_MIRRORED_REPEAT if wrap_s == 1 else GL_REPEAT)
+        if wrap_t is not None:
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
+                            GL_MIRRORED_REPEAT if wrap_t == 1 else GL_REPEAT)
         return
