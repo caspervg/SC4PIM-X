@@ -2384,6 +2384,9 @@ class NoteBookPanel(wx.Panel):
                         break
 
                 bFound or props.append(CreateAProp(self.virtual_dat.properties[662775863], (255,)))
+        else:
+            dlg.Destroy()
+            return
         if IsFromCategory(self.virtual_dat.categories[210746672], self.exemplar):
             bFound = False
             for stage in range(1, 16):
@@ -4451,10 +4454,13 @@ class MainFrame(wx.Frame):
             return
         try:
             holder_changed = holder.SetNightMode(night)
-            lighting_changed = bool(viewer.set_night_mode(night))
-            lighting_changed = bool(
-                viewer.set_prelit(model_is_prelit(getattr(self, '_currentPreviewExemplar', None)))
-            ) or lighting_changed
+            set_night_mode = getattr(viewer, 'set_night_mode', None)
+            lighting_changed = bool(set_night_mode(night)) if callable(set_night_mode) else False
+            set_prelit = getattr(viewer, 'set_prelit', None)
+            if callable(set_prelit):
+                lighting_changed = bool(
+                    set_prelit(model_is_prelit(getattr(self, '_currentPreviewExemplar', None)))
+                ) or lighting_changed
         except Exception:
             logger.exception('Failed to set night-light mode on model viewer')
             return
