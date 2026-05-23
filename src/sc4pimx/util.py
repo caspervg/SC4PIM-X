@@ -12,8 +12,8 @@ def round_to_int(a):
 
 def clamp_to_tile(x):
     if fmod(x, 16) < 0.5 and x > 16:
-        return int(x - 1) / 16 * 16 + 15.5
-    return int(x) / 16 * 16 + min(fmod(x, 16), 15.5)
+        return int(x - 1) // 16 * 16 + 15.5
+    return int(x) // 16 * 16 + min(fmod(x, 16), 15.5)
 
 
 def test(condition, val_true, val_false):

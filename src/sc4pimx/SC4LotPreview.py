@@ -1175,7 +1175,7 @@ class LotEditorWin(wx.Frame):
     def _exact_fit_scale(self):
         """The 2D world scale at which the whole lot exactly fills the viewport."""
         size = self.glCanvas2D.GetClientSize()
-        w = size[0] / 2 if self.panel == 3 else size[0]
+        w = size[0] // 2 if self.panel == 3 else size[0]
         h = size[1]
         x_half = getattr(self, 'lotSizeXOver', 16) / 2.0 + 8
         y_half = getattr(self, 'lotSizeYOver', 16) / 2.0 + 8
@@ -2470,7 +2470,7 @@ class LotEditorWin(wx.Frame):
             return
         if self.modeEdit == MODE_EDIT_PAN:
             if self.panel == 3:
-                if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:
+                if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] // 2:
                     self.posx -= self.glCanvas2D.dx * 0.25
                     self.posy -= self.glCanvas2D.dy * 0.25
                 else:
@@ -3511,7 +3511,7 @@ class LotEditorWin(wx.Frame):
         if evt.Dragging() and evt.LeftIsDown():
             if evt.ShiftDown() and self.modeEdit == MODE_EDIT_PAN:
                 if self.panel == 3:
-                    if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] / 2:
+                    if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] // 2:
                         pass
                     else:
                         self.bBackAligned = True
