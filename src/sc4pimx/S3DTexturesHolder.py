@@ -2,6 +2,7 @@
 from OpenGL.GL import (
     GL_CLAMP_TO_EDGE,
     GL_LINEAR,
+    GL_NEAREST,
     GL_RGBA,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -68,7 +69,7 @@ class S3DTexturesHolder(object):
          entry, None]
         return
 
-    def SetCurrentTex(self, textureID, layer=0):
+    def SetCurrentTex(self, textureID, layer=0, min_filter=None, mag_filter=None):
         glEnable(GL_TEXTURE_2D)
         if textureID not in self.textures:
             glDisable(GL_TEXTURE_2D)
@@ -133,4 +134,13 @@ class S3DTexturesHolder(object):
             layer = 0
         texName = texture[1][layer]
         glBindTexture(GL_TEXTURE_2D, texName)
+        # Maxis default per S3D Mats wiki is NEAREST; bilinear is the special
+        # case (mainly road textures). Caller passes 0 for nearest, >0 for
+        # linear; None preserves the upload-time default.
+        if min_filter is not None:
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                            GL_LINEAR if min_filter > 0 else GL_NEAREST)
+        if mag_filter is not None:
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                            GL_LINEAR if mag_filter > 0 else GL_NEAREST)
         return

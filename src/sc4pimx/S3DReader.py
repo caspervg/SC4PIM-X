@@ -320,7 +320,12 @@ class S3D(object):
             except IndexError:
                 continue
 
-            s3DTexturesHolder.SetCurrentTex((self.tgi2search[1], material['textures'][0]['textureID']))
+            texInfo = material['textures'][0]
+            s3DTexturesHolder.SetCurrentTex(
+                (self.tgi2search[1], texInfo['textureID']),
+                min_filter=texInfo.get('minFilter'),
+                mag_filter=texInfo.get('magFilter'),
+            )
             flags = material['flags']
             if flags & 1:
                 glEnable(GL_ALPHA_TEST)
