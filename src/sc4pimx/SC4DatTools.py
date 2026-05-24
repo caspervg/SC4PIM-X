@@ -95,6 +95,16 @@ def hex2str(v, size=32):
 
 
 class Prop():
+    # __slots__ avoids per-instance __dict__: at warm-start scale we create
+    # ~440k Props during Finalize, and the dict overhead alone was a
+    # measurable chunk of that time. All attributes ever written by any
+    # code path (binary parser, text parser, and external mutators) must be
+    # listed here. Conditionally-set attributes (``rawdata`` for string
+    # props, ``named`` for text-parsed props) are still legal to leave unset
+    # -- ``hasattr`` checks behave the same with slots.
+    __slots__ = ('exemplar', 'id', 'values', 'typeValue', 'sizeOfCounter',
+                 'count', 'rawdata', 'sized', 'named')
+
     validFormat = {1792: 'i',2304: 'f',768: 'I',2816: 'b',256: 'B',2048: 'q',512: 'h'}
     format2String = {768: 'Uint32',3072: 'String',2304: 'Float32',2816: 'Bool',256: 'Uint8',2048: 'Sint64',1792: 'Sint32'}
 
@@ -373,6 +383,10 @@ class Prop():
 
 
 class SC4Exemplar():
+    # Slotted for the same reason as Prop: ~67k SC4Exemplar instances are
+    # created during a warm Finalize, and the per-instance __dict__ adds up.
+    __slots__ = ('modified', 'entry', 'virtualDAT', 'buffer', 'props',
+                 'parentCohort', 'sig', 'nbrProp', 'link')
 
     def __init__(self, entry, virtualDAT):
         self.modified = False
@@ -452,20 +466,84 @@ class SC4Exemplar():
         return newBuff
 
     def DecodeBinary(self, bLazy=True):
+        # Hot path: this runs ~67k times during a warm Finalize and parses
+        # ~440k Prop records. The previous implementation wrapped the buffer
+        # in a BytesIO and went through ``Prop.__init__`` via ``map(lambda
+        # ...)``, paying file-like read() overhead and lambda dispatch per
+        # prop. The rewrite below uses ``struct.unpack_from`` with a manual
+        # offset cursor and bypasses ``Prop.__init__`` via ``Prop.__new__``.
         global binEx
         binEx += 1
-        buf = io.BytesIO(self.buffer)
-        self.sig = buf.read(8).decode("latin-1")
-        self.parentCohort = tuple(struct.unpack('III', buf.read(12)))
+        buf = self.buffer
+        unpack_from = struct.unpack_from
+        self.sig = bytes(buf[:8]).decode("latin-1")
+        self.parentCohort = unpack_from('III', buf, 8)
         self.LinkToParent()
-        self.nbrProp = struct.unpack('I', buf.read(4))[0]
+        nbrProp = unpack_from('I', buf, 20)[0]
+        self.nbrProp = nbrProp
         # self.props is still empty here, so GetProp(16) resolves via the
         # parent cohort -- exactly what each Prop would compute individually.
         kind = self.GetProp(16)
-        try:
-            self.props = list(map(lambda x: Prop(buf, True, self, kind=kind), range(self.nbrProp)))
-        except Exception:
-            raise
+        if kind is not None and kind[0] not in (30, 2, 17, 15, 16):
+            # Whole-exemplar skip: every Prop would no-op with id=0 anyway.
+            # Synthesise minimal stubs without parsing the buffer.
+            stubs = [None] * nbrProp
+            new_prop = Prop.__new__
+            for i in range(nbrProp):
+                p = new_prop(Prop)
+                p.exemplar = self
+                p.id = 0
+                stubs[i] = p
+            self.props = stubs
+            return
+        pos = 24
+        props = [None] * nbrProp
+        valid_format = Prop.validFormat
+        calcsize = struct.calcsize
+        new_prop = Prop.__new__
+        translate = translationTable
+        for i in range(nbrProp):
+            p = new_prop(Prop)
+            p.exemplar = self
+            prop_id, type_value, size_of_counter = unpack_from('IHH', buf, pos)
+            p.id = prop_id
+            p.typeValue = type_value
+            p.sizeOfCounter = size_of_counter
+            pos += 8
+            if type_value == 3072:
+                # String: 1B subcount, 4B length, then raw bytes.
+                p.count = buf[pos]
+                strlen = unpack_from('I', buf, pos + 1)[0]
+                tt = bytes(buf[pos + 5:pos + 5 + strlen])
+                p.rawdata = tt
+                p.values = [tt.translate(translate).decode("latin-1")]
+                pos += 1 + 4 + strlen
+            else:
+                if size_of_counter > 0:
+                    # padding + count uint16 + padding
+                    p.count = unpack_from('H', buf, pos + 1)[0]
+                    pos += 5
+                else:
+                    p.count = buf[pos]
+                    pos += 1
+                nbr = p.count
+                if nbr == 0 and size_of_counter == 0:
+                    nbr = 1
+                fmt = valid_format.get(type_value)
+                if fmt is None:
+                    logger.error('Unknown prop type in exemplar 0x%X-0x%X-0x%X located in %s',
+                                 self.entry.TGI['t'], self.entry.TGI['g'],
+                                 self.entry.TGI['i'], self.entry.fileName)
+                    p.values = []
+                    props[i] = p
+                    self.props = props[:i + 1]
+                    return
+                fmt_n = fmt * nbr
+                s = calcsize(fmt_n)
+                p.values = list(unpack_from(fmt_n, buf, pos))
+                pos += s
+            props[i] = p
+        self.props = props
 
     def DecodeBuffer(self, bLazy=True):
         self.props = []
