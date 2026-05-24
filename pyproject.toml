@@ -1,12 +1,13 @@
 [project]
 name = "sc4pim-x"
-version = "2026.1c"
+version = "2026.2"
 description = "SimCity 4 Plugin Manager Extended - Decompiled and Modernized"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { text = "All rights reserved" }
 authors = [
-    { name = "Original SC4PIM-X Developers" }
+    { name = "Wouanagaine" },
+    { name = "CasperVg" }
 ]
 keywords = ["simcity4", "sc4", "modding", "plugin-manager"]
 classifiers = [
