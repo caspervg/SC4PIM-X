@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import wx
 
+from .dat_cache import DatFileCache, serialize_entries
 from .paths import data_file_path, image_db_path
 from .SC4DataFunctions import (
     DuplicateProp,
@@ -56,6 +57,12 @@ class VirtualDat(object):
         self.zoning = {}
         self.MaxSlopeBeforeLotFoundation = '90'
         self.MaxSlopeAllowed = '90'
+        # Pre-stat cache: path -> (mtime_ns, size). Populated during
+        # gather_container_files (where os.scandir already has the metadata)
+        # so the DBPF parse cache can validate freshness without re-stat'ing
+        # every file -- a measurable win on OneDrive/AV-shimmed filesystems
+        # where each metadata syscall costs tens of ms.
+        self._scan_stat_cache: dict = {}
         self.ReadProperties()
         return
 
@@ -223,9 +230,57 @@ class VirtualDat(object):
 
         Used by the threaded loader to build a flat work list before parsing
         files in parallel. Safe to call from a background thread (no wx calls).
+
+        Side effect: populates ``self._scan_stat_cache`` with the
+        (mtime_ns, size) of every container file seen, taken from the
+        ``os.scandir`` ``DirEntry.stat()`` result so the DBPF parse cache
+        does not need to re-stat them later. The Windows ``DirEntry`` already
+        carries this metadata from the directory enumeration, so capturing
+        it here is effectively free; the savings show up at lookup time.
         """
-        files = BuildSortedFilesList(folderName, bRecurse)
-        return [f for f in files if self._is_sc4_container(f)]
+        files = []
+        stat_cache = self._scan_stat_cache
+        self._scandir_gather(folderName, bRecurse, files, stat_cache)
+        return files
+
+    def _scandir_gather(self, folder, recurse, files_out, stat_cache):
+        """Recursive scandir walk that captures stats while listing."""
+        try:
+            it = os.scandir(folder)
+        except OSError:
+            return
+        sub_dirs = []
+        sub_files = []
+        with it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if recurse:
+                            sub_dirs.append(entry.path)
+                        continue
+                    name_lower = entry.name.lower()
+                    if name_lower.endswith(('.dat', '.sc4model',
+                                            '.sc4lot', '.sc4desc')):
+                        # Known-good extension: skip the header probe.
+                        st = entry.stat()
+                        path = entry.path
+                        sub_files.append(path)
+                        stat_cache[os.path.normcase(os.path.abspath(path))] = (
+                            st.st_mtime_ns, st.st_size)
+                    elif self._is_sc4_container(entry.path):
+                        st = entry.stat()
+                        path = entry.path
+                        sub_files.append(path)
+                        stat_cache[os.path.normcase(os.path.abspath(path))] = (
+                            st.st_mtime_ns, st.st_size)
+                except OSError:
+                    continue
+        sub_files.sort(key=str.lower)
+        files_out.extend(sub_files)
+        if recurse:
+            sub_dirs.sort(key=str.lower)
+            for d in sub_dirs:
+                self._scandir_gather(d, True, files_out, stat_cache)
 
     def load_files_parallel(self, file_list, progress_cb=None):
         """Parse *file_list* in parallel, then merge the results in order.
@@ -244,29 +299,48 @@ class VirtualDat(object):
         workers = max(2, min(8, (os.cpu_count() or 4)))
         logger.debug('Parsing %d files with %d worker threads', total, workers)
 
+        cache = DatFileCache.open_default(stat_cache=self._scan_stat_cache)
+
         def _parse(item):
             fileName, bStandard = item
+            entries = cache.lookup(fileName)
+            if entries is not None:
+                return entries, bStandard, fileName, None, None
             try:
                 # dlg=None -> no wx calls happen inside the worker thread.
-                return DatFile(fileName, None, True), bStandard, fileName, None
+                dat = DatFile(fileName, None, True)
+                # Pickle BEFORE returning -- addEntries on the main thread
+                # attaches a virtual_dat back-reference that holds wx objects.
+                # Doing it here also parallelises the serialization.
+                blob = serialize_entries(dat.entries)
+                return dat.entries, bStandard, fileName, None, blob
             except Exception as exc:  # noqa: BLE001 - reported per file below
-                return None, bStandard, fileName, exc
+                return None, bStandard, fileName, exc, None
 
         done = 0
-        with ThreadPoolExecutor(max_workers=workers,
-                                thread_name_prefix='sc4-loader') as pool:
-            for datFile, bStandard, fileName, exc in pool.map(_parse, file_list):
-                done += 1
-                if datFile is None:
-                    logger.warning('Skipping unreadable file %s', fileName, exc_info=exc)
-                else:
-                    try:
-                        self.addEntries(datFile.entries, None, bStandard, False)
-                    except Exception:
-                        logger.warning('Failed to merge entries from %s', fileName,
-                                       exc_info=True)
-                if progress_cb is not None:
-                    progress_cb(done, total, fileName)
+        try:
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix='sc4-loader') as pool:
+                for entries, bStandard, fileName, exc, blob in pool.map(_parse, file_list):
+                    done += 1
+                    if entries is None:
+                        logger.warning('Skipping unreadable file %s', fileName, exc_info=exc)
+                    else:
+                        try:
+                            self.addEntries(entries, None, bStandard, False)
+                        except Exception:
+                            logger.warning('Failed to merge entries from %s', fileName,
+                                           exc_info=True)
+                        else:
+                            if blob is not None:
+                                cache.queue_store(fileName, blob)
+                    if progress_cb is not None:
+                        progress_cb(done, total, fileName)
+        finally:
+            hits, misses, corrupt = cache.stats()
+            logger.debug('DBPF parse cache: %d hits, %d misses, %d corrupt',
+                         hits, misses, corrupt)
+            cache.close()
 
     def addFile(self, dlg, fileName, bStandard=False, bForceUpdate=False):
         logger.debug('Loading DAT file %s (standard=%s, force_update=%s)',
@@ -291,22 +365,51 @@ class VirtualDat(object):
             return False
 
     def addEntries(self, entries, dlg, bStandard, bForceUpdate):
-        before = len(self.allEntries)
+        # Hot path: this runs 27k+ times during a full plugins scan, once per
+        # DAT file, processing ~500k entries in total. The original loop spent
+        # most of its time on attribute lookups and a try/except dedup. The
+        # tightened version below local-binds the dict/list/append and tracks
+        # the next free index locally so the inner loop is just dict.get +
+        # branch. bForceUpdate is hoisted out -- only addFile sets it, and
+        # that path isn't part of the bulk scan.
+        index = self.TGIIndex
+        all_entries = self.allEntries
+        append = all_entries.append
+        n = len(all_entries)
+        before = n
         replaced = 0
-        for entry in entries:
-            entry.bStandard = bStandard
-            entry.virtual_dat = self
-            try:
-                idx = self.TGIIndex[entry.tgi]
-                self.allEntries[idx] = entry
-                replaced += 1
-            except KeyError:
-                self.TGIIndex[entry.tgi] = len(self.allEntries)
-                self.allEntries.append(entry)
 
-            if bForceUpdate:
-                self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
-        logger.debug('Registered %d entries (%d new, %d replaced)', len(entries), len(self.allEntries) - before, replaced)
+        if not bForceUpdate:
+            for entry in entries:
+                entry.bStandard = bStandard
+                entry.virtual_dat = self
+                tgi = entry.tgi
+                existing = index.get(tgi)
+                if existing is None:
+                    index[tgi] = n
+                    append(entry)
+                    n += 1
+                else:
+                    all_entries[existing] = entry
+                    replaced += 1
+        else:
+            tree = self.tree
+            for entry in entries:
+                entry.bStandard = bStandard
+                entry.virtual_dat = self
+                tgi = entry.tgi
+                existing = index.get(tgi)
+                if existing is None:
+                    index[tgi] = n
+                    append(entry)
+                    n += 1
+                else:
+                    all_entries[existing] = entry
+                    replaced += 1
+                tree.UpdateEntry(entry, self, bStandard, dlg)
+
+        logger.debug('Registered %d entries (%d new, %d replaced)',
+                     len(entries), n - before, replaced)
 
     def getEntries(self, t, g, i, tMask=4294967295, gMask=4294967295, iMask=4294967295):
         if t == 87304289 and tMask == 4294967295:
@@ -329,12 +432,25 @@ class VirtualDat(object):
         if dlg is not None and hasattr(dlg, 'SetStatus'):
             dlg.SetStatus('Finalizing data...',
                           '%d entries loaded' % len(self.allEntries))
-        self.cohorts = filter(lambda ent: ent.tgi[0] == 87304289, self.allEntries)
-        for entry in self.cohorts:
-            self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
-
-        for entry in filter(lambda ent: ent.tgi[0] in {2058686020, 1697917002, 698733036, 1523640343}, self.allEntries):
-            self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
+        # Single pass over allEntries, dispatching by tgi[0]. The previous
+        # version walked the 500k+ entry list twice with filter+lambda, and
+        # also assigned ``self.cohorts = filter(...)`` -- an iterator that
+        # was exhausted by the immediately-following for loop, leaving
+        # downstream readers of ``self.cohorts`` (SC4PIMApp.py:629, 1486;
+        # SC4VirtualDat.py:416) with an empty iterable.
+        COHORT_T = 87304289
+        OTHER_TS = (2058686020, 1697917002, 698733036, 1523640343)
+        update_entry = self.tree.UpdateEntry
+        cohorts_list = []
+        cohorts_append = cohorts_list.append
+        for entry in self.allEntries:
+            t0 = entry.tgi[0]
+            if t0 == COHORT_T:
+                cohorts_append(entry)
+                update_entry(entry, self, entry.bStandard, dlg)
+            elif t0 in OTHER_TS:
+                update_entry(entry, self, entry.bStandard, dlg)
+        self.cohorts = cohorts_list
 
         FinalizeCategory(self.rootCategory)
         self.missing_pictures = []
