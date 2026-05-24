@@ -30,6 +30,7 @@ from typing import Iterable, Optional
 
 import wx
 
+from . import SC4TransitPresetRegistry as tpr
 from . import SC4TransitSwitchTools as tsw
 from .translation import *  # noqa: F401,F403
 
@@ -61,6 +62,15 @@ def list_transit_presets(virtual_dat) -> list:
         )
     )
     return out
+
+
+def has_transit_presets(_virtual_dat) -> bool:
+    """Return whether the data-backed transit wizard has presets loaded."""
+    try:
+        return bool(tpr.load_registry().presets)
+    except Exception:
+        logger.exception("Could not load transit switch preset registry")
+        return False
 
 
 def build_eval_scope(virtual_dat, exemplar, app_GID: int) -> Optional[dict]:
@@ -227,6 +237,26 @@ def _rewrite_float_line(virtual_dat, prop_id: int, value: float) -> str:
     return CreateAPropFromString(virtual_dat.properties[prop_id], str(float(value)))
 
 
+def _replace_tsec_lines(
+    virtual_dat,
+    prop_lines: Iterable[str],
+    rows: list[tsw.SwitchRow],
+) -> list[str]:
+    """Replace every Transit Switch Point line with an authored row set."""
+    output: list[str] = []
+    replaced = False
+    for line in prop_lines:
+        parsed = _parse_prop_line(line)
+        if parsed is not None and parsed[0] == tsw.PROP_TRANSIT_SWITCH_POINT:
+            output.append(_rewrite_tsec_line(virtual_dat, line, rows))
+            replaced = True
+        else:
+            output.append(line)
+    if not replaced:
+        output.append(_rewrite_tsec_line(virtual_dat, "", rows))
+    return output
+
+
 def apply_overrides(
     virtual_dat,
     prop_lines: Iterable[str],
@@ -316,21 +346,24 @@ class PresetWizardDialog(wx.Dialog):
         self.exemplar = exemplar
         self.app_GID = app_GID
         self._scope = build_eval_scope(virtual_dat, exemplar, app_GID)
-        self._presets = list_transit_presets(virtual_dat)
+        self._base_ids = tpr.bases_with_presets()
+        self._option_checks: dict[str, wx.CheckBox] = {}
 
-        self.presetChoice = wx.Choice(self, -1, choices=self._preset_labels())
-        if self._presets:
-            self.presetChoice.SetSelection(0)
+        self.baseChoice = wx.Choice(self, -1, choices=self._base_labels())
+        if self._base_ids:
+            self.baseChoice.SetSelection(0)
 
-        self.orientationRadio = wx.RadioBox(
+        self.placementRadio = wx.RadioBox(
             self,
             -1,
             LEXTransitPresetOrientation,
-            choices=[label for _key, label, _mask in ORIENTATION_CHOICES],
+            choices=[tpr.label_for_placement(placement) for placement in tpr.PLACEMENT_IDS],
             majorDimension=3,
             style=wx.RA_SPECIFY_COLS,
         )
-        self.alwaysSubwayCheck = wx.CheckBox(self, -1, LEXTransitPresetAlwaysSubway)
+        self.optionsBox = wx.StaticBox(self, -1, LEXTransitPresetOptions)
+        for option in tpr.OPTION_IDS:
+            self._option_checks[option] = wx.CheckBox(self.optionsBox, -1, tpr.label_for_option(option))
 
         # Cost & capacity: always-editable text fields prefilled with the
         # evaluated values. Whatever's in the field on Apply gets written.
@@ -367,12 +400,18 @@ class PresetWizardDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         topGrid = wx.FlexGridSizer(0, 2, 4, 8)
         topGrid.AddGrowableCol(1, 1)
-        topGrid.Add(wx.StaticText(self, -1, LEXTransitPresetPick), 0, wx.ALIGN_CENTER_VERTICAL)
-        topGrid.Add(self.presetChoice, 1, wx.EXPAND)
+        topGrid.Add(wx.StaticText(self, -1, LEXTransitPresetBase), 0, wx.ALIGN_CENTER_VERTICAL)
+        topGrid.Add(self.baseChoice, 1, wx.EXPAND)
         sizer.Add(topGrid, 0, wx.EXPAND | wx.ALL, 8)
 
-        sizer.Add(self.orientationRadio, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
-        sizer.Add(self.alwaysSubwayCheck, 0, wx.EXPAND | wx.ALL, 8)
+        sizer.Add(self.placementRadio, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        optionsSizer = wx.StaticBoxSizer(self.optionsBox, wx.VERTICAL)
+        optionsGrid = wx.GridSizer(0, 2, 4, 8)
+        for option in tpr.OPTION_IDS:
+            optionsGrid.Add(self._option_checks[option], 0, wx.EXPAND)
+        optionsSizer.Add(optionsGrid, 0, wx.EXPAND | wx.ALL, 6)
+        sizer.Add(optionsSizer, 0, wx.EXPAND | wx.ALL, 8)
 
         overrideGrid = wx.FlexGridSizer(0, 2, 4, 8)
         overrideGrid.AddGrowableCol(1, 1)
@@ -394,57 +433,70 @@ class PresetWizardDialog(wx.Dialog):
         sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 8)
         self.SetSizerAndFit(sizer)
 
-        self.presetChoice.Bind(wx.EVT_CHOICE, self._on_changed)
-        self.orientationRadio.Bind(wx.EVT_RADIOBOX, self._on_changed)
-        self.alwaysSubwayCheck.Bind(wx.EVT_CHECKBOX, self._on_changed)
+        self.baseChoice.Bind(wx.EVT_CHOICE, self._on_changed)
+        self.placementRadio.Bind(wx.EVT_RADIOBOX, self._on_changed)
+        for check in self._option_checks.values():
+            check.Bind(wx.EVT_CHECKBOX, self._on_changed)
         self.costText.Bind(wx.EVT_TEXT, self._on_changed)
         self.capacityText.Bind(wx.EVT_TEXT, self._on_changed)
         self.Bind(wx.EVT_BUTTON, self._on_apply, id=wx.ID_OK)
 
-        # Default to always-include-subway per MGB's mitigation.
-        self.alwaysSubwayCheck.SetValue(True)
-
         self._appliedCount = 0
+        self._refresh_base_dependent()
         self._refresh_preset_dependent()
         self._refresh_preview()
 
     # --- internals ---------------------------------------------------------
 
-    def _preset_labels(self) -> list[str]:
-        if not self._presets:
+    def _base_labels(self) -> list[str]:
+        if not self._base_ids:
             return [LEXTransitPresetEmpty]
-        labels: list[str] = []
-        for category, preset in self._presets:
-            parent_name = category.parent.Name if category.parent is not None else ""
-            base = "%s — %s" % (parent_name, category.Name) if parent_name else category.Name
-            # Suffix the preset name only when it isn't the default "Standard",
-            # so the common case stays uncluttered.
-            if preset.Name and preset.Name.lower() not in ("standard", "default"):
-                labels.append("%s: %s" % (base, preset.Name))
-            else:
-                labels.append(base)
-        return labels
+        return [tpr.label_for_base(base) for base in self._base_ids]
 
-    def _selected_preset(self):
-        """Returns the selected preset's category-shaped object, or None."""
-        if not self._presets:
+    def _selected_base(self) -> Optional[str]:
+        if not self._base_ids:
             return None
-        idx = self.presetChoice.GetSelection()
-        if idx < 0 or idx >= len(self._presets):
+        idx = self.baseChoice.GetSelection()
+        if idx < 0 or idx >= len(self._base_ids):
             return None
-        return self._presets[idx][1]
+        return self._base_ids[idx]
 
     def _selected_category(self):
-        if not self._presets:
+        preset = self._selected_registry_preset()
+        if preset is None:
             return None
-        idx = self.presetChoice.GetSelection()
-        if idx < 0 or idx >= len(self._presets):
-            return None
-        return self._presets[idx][0]
+        return self.virtual_dat.categories.get(preset.category_id)
 
-    def _selected_orientation_mask(self) -> int:
-        idx = max(0, self.orientationRadio.GetSelection())
-        return ORIENTATION_CHOICES[idx][2]
+    def _selected_placement(self) -> Optional[str]:
+        idx = max(0, self.placementRadio.GetSelection())
+        if idx >= len(tpr.PLACEMENT_IDS):
+            return None
+        return tpr.PLACEMENT_IDS[idx]
+
+    def _selected_options(self) -> tuple[str, ...]:
+        return tpr.normalize_options(
+            option for option, check in self._option_checks.items() if check.IsEnabled() and check.GetValue()
+        )
+
+    def _selected_registry_preset(self) -> Optional[tpr.RegistryPreset]:
+        base = self._selected_base()
+        placement = self._selected_placement()
+        if base is None or placement is None:
+            return None
+        return tpr.find_preset(base, placement, self._selected_options())
+
+    def _missing_combination_message(self) -> str:
+        base = self._selected_base()
+        placement = self._selected_placement()
+        options = self._selected_options()
+        option_suffix = ""
+        if options:
+            option_suffix = LEXTransitPresetOptionSuffix % ", ".join(tpr.label_for_option(option) for option in options)
+        return LEXTransitPresetMissingCombination % (
+            tpr.label_for_base(base or ""),
+            tpr.label_for_placement(placement or ""),
+            option_suffix,
+        )
 
     def _prop_name(self, prop_id: int) -> str:
         """Look up a property's display name from the new_properties.xml
@@ -467,8 +519,9 @@ class PresetWizardDialog(wx.Dialog):
 
     def _generate_lines(self) -> Optional[list[str]]:
         """Run the preset+overrides pipeline. Sets the status line on error."""
-        preset = self._selected_preset()
-        if preset is None or self._scope is None:
+        registry_preset = self._selected_registry_preset()
+        category = self._selected_category()
+        if registry_preset is None or category is None or self._scope is None:
             return None
         try:
             # Import here to break the circular-import risk: this module is
@@ -476,22 +529,24 @@ class PresetWizardDialog(wx.Dialog):
             # SC4PIMApp itself owns ``build_category_props_for_preset``.
             from .SC4PIMApp import build_category_props_for_preset
 
-            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, preset, self._scope)
+            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, category, self._scope)
         except Exception as e:
-            logger.exception("Preset eval failed for %s", preset.Name)
+            logger.exception("Preset eval failed for %s", registry_preset.id)
             self.statusText.SetLabel(LEXTransitPresetEvalError % e)
             return None
+        rows = tsw.decode_switch_array(registry_preset.switches)
+        lines = _replace_tsec_lines(self.virtual_dat, base_lines, rows)
         return apply_overrides(
             self.virtual_dat,
-            base_lines,
-            self._selected_orientation_mask(),
-            self.alwaysSubwayCheck.GetValue(),
+            lines,
+            None,
+            False,
             self._field_float(self.costText),
             self._field_float(self.capacityText),
         )
 
     def _refresh_preview(self) -> None:
-        if not self._presets:
+        if not self._base_ids:
             self.previewList.DeleteAllItems()
             self.occupantGroupsText.SetLabel(LEXTransitPresetEmpty)
             self.applyButton.Enable(False)
@@ -500,6 +555,12 @@ class PresetWizardDialog(wx.Dialog):
             self.previewList.DeleteAllItems()
             self.occupantGroupsText.SetLabel(LEXTransitPresetNotApplicable)
             self.statusText.SetLabel(LEXTransitPresetNotApplicable)
+            self.applyButton.Enable(False)
+            return
+        if self._selected_registry_preset() is None:
+            self.previewList.DeleteAllItems()
+            self.occupantGroupsText.SetLabel("")
+            self.statusText.SetLabel(self._missing_combination_message())
             self.applyButton.Enable(False)
             return
         self.statusText.SetLabel("")
@@ -544,24 +605,40 @@ class PresetWizardDialog(wx.Dialog):
             self.occupantGroupsText.SetLabel("")
 
     def _on_changed(self, event: wx.Event) -> None:
-        if event.GetEventObject() is self.presetChoice:
+        if event.GetEventObject() is self.baseChoice:
+            self._refresh_base_dependent()
             self._refresh_preset_dependent()
         self._refresh_preview()
         event.Skip()
 
+    def _refresh_base_dependent(self) -> None:
+        base = self._selected_base()
+        allowed_placements = tpr.allowed_placements_for_base(base or "")
+        allowed_options = tpr.allowed_options_for_base(base or "")
+
+        selected_placement = self._selected_placement()
+        for idx, placement in enumerate(tpr.PLACEMENT_IDS):
+            self.placementRadio.EnableItem(idx, placement in allowed_placements)
+        if selected_placement not in allowed_placements and allowed_placements:
+            self.placementRadio.SetSelection(tpr.PLACEMENT_IDS.index(allowed_placements[0]))
+
+        for option, check in self._option_checks.items():
+            enabled = option in allowed_options
+            check.Enable(enabled)
+            if not enabled:
+                check.SetValue(False)
+
     def _refresh_preset_dependent(self) -> None:
-        """Re-seed the orientation default and the cost/capacity text fields
-        from whatever this preset's category evaluates to.
-        """
-        preset = self._selected_preset()
-        if preset is None or self._scope is None:
+        """Re-seed the cost/capacity text fields from the selected category."""
+        category = self._selected_category()
+        if category is None or self._scope is None:
             self.costText.SetValue("")
             self.capacityText.SetValue("")
             return
         try:
             from .SC4PIMApp import build_category_props_for_preset
 
-            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, preset, self._scope)
+            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, category, self._scope)
         except Exception:
             base_lines = []
 
@@ -577,19 +654,6 @@ class PresetWizardDialog(wx.Dialog):
                 cap_str = values_str.strip()
         self.costText.SetValue(cost_str)
         self.capacityText.SetValue(cap_str)
-
-        # Default the orientation radio to whatever edge mask the preset
-        # itself uses for its through-traffic rows. For proximity-only
-        # presets the orientation has no effect, so we just leave the
-        # default selection alone.
-        through = _through_network_for_lines(base_lines)
-        if through is None:
-            return
-        preset_mask = self._dominant_through_mask(base_lines, through)
-        for idx, (_key, _label, mask) in enumerate(ORIENTATION_CHOICES):
-            if mask == preset_mask:
-                self.orientationRadio.SetSelection(idx)
-                break
 
     def _dominant_through_mask(self, prop_lines, through_travel: int) -> int:
         """Find the edge-mask byte the preset uses for its self-pair rows.
@@ -608,16 +672,15 @@ class PresetWizardDialog(wx.Dialog):
         return tsw.EDGE_BITS_ALL
 
     def _on_apply(self, event: wx.Event) -> None:
-        preset = self._selected_preset()
+        registry_preset = self._selected_registry_preset()
         category = self._selected_category()
         lines = self._generate_lines()
-        if preset is None or lines is None:
+        if registry_preset is None or category is None or lines is None:
             return
         # Honour removeProperties from the category chain (walk up so a
-        # parent-category removal applies too); the preset itself can also
-        # contribute removals.
+        # parent-category removal applies too).
         seen: set = set()
-        walker = preset
+        walker = category
         while walker is not None:
             for prop_id in walker.removeProperties.keys():
                 if prop_id not in seen:
@@ -630,7 +693,10 @@ class PresetWizardDialog(wx.Dialog):
                 written += 1
         self.exemplar.modified = True
         self._appliedCount = written
-        label = "%s — %s" % (category.Name, preset.Name) if category else preset.Name
+        label = "%s / %s" % (
+            tpr.label_for_base(registry_preset.base),
+            tpr.label_for_placement(registry_preset.placement),
+        )
         self.statusText.SetLabel(LEXTransitPresetApplied % (label, written))
         event.Skip()
 

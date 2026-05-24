@@ -1,0 +1,580 @@
+# Transit Switch Point presets used by the transit preset wizard.
+#
+# IDs and base names follow the Transportation category names in
+# new_properties.xml where possible. Presets are explicit complete switch sets:
+# rowsets are only an authoring aid, and each [[preset]] lists the rowsets that
+# compile into its final 0xE90E25A1 value.
+#
+# Editor guide
+# ============
+#
+# [[base]]
+#   Declares one selectable "Transportation" value in the wizard.
+#
+#   id:
+#     Stable machine ID. Prefer names from new_properties.xml categories.
+#
+#   placements:
+#     Which lot-orientation choices are enabled for this base.
+#     Allowed values:
+#       "proximity" - network is beside the lot; rows usually use "all" edges
+#       "on_top_we" - on-top network with west/east through traffic
+#       "on_top_ns" - on-top network with north/south through traffic
+#
+#   options:
+#     Which optional checkbox functions are enabled for this base in the UI.
+#     This is only the availability rule. It does NOT automatically add rows.
+#     Every selected option combination still needs its own explicit [[preset]].
+#
+#     Allowed values:
+#       "garage"                         - Garage / car parking function
+#       "bus_stop"                       - Bus Stop function
+#       "subway_station"                 - Subway Station function
+#       "freight_train_pass_through"     - Extra freight train pass-through
+#       "passenger_train_pass_through"   - Extra passenger train pass-through
+#
+# [[rowset]]
+#   A reusable named group of readable Transit Switch rows. Rowsets are fragments
+#   for editing only; the loader compiles them into full byte strings per preset.
+#
+#   rows:
+#     Each row is [direction, edges, from_travel, to_travel].
+#
+#     direction values:
+#       "outside_in" - 0x81
+#       "inside_out" - 0x82
+#
+#     edge values:
+#       "all" - all lot edges, 0xF0
+#       "we"  - west/east only, 0xA0
+#       "ns"  - north/south only, 0x50
+#       "north", "east", "south", "west" are also accepted for one-edge rows.
+#
+#     travel values:
+#       "walk", "car", "bus", "train", "passenger_train",
+#       "freight_truck", "freight_train", "subway", "el_train",
+#       "elevated_rail", "monorail"
+#
+# [[preset]]
+#   One explicit complete wizard result for base + placement + selected options.
+#   The wizard only applies presets declared here. It does not build missing
+#   combinations automatically from the option checkboxes.
+#
+#   id:
+#     Human-readable stable ID. Convention:
+#       <base>.<placement>[.<option>...]
+#     Keep option segments sorted the same way as the options list when possible.
+#
+#   base:
+#     Must match a [[base]].id.
+#
+#   placement:
+#     Must be allowed by that base's placements list.
+#
+#   options:
+#     The exact selected checkbox set for this preset. Empty means no optional
+#     functions selected. Values must be allowed by that base's options list.
+#
+#   category_id:
+#     new_properties.xml Transportation category used for non-switch properties
+#     such as capacity/cost formulas, query exemplar, and OccupantGroups.
+#
+#   rowsets:
+#     Explicit ordered list of rowsets that make up this complete switch preset.
+#     This is preferred over raw bytes because it is reviewable.
+#
+#   rows:
+#     Optional preset-local rows in the same readable format as [[rowset]].rows.
+#
+#   switches:
+#     Optional fallback: a complete 0xE90E25A1 byte string such as
+#     "0x81,0xF0,0x00,0x00". Use for expert cases that are clearer as raw data than rowsets.
+
+[[base]]
+id = "bus_stop"
+placements = ["proximity"]
+options = ["garage"]
+
+[[base]]
+id = "subway_station"
+placements = ["proximity"]
+options = ["garage", "bus_stop"]
+
+[[base]]
+id = "elevated_rail_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "bus_stop", "subway_station"]
+
+[[base]]
+id = "passenger_train_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
+
+[[base]]
+id = "freight_train_station"
+placements = ["proximity"]
+options = ["passenger_train_pass_through"]
+
+[[base]]
+id = "passenger_freight_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "bus_stop", "subway_station"]
+
+[[base]]
+id = "monorail_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "bus_stop", "subway_station"]
+
+[[base]]
+id = "hrw_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "freight_train_pass_through"]
+
+[[base]]
+id = "rail_elevated_rail_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "freight_train_pass_through"]
+
+[[base]]
+id = "monorail_elevated_rail_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage"]
+
+[[base]]
+id = "hrw_elevated_rail_station"
+placements = ["proximity", "on_top_we", "on_top_ns"]
+options = ["garage", "freight_train_pass_through"]
+
+[[base]]
+id = "garage"
+placements = ["proximity"]
+options = []
+
+[[base]]
+id = "toll_booth"
+placements = ["on_top_ns"]
+options = []
+
+# Shared readable switch rowsets.
+
+[[rowset]]
+id = "walk.loop"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[rowset]]
+id = "bus_stop.link"
+rows = [
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+]
+
+[[rowset]]
+id = "garage.link"
+rows = [
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[rowset]]
+id = "garage.standard"
+rows = [
+  ["outside_in", "all", "car", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "walk"],
+]
+
+[[rowset]]
+id = "subway_station.link"
+rows = [
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+]
+
+[[rowset]]
+id = "passenger_train_station.standard"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "all", "car", "walk"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[rowset]]
+id = "freight_train_station.standard"
+rows = [
+  ["outside_in", "all", "freight_truck", "freight_train"],
+  ["inside_out", "all", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "pass_through.passenger_train.all"
+rows = [
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+]
+
+[[rowset]]
+id = "pass_through.freight_train.all"
+rows = [
+  ["outside_in", "all", "freight_train", "freight_train"],
+  ["inside_out", "all", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "elevated_rail_station.proximity"
+rows = [
+  ["outside_in", "all", "el_train", "el_train"],
+  ["inside_out", "all", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+]
+
+[[rowset]]
+id = "elevated_rail_station.on_top_we"
+rows = [
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+]
+
+[[rowset]]
+id = "elevated_rail_station.on_top_ns"
+rows = [
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+]
+
+[[rowset]]
+id = "monorail_station.proximity"
+rows = [
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "walk", "monorail"],
+  ["inside_out", "all", "monorail", "walk"],
+]
+
+[[rowset]]
+id = "monorail_station.on_top_we"
+rows = [
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "all", "walk", "monorail"],
+  ["inside_out", "all", "monorail", "walk"],
+]
+
+[[rowset]]
+id = "monorail_station.on_top_ns"
+rows = [
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "all", "walk", "monorail"],
+  ["inside_out", "all", "monorail", "walk"],
+]
+
+[[rowset]]
+id = "pass_through.road.we"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+]
+
+[[rowset]]
+id = "pass_through.road.ns"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+]
+
+[[rowset]]
+id = "toll_booth.on_top_ns"
+rows = [
+  ["outside_in", "ns", "walk", "walk"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "walk", "walk"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+]
+
+# Base presets from new_properties.xml.
+
+[[preset]]
+id = "bus_stop.proximity"
+base = "bus_stop"
+placement = "proximity"
+options = []
+category_id = "0x6c8fbcef"
+rowsets = ["walk.loop", "bus_stop.link"]
+
+[[preset]]
+id = "subway_station.proximity"
+base = "subway_station"
+placement = "proximity"
+options = []
+category_id = "0x0c8fbcf9"
+rowsets = ["walk.loop", "subway_station.link"]
+
+[[preset]]
+id = "passenger_train_station.proximity"
+base = "passenger_train_station"
+placement = "proximity"
+options = []
+category_id = "0x0c8fbd07"
+rowsets = ["passenger_train_station.standard"]
+
+[[preset]]
+id = "freight_train_station.proximity"
+base = "freight_train_station"
+placement = "proximity"
+options = []
+category_id = "0x6c8fbd13"
+rowsets = ["freight_train_station.standard"]
+
+[[preset]]
+id = "elevated_rail_station.on_top_we"
+base = "elevated_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.on_top_we"]
+
+[[preset]]
+id = "elevated_rail_station.on_top_ns"
+base = "elevated_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.on_top_ns"]
+
+[[preset]]
+id = "monorail_station.on_top_we"
+base = "monorail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.on_top_we"]
+
+[[preset]]
+id = "monorail_station.on_top_ns"
+base = "monorail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.on_top_ns"]
+
+[[preset]]
+id = "garage.proximity"
+base = "garage"
+placement = "proximity"
+options = []
+category_id = "0xacbb8bb5"
+rowsets = ["garage.standard"]
+
+[[preset]]
+id = "toll_booth.on_top_ns"
+base = "toll_booth"
+placement = "on_top_ns"
+options = []
+category_id = "0xacb23926"
+rowsets = ["toll_booth.on_top_ns"]
+
+[[preset]]
+id = "bus_stop.proximity.garage"
+base = "bus_stop"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x6c8fbcef"
+rowsets = ["walk.loop", "bus_stop.link", "garage.link"]
+
+[[preset]]
+id = "subway_station.proximity.garage"
+base = "subway_station"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x0c8fbcf9"
+rowsets = ["walk.loop", "subway_station.link", "garage.link"]
+
+[[preset]]
+id = "subway_station.proximity.bus_stop"
+base = "subway_station"
+placement = "proximity"
+options = ["bus_stop"]
+category_id = "0x0c8fbcf9"
+rowsets = ["walk.loop", "subway_station.link", "bus_stop.link"]
+
+[[preset]]
+id = "subway_station.proximity.bus_stop.garage"
+base = "subway_station"
+placement = "proximity"
+options = ["bus_stop", "garage"]
+category_id = "0x0c8fbcf9"
+rowsets = ["walk.loop", "subway_station.link", "bus_stop.link", "garage.link"]
+
+[[preset]]
+id = "passenger_train_station.proximity.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "proximity"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rowsets = ["passenger_train_station.standard", "pass_through.freight_train.all"]
+
+[[preset]]
+id = "freight_train_station.proximity.passenger_train_pass_through"
+base = "freight_train_station"
+placement = "proximity"
+options = ["passenger_train_pass_through"]
+category_id = "0x6c8fbd13"
+rowsets = ["freight_train_station.standard", "pass_through.passenger_train.all"]
+
+[[preset]]
+id = "elevated_rail_station.proximity"
+base = "elevated_rail_station"
+placement = "proximity"
+options = []
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.proximity"]
+
+[[preset]]
+id = "elevated_rail_station.proximity.garage"
+base = "elevated_rail_station"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.proximity", "garage.link"]
+
+[[preset]]
+id = "elevated_rail_station.proximity.bus_stop"
+base = "elevated_rail_station"
+placement = "proximity"
+options = ["bus_stop"]
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.proximity", "bus_stop.link"]
+
+[[preset]]
+id = "elevated_rail_station.proximity.subway_station"
+base = "elevated_rail_station"
+placement = "proximity"
+options = ["subway_station"]
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.proximity", "subway_station.link"]
+
+[[preset]]
+id = "elevated_rail_station.proximity.bus_stop.garage.subway_station"
+base = "elevated_rail_station"
+placement = "proximity"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x4cb2392f"
+rowsets = ["elevated_rail_station.proximity", "bus_stop.link", "garage.link", "subway_station.link"]
+
+[[preset]]
+id = "elevated_rail_station.on_top_we.bus_stop.garage.subway_station"
+base = "elevated_rail_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x4cb2392f"
+rowsets = [
+  "elevated_rail_station.on_top_we",
+  "pass_through.road.we",
+  "bus_stop.link",
+  "garage.link",
+  "subway_station.link",
+]
+
+[[preset]]
+id = "elevated_rail_station.on_top_ns.bus_stop.garage.subway_station"
+base = "elevated_rail_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x4cb2392f"
+rowsets = [
+  "elevated_rail_station.on_top_ns",
+  "pass_through.road.ns",
+  "bus_stop.link",
+  "garage.link",
+  "subway_station.link",
+]
+
+[[preset]]
+id = "monorail_station.proximity"
+base = "monorail_station"
+placement = "proximity"
+options = []
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.proximity"]
+
+[[preset]]
+id = "monorail_station.proximity.garage"
+base = "monorail_station"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.proximity", "garage.link"]
+
+[[preset]]
+id = "monorail_station.proximity.bus_stop"
+base = "monorail_station"
+placement = "proximity"
+options = ["bus_stop"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.proximity", "bus_stop.link"]
+
+[[preset]]
+id = "monorail_station.proximity.subway_station"
+base = "monorail_station"
+placement = "proximity"
+options = ["subway_station"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.proximity", "subway_station.link"]
+
+[[preset]]
+id = "monorail_station.proximity.bus_stop.garage.subway_station"
+base = "monorail_station"
+placement = "proximity"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_station.proximity", "bus_stop.link", "garage.link", "subway_station.link"]
+
+[[preset]]
+id = "monorail_station.on_top_we.bus_stop.garage.subway_station"
+base = "monorail_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x0cb23934"
+rowsets = [
+  "monorail_station.on_top_we",
+  "pass_through.road.we",
+  "bus_stop.link",
+  "garage.link",
+  "subway_station.link",
+]
+
+[[preset]]
+id = "monorail_station.on_top_ns.bus_stop.garage.subway_station"
+base = "monorail_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage", "subway_station"]
+category_id = "0x0cb23934"
+rowsets = [
+  "monorail_station.on_top_ns",
+  "pass_through.road.ns",
+  "bus_stop.link",
+  "garage.link",
+  "subway_station.link",
+]
