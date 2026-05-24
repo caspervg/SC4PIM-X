@@ -21,7 +21,7 @@ classifiers = [
 
 dependencies = [
     "wxPython>=4.2.0",
-    "Pillow>=10.0.0",
+    "pillow>=12.2.0",
     "numpy>=1.24.0,!=2.4.0",
     "PyOpenGL>=3.1.0",
     "PyOpenGL-accelerate>=3.1.0",
@@ -34,7 +34,7 @@ sc4pimx = "sc4pimx.SC4PIMApp:main"
 
 [dependency-groups]
 dev = [
-    "black>=23.0.0",
+    "black>=26.3.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "pytest>=8.0",
