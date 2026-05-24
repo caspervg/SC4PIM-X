@@ -432,12 +432,25 @@ class VirtualDat(object):
         if dlg is not None and hasattr(dlg, 'SetStatus'):
             dlg.SetStatus('Finalizing data...',
                           '%d entries loaded' % len(self.allEntries))
-        self.cohorts = filter(lambda ent: ent.tgi[0] == 87304289, self.allEntries)
-        for entry in self.cohorts:
-            self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
-
-        for entry in filter(lambda ent: ent.tgi[0] in {2058686020, 1697917002, 698733036, 1523640343}, self.allEntries):
-            self.tree.UpdateEntry(entry, self, entry.bStandard, dlg)
+        # Single pass over allEntries, dispatching by tgi[0]. The previous
+        # version walked the 500k+ entry list twice with filter+lambda, and
+        # also assigned ``self.cohorts = filter(...)`` -- an iterator that
+        # was exhausted by the immediately-following for loop, leaving
+        # downstream readers of ``self.cohorts`` (SC4PIMApp.py:629, 1486;
+        # SC4VirtualDat.py:416) with an empty iterable.
+        COHORT_T = 87304289
+        OTHER_TS = (2058686020, 1697917002, 698733036, 1523640343)
+        update_entry = self.tree.UpdateEntry
+        cohorts_list = []
+        cohorts_append = cohorts_list.append
+        for entry in self.allEntries:
+            t0 = entry.tgi[0]
+            if t0 == COHORT_T:
+                cohorts_append(entry)
+                update_entry(entry, self, entry.bStandard, dlg)
+            elif t0 in OTHER_TS:
+                update_entry(entry, self, entry.bStandard, dlg)
+        self.cohorts = cohorts_list
 
         FinalizeCategory(self.rootCategory)
         self.missing_pictures = []
