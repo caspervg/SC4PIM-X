@@ -1975,7 +1975,7 @@ class NoteBookPanel(wx.Panel):
             menu.AppendSeparator()
             menu.Append(self.popupID38, LEXTransitSwitchEditor)
             from . import SC4TransitPresets as _tp
-            if _tp.list_transit_presets(self.virtual_dat):
+            if _tp.has_transit_presets(self.virtual_dat):
                 menu.Append(self.popupID39, LEXTransitPresetMenuItem)
         self.PopupMenu(menu)
         menu.Destroy()
