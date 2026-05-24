@@ -1513,7 +1513,7 @@ class NoteBookPanel(wx.Panel):
     def OnActivated(self, event):
         allowedPropEdit = [
             32, 662775824, 2308635565, 2317746857, 2317746872, 1246398704, 1771767972, 2297284498, 3919251084,
-            2297284501, 2297284502, 662775920, 662775825]
+            2297284501, 2297284502, 662775920, 662775825, 2854081430]
         listItems = event.GetEventObject()
         idx = event.GetIndex()
         if idx < 3:
@@ -1548,6 +1548,9 @@ class NoteBookPanel(wx.Panel):
             # Transit Switch Point: route to the dedicated TSEC editor
             # instead of the generic comma-separated hex text-entry dialog.
             self.OnEditTransitSwitches(event)
+            return
+        if prop.id == 0xAA1DD396:
+            self.OnEditOccupantGroups(event)
             return
         try:
             name = self.virtual_dat.properties[prop.id].Name
@@ -2115,32 +2118,20 @@ class NoteBookPanel(wx.Panel):
         return
 
     def OnTileset(self, event):
-        lst = [
-            'Chicago', 'New york', 'Houston', 'Euro']
         ogs = [8192, 8193, 8194, 8195]
-        dlg = wx.MultiChoiceDialog(self, tilesetSelectorMsg, appTitle, lst)
-        currentOgs = self.exemplar.GetProp(2854081430)
-        selected = []
-        for i, o in enumerate(ogs):
-            if o in currentOgs:
-                selected.append(i)
+        from .SC4OccupantGroupPicker import pick_occupant_groups
 
-        dlg.SetSelections(selected)
-        if dlg.ShowModal() == wx.ID_OK:
-            nonTilesetOGs = [x for x in currentOgs if x not in ogs]
-            selections = dlg.GetSelections()
-            tileset = [ogs[x] for x in selections]
-            finalOgs = nonTilesetOGs + tileset
-            finalOgs.sort()
-            prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(finalOgs))
-            self.exemplar.AddTextProp(prop)
-            self.listProperties.DeleteAllItems()
-            self.FillTheList()
-            self.bSave.Enable(True)
-            self.descriptor.name = self.exemplar.GetProp(32)[0]
-            self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
-            self.parent.parent.listItems.Refresh()
-        dlg.Destroy()
+        finalOgs = pick_occupant_groups(
+            self,
+            self.virtual_dat,
+            self.exemplar.GetProp(2854081430) or [],
+            candidates=ogs,
+            title=tilesetSelectorMsg,
+            preserve_unlisted=True,
+            allow_manual=False,
+        )
+        if finalOgs is not None:
+            self._write_occupant_groups(finalOgs)
 
     def OnCamStage(self, event):
         lots = self.virtual_dat.FindAllLotsFromBuilding(self.exemplar)
@@ -2182,44 +2173,51 @@ class NoteBookPanel(wx.Panel):
             lowStage = 4
         stage_count = 10 if needed == 3049262112 else 7
         ogs = range(needed + 1, needed + stage_count + 1)
-        options = self.virtual_dat.properties[2854081430].Options
-        lst = [options.get(x, hex2str(x)) for x in ogs]
-        missing_options = [hex2str(x) for x in ogs if x not in options]
-        if missing_options:
-            logger.debug('Missing occupant group option labels for CAM stage dialog: %s',
-                         ', '.join(missing_options))
-        dlg = wx.MultiChoiceDialog(self, camStageSelectorMsg, appTitle, lst)
-        currentOgs = self.exemplar.GetProp(2854081430)
-        selected = []
-        for i, o in enumerate(ogs):
-            if o in currentOgs:
-                selected.append(i)
-
+        currentOgs = self.exemplar.GetProp(2854081430) or []
         for lot in lots:
             stage = lot.exemplar.GetProp(662775863)[0]
             if stage >= lowStage:
                 stage -= lowStage
-                if stage not in selected:
-                    selected.append(stage)
+                if stage < len(ogs):
+                    currentOgs = list(currentOgs) + [ogs[stage]]
+        from .SC4OccupantGroupPicker import pick_occupant_groups
 
-        dlg.SetSelections(selected)
-        if dlg.ShowModal() == wx.ID_OK:
-            nonTilesetOGs = [x for x in currentOgs if x not in ogs]
-            selections = dlg.GetSelections()
-            tileset = [ogs[x] for x in selections]
-            if needed != 3049262112:
-                tileset.append(needed)
-            finalOgs = nonTilesetOGs + tileset
-            finalOgs.sort()
-            prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(finalOgs))
-            self.exemplar.AddTextProp(prop)
-            self.listProperties.DeleteAllItems()
-            self.FillTheList()
-            self.bSave.Enable(True)
-            self.descriptor.name = self.exemplar.GetProp(32)[0]
-            self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
+        finalOgs = pick_occupant_groups(
+            self,
+            self.virtual_dat,
+            currentOgs,
+            candidates=ogs,
+            title=camStageSelectorMsg,
+            preserve_unlisted=True,
+            force_include=() if needed == 3049262112 else (needed,),
+            allow_manual=False,
+        )
+        if finalOgs is not None:
+            self._write_occupant_groups(finalOgs)
             self.parent.parent.listItems.Refresh()
-        dlg.Destroy()
+
+    def OnEditOccupantGroups(self, _event):
+        from .SC4OccupantGroupPicker import pick_occupant_groups
+
+        finalOgs = pick_occupant_groups(
+            self,
+            self.virtual_dat,
+            self.exemplar.GetProp(2854081430) or [],
+            title=LEXOccupantGroupPickerTitle,
+            preserve_unlisted=True,
+        )
+        if finalOgs is not None:
+            self._write_occupant_groups(finalOgs)
+
+    def _write_occupant_groups(self, ogs):
+        prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(sorted(set(ogs))))
+        self.exemplar.AddTextProp(prop)
+        self.listProperties.DeleteAllItems()
+        self.FillTheList()
+        self.bSave.Enable(True)
+        self.descriptor.name = self.exemplar.GetProp(32)[0]
+        self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
+        self.parent.parent.listItems.Refresh()
 
     def OnRemoveUVNK(self, event):
         pass
