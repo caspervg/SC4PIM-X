@@ -22,6 +22,25 @@ from .translation import *
 from .util import basic_cmp
 
 
+def _month_names():
+    return (LEXMonthJan, LEXMonthFeb, LEXMonthMar, LEXMonthApr, LEXMonthMay, LEXMonthJun,
+            LEXMonthJul, LEXMonthAug, LEXMonthSep, LEXMonthOct, LEXMonthNov, LEXMonthDec)
+
+
+def _fmt_hour(value):
+    v = float(value)
+    h = int(v) % 24
+    m = int(round((v - int(v)) * 60)) % 60
+    return '%02d:%02d' % (h, m)
+
+
+def _fmt_date(month, day):
+    m = int(month)
+    if 1 <= m <= 12:
+        return '%s %d' % (_month_names()[m - 1], int(day))
+    return '%02d-%02d' % (m, int(day))
+
+
 def CmpTGI(tgi1, tgi2):
     if tgi1[0] == tgi2[0]:
         if tgi1[1] == tgi2[1]:
@@ -663,7 +682,7 @@ class LEAssetItem(object):
         if self.kind not in ('prop', 'flora'):
             return None
         try:
-            size = self.source.exemplar.GetProp(662775824)  # 0x27812810 Occupant Size
+            size = self.source.exemplar.GetProp(0x27812810)  # Occupant Size
         except Exception:
             return None
         if not size or len(size) < 3:
@@ -1146,11 +1165,16 @@ class LEAssetGrid(wx.ScrolledWindow):
             self.on_activate(self.items[idx])
         event.Skip()
 
-    def _card_tooltip(self, item):
-        lines = [item.label, item.type_label]
+    def _card_tooltip_rows(self, item):
+        """Build the popup content as a list of rows.
+
+        Each row is either ('span', text, bold) for a full-width line or
+        ('pair', label, value) for a bold-label / plain-value two-column row.
+        """
+        rows = [('span', item.label, True), ('span', item.type_label, False)]
         hex_id = getattr(item, 'hex_id', '')
         if hex_id and hex_id != item.label:
-            lines.append('0x' + hex_id)
+            rows.append(('span', '0x' + hex_id, False))
         file_name = ''
         try:
             source = item.source
@@ -1162,23 +1186,91 @@ class LEAssetGrid(wx.ScrolledWindow):
         except Exception:
             pass
         if item.sublabel and item.sublabel != item.label and item.sublabel != file_name:
-            lines.append(item.sublabel)
+            rows.append(('span', item.sublabel, False))
         size = item.occupant_size
         if size:
-            lines.append('%.1f x %.1f x %.1f m' % size)
+            rows.append(('pair', LEXInspectorSize + ':', '%.1f x %.1f x %.1f m' % size))
+        rows.extend(self._prop_behavior_rows(item))
         if file_name and file_name != item.label:
-            lines.append(file_name)
-        return '\n'.join(lines)
+            rows.append(('span', file_name, False))
+        return rows
+
+    def _prop_behavior_rows(self, item):
+        if item.kind not in ('prop', 'flora') or item.source is None:
+            return []
+        try:
+            ex = item.source.exemplar
+        except AttributeError:
+            return []
+        family_ids = ex.GetProp(0x27812870) or ()      # Building/prop Family
+        nighttime = ex.GetProp(0x49c9c93c)             # Nighttime State Change
+        time_of_day = ex.GetProp(0x4a149631)           # Prop Time of Day
+        date_start = ex.GetProp(0xca7515cc)            # Simulator Date Start
+        date_duration = ex.GetProp(0x4a764564)         # Simulator Date Duration
+        date_interval = ex.GetProp(0x0a751675)         # Simulator Date Interval
+        random_chance = ex.GetProp(0x4a751ad5)         # Prop Random Chance
+
+        has_day_night = bool(nighttime and nighttime[0])
+        has_timed = bool(time_of_day and len(time_of_day) >= 2)
+        has_seasonal = bool(date_start or date_duration or date_interval)
+        chance = random_chance[0] if random_chance else None
+
+        rows = []
+        if family_ids:
+            header = LEXTooltipMemberOfFamily if len(family_ids) == 1 \
+                else LEXTooltipMemberOfFamilies.format(len(family_ids))
+            rows.append(('span', header + ':', True))
+            for fid in family_ids:
+                name = ''
+                try:
+                    cat = VirtualDat.this.categories.get(fid)
+                    if cat is not None:
+                        name = cat.Name or ''
+                except Exception:
+                    pass
+                bullet = '  - %s (0x%08X)' % (name, fid) if name else '  - 0x%08X' % fid
+                rows.append(('span', bullet, False))
+
+        parts = []
+        if has_day_night:
+            parts.append(LEXTooltipDayNight)
+        if has_timed:
+            parts.append(LEXTooltipTimed)
+        if has_seasonal:
+            parts.append(LEXTooltipSeasonal)
+        if chance is not None and chance < 100:
+            parts.append('%d%%' % chance)
+        if not parts:
+            parts.append(LEXTooltipStatic)
+        rows.append(('pair', LEXTooltipBehavior + ':', ' + '.join(parts)))
+
+        if has_timed:
+            rows.append(('pair', LEXTooltipVisibleBetween + ':',
+                         '%s-%s' % (_fmt_hour(time_of_day[0]), _fmt_hour(time_of_day[1]))))
+        if date_start and len(date_start) >= 2:
+            rows.append(('pair', LEXTooltipStartsOn + ':',
+                         _fmt_date(date_start[0], date_start[1])))
+        if date_duration:
+            n = int(date_duration[0])
+            unit = LEXTooltipDayUnit if n == 1 else LEXTooltipDaysUnit
+            rows.append(('pair', LEXTooltipStaysFor + ':', '%d %s' % (n, unit)))
+        if date_interval and int(date_interval[0]) > 0:
+            n = int(date_interval[0])
+            unit = LEXTooltipDayUnit if n == 1 else LEXTooltipDaysUnit
+            rows.append(('pair', LEXTooltipRepeatsEvery + ':', '%d %s' % (n, unit)))
+        if chance is not None and chance < 100:
+            rows.append(('pair', LEXTooltipSpawnChance + ':', '%d%%' % chance))
+        return rows
 
     def OnMotion(self, event):
         idx = self._hit_test(event.GetPosition())
         if idx != self.hovered:
             self.hovered = idx
-            self._show_state_popup(idx, event.GetPosition())
+            self.UnsetToolTip()
             if idx == -1:
-                self.UnsetToolTip()
+                self._hide_state_popup()
             else:
-                self.SetToolTip(self._card_tooltip(self.items[idx]))
+                self._show_state_popup(idx, event.GetPosition())
         if not event.Dragging() or not event.LeftIsDown() or self.drag_start is None:
             event.Skip()
             return
@@ -1218,16 +1310,37 @@ class LEAssetGrid(wx.ScrolledWindow):
             return
         item = self.items[idx]
         strip = self.thumbnail_provider.StateStrip(item)
-        if strip is None:
+        rows = self._card_tooltip_rows(item)
+        if not rows and strip is None:
             return
         popup = wx.PopupTransientWindow(self, wx.BORDER_SIMPLE)
         panel = wx.Panel(popup, -1)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        label = wx.StaticText(panel, -1, '%d %s' % (self.thumbnail_provider.StateCount(item), self.thumbnail_provider.CountLabel(item)))
-        sizer.Add(label, 0, wx.ALL, 6)
-        sizer.Add(wx.StaticBitmap(panel, -1, strip), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-        panel.SetSizer(sizer)
-        sizer.Fit(panel)
+        outer = wx.BoxSizer(wx.VERTICAL)
+        if rows:
+            grid = wx.GridBagSizer(vgap=2, hgap=8)
+            for row_idx, entry in enumerate(rows):
+                if entry[0] == 'span':
+                    _, text, bold = entry
+                    st = wx.StaticText(panel, -1, text)
+                    if bold:
+                        f = st.GetFont()
+                        f.SetWeight(wx.FONTWEIGHT_BOLD)
+                        st.SetFont(f)
+                    grid.Add(st, pos=(row_idx, 0), span=(1, 2), flag=wx.ALIGN_LEFT)
+                else:  # 'pair'
+                    _, label, value = entry
+                    lab = wx.StaticText(panel, -1, label)
+                    f = lab.GetFont()
+                    f.SetWeight(wx.FONTWEIGHT_BOLD)
+                    lab.SetFont(f)
+                    val = wx.StaticText(panel, -1, value)
+                    grid.Add(lab, pos=(row_idx, 0), flag=wx.ALIGN_LEFT)
+                    grid.Add(val, pos=(row_idx, 1), flag=wx.ALIGN_LEFT)
+            outer.Add(grid, 0, wx.ALL, 6)
+        if strip is not None:
+            outer.Add(wx.StaticBitmap(panel, -1, strip), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        panel.SetSizer(outer)
+        outer.Fit(panel)
         popup.SetSize(panel.GetBestSize())
         screen_pos = self.ClientToScreen((pos.x + 16, pos.y + 18))
         popup.Position(screen_pos, (0, 0))
