@@ -3217,7 +3217,9 @@ class LotEditorWin(wx.Frame):
             glEnd()
             glColor3f(1.0, 1.0, 1.0)
 
-    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom):
+    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None):
+        if viewZoom is None:
+            viewZoom = zoom
         if resource is None:
             return
         if resource.viewingData == []:
@@ -3252,7 +3254,7 @@ class LotEditorWin(wx.Frame):
         elif what.__class__ == ATC:
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
-            scaleATC = LotEditorWin.zoomScaleATC[zoom]
+            scaleATC = LotEditorWin.zoomScaleATC[viewZoom]
             modelview = numpy.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=numpy.float32).reshape(16)
             modelview[0] = 1
             modelview[1] = 0
@@ -3293,14 +3295,13 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetCurrent()
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
-        zoom = self.zoom
-        if zoom == 5:
-            zoom = 4
-        if zoom == 4 or zoom == 3:
+        viewZoom = self.zoom
+        assetZoom = min(viewZoom, 4)
+        if assetZoom == 4 or assetZoom == 3:
             angleX = 45
-        elif zoom == 2:
+        elif assetZoom == 2:
             angleX = 40
-        elif zoom == 1:
+        elif assetZoom == 1:
             angleX = 35
         else:
             angleX = 30
@@ -3324,7 +3325,7 @@ class LotEditorWin(wx.Frame):
         self.rx = angleX
         self.ry = rot2D - 22.5
         self.rz = 0
-        scaling = LotEditorWin.zoomScale3D[zoom]
+        scaling = LotEditorWin.zoomScale3D[viewZoom]
         glScalef(scaling, scaling, -scaling)
         glTranslate(-self.pos3Dx, -self.pos3Dy, -self.pos3Dz)
         glRotatef(self.rx, 1.0, 0.0, 0.0)
@@ -3387,7 +3388,7 @@ class LotEditorWin(wx.Frame):
                         else:
                             rtk4 = (0, 0, 0)
                         glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
-                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], zoom)
+                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], assetZoom, viewZoom)
             except IndexError:
                 pass
 
@@ -3415,7 +3416,7 @@ class LotEditorWin(wx.Frame):
                             else:
                                 rtk4 = (0, 0, 0)
                             glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         if self._is_layer_visible('3d', LAYER_FLORA):
             for prop, propViewer in zip(self.floras, self.floraViewers):
@@ -3439,7 +3440,7 @@ class LotEditorWin(wx.Frame):
                             else:
                                 rtk4 = (0, 0, 0)
                             glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         for prop, propViewer in zip(afters, afterViewers):
             with pushed_modelview_matrix():
@@ -3451,7 +3452,7 @@ class LotEditorWin(wx.Frame):
                 else:
                     rtk4 = (0, 0, 0)
                 glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
-                self.DrawModel(rtk4, propViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], zoom)
+                self.DrawModel(rtk4, propViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         glColor3f(1.0, 1.0, 1.0)
         return
