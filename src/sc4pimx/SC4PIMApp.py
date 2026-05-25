@@ -4288,6 +4288,11 @@ class MainFrame(wx.Frame):
         else:
             nZoom = zoom
         if self.currentModel:
+            # State change can swap to a mesh with a different frame count;
+            # reset so we don't briefly index past the new range.
+            for attr in ('currentFrame', '_lastFrameTime'):
+                if hasattr(self.currentModel, attr):
+                    setattr(self.currentModel, attr, 0 if attr == 'currentFrame' else None)
             self.currentModel.draw(self.viewer, self.staticFileName, zoom, rot, state)
 
     def EvtComboBoxRotation(self, evt):
