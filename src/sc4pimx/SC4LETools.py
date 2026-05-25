@@ -252,17 +252,26 @@ def BitmapFromPIL(pilz):
     return image.ConvertToBitmap()
 
 
+_S3D_TID = 1523640343  # 0x5ad0e817
+_ATC_TID = 698733036   # 0x29a5d1ec
+
+
+def _is_model_tid(tid):
+    """Whether the RKT-pointed entry has a renderable thumbnail in the ImageDB."""
+    return tid == _S3D_TID or tid == _ATC_TID
+
+
 def BuildImagesForPropStates(exemplar, size=128):
     rkt0 = exemplar.GetProp(662775840)
     rkt1 = exemplar.GetProp(662775841)
     rkt3 = exemplar.GetProp(662775843)
     rkt4 = exemplar.GetProp(662775844)
     rkt5 = exemplar.GetProp(662775845)
-    if rkt0 and rkt0[0] == 1523640343:
+    if rkt0 and _is_model_tid(rkt0[0]):
         return [BuildImageForTGI(tuple(rkt0), size)]
-    elif rkt1 and rkt1[0] == 1523640343:
+    elif rkt1 and _is_model_tid(rkt1[0]):
         return [BuildImageForTGI(tuple(rkt1), size)]
-    elif rkt3 and rkt3[0] == 1523640343:
+    elif rkt3 and _is_model_tid(rkt3[0]):
         return [BuildImageForTGI(tuple(rkt3[0:2] + [rkt3[-1]]), size)]
     elif rkt4:
         nbChoices = len(rkt4) // 8
@@ -271,15 +280,15 @@ def BuildImagesForPropStates(exemplar, size=128):
             rkt = rkt4[cb * 8:cb * 8 + 8]
             rkt = rkt[4:]
             tgi = (0, 0, 0)
-            if rkt[0] == 662775840 and rkt[1] == 1523640343:
+            if rkt[0] == 662775840 and _is_model_tid(rkt[1]):
                 tgi = tuple(rkt[1:])
-            elif rkt[0] == 662775841 and rkt[1] == 1523640343:
+            elif rkt[0] == 662775841 and _is_model_tid(rkt[1]):
                 tgi = tuple(rkt[1:])
-            elif rkt[0] == 662775845 and rkt[1] == 1523640343:
+            elif rkt[0] == 662775845 and _is_model_tid(rkt[1]):
                 tgi = tuple(rkt[1:])
             images.append(BuildImageForTGI(tgi, size))
         return images
-    elif rkt5 and rkt5[0] == 1523640343:
+    elif rkt5 and _is_model_tid(rkt5[0]):
         return [BuildImageForTGI(tuple(rkt5), size)]
     return [Image.open(asset_path('other', 'NoPreview.jpg')).convert('RGB').resize((size, size), Image.BICUBIC)]
 

@@ -458,10 +458,32 @@ class VirtualDat(object):
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))))
             if not os.path.exists(file_name):
                 self.missing_pictures.append((file_name, s3d))
+        # otherModels covers animated S3Ds and RKT0/3/4 references that the
+        # asset browser also tries to display; without an entry here their
+        # cards fall back to NoPreview.
+        for model in self.otherModels:
+            gid = getattr(model.sc4Model, 'GID', None)
+            iid = getattr(model.sc4Model, 'IID', None)
+            if gid is None or iid is None:
+                continue
+            file_name = str(image_db_path('%s-%s.jpg' % (hex2str(gid), hex2str(iid))))
+            if not os.path.exists(file_name):
+                self.missing_pictures.append((file_name, model))
+        # ATCs (animated overlay textures) have no GL geometry to render, so
+        # they get a separate pass that crops frame 0 of the source FSH.
+        self.missing_atc_pictures = []
+        for atc_proxy in self.atcs:
+            atc = atc_proxy.sc4Model
+            if atc is None or atc.entry is None:
+                continue
+            file_name = str(image_db_path('%s-%s.jpg' % (hex2str(atc.tgi[1]), hex2str(atc.tgi[2]))))
+            if not os.path.exists(file_name):
+                self.missing_atc_pictures.append((file_name, atc))
         logger.debug(
-            'Finalized virtual DAT in %.3fs: %d standard models, %d other models, %d textures, %d missing pictures',
+            'Finalized virtual DAT in %.3fs: %d standard models, %d other models, %d textures, %d missing pictures, %d missing ATC pictures',
             time.time() - start,
             len(self.standardModels),
             len(self.otherModels),
             len(self.allTextures),
-            len(self.missing_pictures))
+            len(self.missing_pictures),
+            len(self.missing_atc_pictures))
