@@ -1,24 +1,32 @@
 """ATC (Animated Texture Catalog) OpenGL viewer for SC4."""
 from OpenGL.GL import (
+    GL_ALPHA_TEST,
+    GL_BLEND,
     GL_COLOR_BUFFER_BIT,
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
     GL_FILL,
     GL_FRONT_AND_BACK,
     GL_MODELVIEW,
     GL_PROJECTION,
+    GL_QUADS,
     GL_SMOOTH,
     GL_TEXTURE_2D,
+    glBegin,
     glClear,
     glClearColor,
     glClearDepth,
+    glColor3f,
     glDisable,
     glEnable,
+    glEnd,
     glLoadIdentity,
     glMatrixMode,
     glOrtho,
     glPolygonMode,
     glShadeModel,
+    glVertex3f,
     glViewport,
 )
 from wx import Size
@@ -46,7 +54,7 @@ class ATCViewer(object):
 
     def init_gl(self):
         self.opengl_canvas.displayer = self
-        glClearColor(0.2, 0.5, 0.2, 0.0)
+        glClearColor(0.15, 0.17, 0.20, 0.0)
         glClearDepth(1.0)
         glShadeModel(GL_SMOOTH)
         glMatrixMode(GL_MODELVIEW)
@@ -57,8 +65,33 @@ class ATCViewer(object):
         if self.s3d_mesh is None:
             return
 
+    def draw_background(self):
+        size = self.opengl_canvas.GetClientSize()
+        w = max(size[0], 1)
+        h = max(size[1], 1)
+        glViewport(0, 0, w, h)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(0, 1, 0, 1, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glDisable(GL_ALPHA_TEST)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_TEXTURE_2D)
+        glDisable(GL_BLEND)
+        glBegin(GL_QUADS)
+        glColor3f(0.15, 0.17, 0.20)
+        glVertex3f(0, 0, 0)
+        glVertex3f(1, 0, 0)
+        glColor3f(0.36, 0.39, 0.42)
+        glVertex3f(1, 1, 0)
+        glVertex3f(0, 1, 0)
+        glEnd()
+        glColor3f(1.0, 1.0, 1.0)
+
     def on_draw(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.draw_background()
         if self.s3d_mesh is None:
             self.opengl_canvas.SwapBuffers()
             return
