@@ -3362,10 +3362,6 @@ class LotEditorWin(wx.Frame):
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
                     self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
-        if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('3d', LAYER_SC4PATHS):
-            for texData in self.te:
-                draw_sc4path_overlay_3d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
-
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
         glEnable(GL_DEPTH_TEST)
@@ -3453,6 +3449,13 @@ class LotEditorWin(wx.Frame):
                     rtk4 = (0, 0, 0)
                 glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
                 self.DrawModel(rtk4, propViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
+
+        if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('3d', LAYER_SC4PATHS):
+            # Final overlay pass: keep the rendered scene, but discard its
+            # depth so SC4Path lines remain readable over models and props.
+            glClear(GL_DEPTH_BUFFER_BIT)
+            for texData in self.te:
+                draw_sc4path_overlay_3d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         glColor3f(1.0, 1.0, 1.0)
         return
