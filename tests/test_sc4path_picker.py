@@ -1,5 +1,5 @@
 from sc4pimx import SC4PathPicker
-from sc4pimx.SC4PathReader import SC4PathCatalogItem
+from sc4pimx.SC4PathReader import SC4PathCatalogItem, SC4PathFile
 
 
 def test_path_thumb_provider_prioritises_pending_visible_requests(monkeypatch):
@@ -59,3 +59,24 @@ def test_transport_filter_accepts_matching_transport():
     )
 
     assert SC4PathPicker.SC4PathPickerDialog._passes_filters(dialog, item)
+
+
+def test_path_picker_metadata_includes_file_and_warning_text():
+    item = SC4PathCatalogItem(
+        iid=0x1234,
+        gid=0,
+        file_name=r"C:\Plugins\NetworkAddon.dat",
+        path_file=SC4PathFile(
+            version="1.2",
+            normal_count=0,
+            stop_count=0,
+            terrain_key=0,
+            warnings=("Line 10: first warning", "Line 20: second warning"),
+        ),
+    )
+
+    md = SC4PathPicker._metadata_from_item(item)
+
+    assert md["file_name"] == r"C:\Plugins\NetworkAddon.dat"
+    assert md["warnings"] == 2
+    assert md["warning_text"] == "Line 10: first warning\nLine 20: second warning"

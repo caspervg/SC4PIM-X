@@ -11,12 +11,9 @@ report-mode list with an image column, manual hex entry, and a
 
 from __future__ import annotations
 
-import cProfile
 import logging
 import math
 import os
-import pstats
-import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
@@ -35,32 +32,11 @@ from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
 
-# Set SC4PIM_PROFILE_PICKER=1 (or 2 for verbose pstats) to wrap the picker's
-# __init__ in cProfile and dump the top callers to the log. Set =timing for
-# coarse phase timings without the profiler overhead.
-_PROFILE_FLAG = os.environ.get("SC4PIM_PROFILE_PICKER", "").lower()
-
-
-class _Phase:
-    """Context manager logging the wall-clock time of a named code section."""
-
-    def __init__(self, label: str) -> None:
-        self.label = label
-        self.t0 = 0.0
-
-    def __enter__(self) -> "_Phase":
-        self.t0 = time.perf_counter()
-        return self
-
-    def __exit__(self, *_exc) -> None:
-        dt = time.perf_counter() - self.t0
-        logger.info("picker[%s]: %.3fs", self.label, dt)
-
 THUMB_SIZE = SC4PATH_THUMB_SIZE
-# Back-wall top in tile-local units (1u == 1m). 30m matches the NAM L4
-# elevation tier — tall enough to leave headroom for any custom elevated
-# network without clipping. Fixed so every thumbnail has the same vertical
-# framing regardless of its tallest path point.
+# Back-wall height range in tile-local units (1u == 1m). 30m matches the NAM
+# L4 elevation tier; -15m leaves room for subway/tunnel paths below grade.
+# Fixed bounds keep every thumbnail framed at the same comparable scale.
+WALL_BOTTOM = -15.0
 WALL_TOP = 30.0
 
 
@@ -101,6 +77,11 @@ def _transport_color(transport: int) -> tuple[int, int, int]:
     return TRANSPORT_COLORS.get(int(transport), DEFAULT_TRANSPORT_COLOR)
 
 
+def _below_grade_color(color: tuple[int, int, int]) -> tuple[int, int, int]:
+    r, g, b = color
+    return (max(0, int(r * 0.62)), max(0, int(g * 0.62)), max(0, int(b * 0.62)))
+
+
 class _TransportSwatch(wx.Panel):
     def __init__(self, parent: wx.Window, colour: tuple[int, int, int]):
         wx.Panel.__init__(self, parent, -1, size=(26, 12))
@@ -133,6 +114,8 @@ _FLOOR_X_COS = math.cos(_AZIMUTH)
 _FLOOR_X_SIN = math.sin(_AZIMUTH)
 _FLOOR_Y_COMPRESS = math.sin(_PITCH)
 _HEIGHT_COMPRESS = math.cos(_PITCH)
+_DEPTH_FLOOR_COMPRESS = math.cos(_PITCH)
+_DEPTH_HEIGHT_COMPRESS = math.sin(_PITCH)
 
 
 @dataclass(frozen=True)
@@ -148,6 +131,10 @@ class _AxoProjector:
         sy = self.cy + floor_y * self.scale - z * _HEIGHT_COMPRESS * self.scale
         return sx, sy
 
+    def depth(self, x: float, y: float, z: float) -> float:
+        floor_depth = (x * _FLOOR_X_SIN + y * _FLOOR_X_COS) * _DEPTH_FLOOR_COMPRESS
+        return floor_depth + z * _DEPTH_HEIGHT_COMPRESS
+
 
 def _make_projector(size: tuple[int, int], _path_file: SC4PathFile) -> _AxoProjector:
     width, height = size
@@ -157,25 +144,26 @@ def _make_projector(size: tuple[int, int], _path_file: SC4PathFile) -> _AxoProje
     margin = 4
     floor_w = 2 * half * (_FLOOR_X_COS + _FLOOR_X_SIN)
     floor_h = 2 * half * (_FLOOR_X_SIN + _FLOOR_X_COS) * _FLOOR_Y_COMPRESS
-    max_lift = WALL_TOP * _HEIGHT_COMPRESS  # unit-space; multiply by scale for pixels
+    top_lift = WALL_TOP * _HEIGHT_COMPRESS
+    bottom_drop = abs(WALL_BOTTOM) * _HEIGHT_COMPRESS
     scale = min(
         (width - 2 * margin) / floor_w,
-        (height - 2 * margin) / (floor_h + max_lift),
+        (height - 2 * margin) / (floor_h + top_lift + bottom_drop),
     )
     if scale <= 0:
         scale = 1.0
     cx = width / 2
-    # Total drawn vertical extent runs from (cy - floor_h/2 - max_lift)*scale
-    # to (cy + floor_h/2)*scale. Solving for the top edge at y=margin gives
+    # Total drawn vertical extent runs from (cy - floor_h/2 - top_lift)*scale
+    # to (cy + floor_h/2 + bottom_drop)*scale. Solving for the top edge gives
     # the centring expression below.
-    cy = margin + (floor_h / 2 + max_lift) * scale
+    cy = margin + (floor_h / 2 + top_lift) * scale
     return _AxoProjector(cx=cx, cy=cy, scale=scale)
 
 
 def _draw_floor_grid(gc: wx.GraphicsContext, projector: _AxoProjector) -> None:
-    gc.SetPen(wx.Pen(wx.Colour(80, 90, 100), 1))
     # 16x16 tile floor, drawn at z=0.
     half = 8.0
+    gc.SetPen(wx.Pen(wx.Colour(72, 82, 92), 1))
     for n in (-half, half):
         x1, y1 = projector.project(-half, n, 0)
         x2, y2 = projector.project(half, n, 0)
@@ -208,27 +196,14 @@ def _draw_floor_grid(gc: wx.GraphicsContext, projector: _AxoProjector) -> None:
 
 
 def _draw_back_walls(gc: wx.GraphicsContext, projector: _AxoProjector) -> None:
-    """Two filled back-wall panels (at x=-8 and y=-8) acting as an elevation
-    ruler. Filled instead of gridded so the eye reads them as flat backdrop
-    rather than a 3D wireframe corner; faint horizontal ticks every 4m mark
-    height. Fixed height (``WALL_TOP``) keeps every thumbnail framed the same.
-    """
+    """Faint back-edge elevation rulers for reading z without a boxed scene."""
     half = 8.0
+    bottom = WALL_BOTTOM
     top = WALL_TOP
     P = projector.project
 
-    fill = wx.Colour(40, 46, 52)
     edge = wx.Colour(70, 78, 86)
     tick = wx.Colour(70, 78, 86)
-
-    def fill_quad(p1, p2, p3, p4):
-        path = gc.CreatePath()
-        path.MoveToPoint(*p1)
-        path.AddLineToPoint(*p2)
-        path.AddLineToPoint(*p3)
-        path.AddLineToPoint(*p4)
-        path.CloseSubpath()
-        gc.FillPath(path)
 
     def stroke(p1, p2):
         path = gc.CreatePath()
@@ -236,40 +211,42 @@ def _draw_back_walls(gc: wx.GraphicsContext, projector: _AxoProjector) -> None:
         path.AddLineToPoint(*p2)
         gc.StrokePath(path)
 
-    gc.SetBrush(wx.Brush(fill))
-    gc.SetPen(wx.Pen(edge, 1))
-    # West wall (x = -half) and south wall (y = -half).
-    fill_quad(P(-half, -half, 0), P(-half, half, 0),
-              P(-half, half, top), P(-half, -half, top))
-    fill_quad(P(-half, -half, 0), P(half, -half, 0),
-              P(half, -half, top), P(-half, -half, top))
-
-    # Faint horizontal elevation ticks at NAM tiers (L1=7.5m, L2=15m,
-    # L3=22.5m, L4=30m) so the wall reads as a familiar height ruler.
+    # Faint elevation ticks at below-grade and NAM elevated tiers.
     gc.SetPen(wx.Pen(tick, 1, wx.PENSTYLE_DOT))
-    for z in (7.5, 15.0, 22.5):
+    for z in (-7.5, 7.5, 15.0, 22.5):
         stroke(P(-half, -half, z), P(-half, half, z))
         stroke(P(-half, -half, z), P(half, -half, z))
-    # Solid top edge so the ceiling line stays readable against the panel.
+    # Solid ground/top/bottom edges keep the elevation range legible.
     gc.SetPen(wx.Pen(edge, 1))
-    stroke(P(-half, -half, top), P(-half, half, top))
-    stroke(P(-half, -half, top), P(half, -half, top))
+    for z in (bottom, 0.0, top):
+        stroke(P(-half, -half, z), P(-half, half, z))
+        stroke(P(-half, -half, z), P(half, -half, z))
+    stroke(P(-half, -half, bottom), P(-half, -half, top))
+    stroke(P(-half, half, bottom), P(-half, half, top))
+    stroke(P(half, -half, bottom), P(half, -half, top))
 
 
-def _draw_path(gc: wx.GraphicsContext, projector: _AxoProjector, points, color) -> None:
-    if len(points) < 2:
+def _draw_path_segment(
+    gc: wx.GraphicsContext,
+    projector: _AxoProjector,
+    p1,
+    p2,
+    color,
+    arrow: bool = False,
+) -> None:
+    if p1 is None or p2 is None:
         return
     r, g, b = color
     gc.SetPen(wx.Pen(wx.Colour(r, g, b), 2))
     line = gc.CreatePath()
-    projected = [projector.project(p.x_east, p.y_north, p.z_height) for p in points]
-    line.MoveToPoint(*projected[0])
-    for sx, sy in projected[1:]:
-        line.AddLineToPoint(sx, sy)
+    x1, y1 = projector.project(p1.x_east, p1.y_north, p1.z_height)
+    x2, y2 = projector.project(p2.x_east, p2.y_north, p2.z_height)
+    line.MoveToPoint(x1, y1)
+    line.AddLineToPoint(x2, y2)
     gc.StrokePath(line)
+    if not arrow:
+        return
     # Arrowhead on the final segment so directionality is visible at glance.
-    x1, y1 = projected[-2]
-    x2, y2 = projected[-1]
     dx, dy = x2 - x1, y2 - y1
     length = math.hypot(dx, dy)
     if length < 0.5:
@@ -289,6 +266,13 @@ def _draw_path(gc: wx.GraphicsContext, projector: _AxoProjector, points, color) 
     gc.StrokePath(head)
 
 
+def _path_depth_key(projector: _AxoProjector, points) -> tuple[float, float]:
+    count = max(1, len(points))
+    avg_z = sum(p.z_height for p in points) / count
+    avg_depth = sum(projector.depth(p.x_east, p.y_north, p.z_height) for p in points) / count
+    return avg_z, avg_depth
+
+
 def _draw_stop(gc: wx.GraphicsContext, projector: _AxoProjector, point, color) -> None:
     sx, sy = projector.project(point.x_east, point.y_north, point.z_height)
     r, g, b = color
@@ -297,12 +281,54 @@ def _draw_stop(gc: wx.GraphicsContext, projector: _AxoProjector, point, color) -
     gc.DrawEllipse(sx - 2.5, sy - 2.5, 5, 5)
 
 
+def _draw_depth_sorted_paths(
+    gc: wx.GraphicsContext,
+    projector: _AxoProjector,
+    path_file: SC4PathFile,
+) -> None:
+    drawables = []
+    for path in path_file.paths:
+        points = path.points
+        for idx in range(max(0, len(points) - 1)):
+            segment_points = (points[idx], points[idx + 1])
+            color = _transport_color(path.transport)
+            if (points[idx].z_height + points[idx + 1].z_height) / 2.0 < 0:
+                color = _below_grade_color(color)
+            drawables.append((
+                _path_depth_key(projector, segment_points),
+                "path",
+                segment_points,
+                color,
+                idx == len(points) - 2,
+            ))
+    for stop in path_file.stops:
+        point = stop.point
+        drawables.append((
+            _path_depth_key(projector, (point,)),
+            "stop",
+            (point,),
+            _transport_color(stop.transport),
+            False,
+        ))
+
+    # Painter sort: lower/farther geometry first, higher/nearer geometry last.
+    # This approximates depth testing for the small 2D thumbnail renderer and
+    # ensures elevated paths visibly cross above below-grade or surface paths.
+    for _key, kind, points, color, arrow in sorted(drawables, key=lambda item: item[0]):
+        if kind == "path":
+            _draw_path_segment(gc, projector, points[0], points[1], color, arrow)
+        else:
+            _draw_stop(gc, projector, points[0], color)
+
+
 def _metadata_from_item(item: SC4PathCatalogItem) -> dict:
     md = {
         "transports": set(),
         "paths": 0,
         "stops": 0,
         "warnings": 0,
+        "warning_text": "",
+        "file_name": item.file_name or "",
         "error": item.error,
     }
     if item.path_file is not None:
@@ -310,6 +336,7 @@ def _metadata_from_item(item: SC4PathCatalogItem) -> dict:
         md["paths"] = len(item.path_file.paths)
         md["stops"] = len(item.path_file.stops)
         md["warnings"] = len(item.path_file.warnings)
+        md["warning_text"] = "\n".join(item.path_file.warnings)
     return md
 
 
@@ -563,10 +590,7 @@ def render_path_thumbnail(path_file: Optional[SC4PathFile], size: tuple[int, int
     projector = _make_projector(size, path_file)
     _draw_floor_grid(gc, projector)
     _draw_back_walls(gc, projector)
-    for path in path_file.paths:
-        _draw_path(gc, projector, path.points, _transport_color(path.transport))
-    for stop in path_file.stops:
-        _draw_stop(gc, projector, stop.point, _transport_color(stop.transport))
+    _draw_depth_sorted_paths(gc, projector, path_file)
     dc.SelectObject(wx.NullBitmap)
     return bmp
 
@@ -584,7 +608,7 @@ class _PathListCtrl(wx.ListCtrl):
             style=(wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_SINGLE_SEL
                    | wx.LC_HRULES | wx.BORDER_SUNKEN),
         )
-        self._rows: list[tuple[int, str, str, str, str, str]] = []
+        self._rows: list[tuple[int, str, str, str, str]] = []
         self.Bind(wx.EVT_SIZE, self._on_size)
 
     def _on_size(self, event: wx.SizeEvent) -> None:
@@ -600,7 +624,7 @@ class _PathListCtrl(wx.ListCtrl):
         if remaining > 80:
             self.SetColumnWidth(count - 1, remaining)
 
-    def set_rows(self, rows: list[tuple[int, str, str, str, str, str]]) -> None:
+    def set_rows(self, rows: list[tuple[int, str, str, str, str]]) -> None:
         self._rows = rows
         self.SetItemCount(len(rows))
         if rows:
@@ -624,8 +648,8 @@ class _PathListCtrl(wx.ListCtrl):
     def set_row_image(self, row: int, image_index: int) -> None:
         if row < 0 or row >= len(self._rows):
             return
-        _old_image, hex_iid, transports, paths, stops, warnings = self._rows[row]
-        self._rows[row] = (image_index, hex_iid, transports, paths, stops, warnings)
+        _old_image, hex_iid, transports, source, information = self._rows[row]
+        self._rows[row] = (image_index, hex_iid, transports, source, information)
 
 
 class SC4PathPickerDialog(wx.Dialog):
@@ -646,16 +670,9 @@ class SC4PathPickerDialog(wx.Dialog):
             title or LEXSC4PathPickerTitle,
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
-        self._profile = cProfile.Profile() if _PROFILE_FLAG in ("1", "2") else None
-        if self._profile is not None:
-            self._profile.enable()
-        t_open = time.perf_counter()
         self.virtual_dat = virtual_dat
         self.current_iid = int(current_iid) & 0xFFFFFFFF
-        with _Phase("list_sc4path_entries"):
-            self._catalog: list[SC4PathCatalogItem] = list_sc4path_entries(virtual_dat)
-        logger.info("picker: catalog size = %d, allEntries = %d",
-                    len(self._catalog), len(getattr(virtual_dat, "allEntries", ()) or ()))
+        self._catalog: list[SC4PathCatalogItem] = list_sc4path_entries(virtual_dat)
         self._metadata_table: dict[int, dict] = getattr(virtual_dat, "sc4path_metadata", {}) or {}
         self._visible: list[SC4PathCatalogItem] = []
         self._selected_iid: int = self.current_iid
@@ -717,13 +734,9 @@ class SC4PathPickerDialog(wx.Dialog):
         self.list.InsertColumn(0, LEXSC4PathPickerColPreview, width=THUMB_SIZE[0] + 16)
         self.list.InsertColumn(1, LEXSC4PathPickerColIID, width=110)
         self.list.InsertColumn(2, LEXSC4PathPickerColTransport, width=180)
-        self.list.InsertColumn(3, LEXSC4PathPickerColPaths, width=64,
-                               format=wx.LIST_FORMAT_RIGHT)
-        self.list.InsertColumn(4, LEXSC4PathPickerColStops, width=64,
-                               format=wx.LIST_FORMAT_RIGHT)
-        self.list.InsertColumn(5, LEXSC4PathPickerColWarnings, width=80,
-                               format=wx.LIST_FORMAT_RIGHT)
-        self.list.SetMinSize((820, 520))
+        self.list.InsertColumn(3, LEXSC4PathPickerColFile, width=220)
+        self.list.InsertColumn(4, LEXSC4PathPickerColInformation, width=380)
+        self.list.SetMinSize((1040, 520))
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_select)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_activate)
         self.list.Bind(wx.EVT_LIST_CACHE_HINT, self._on_cache_hint)
@@ -778,19 +791,7 @@ class SC4PathPickerDialog(wx.Dialog):
         self.hexText.Bind(wx.EVT_TEXT_ENTER, self._on_use_hex)
         self.Bind(wx.EVT_BUTTON, self._on_ok, self.okButton)
 
-        with _Phase("initial_refresh"):
-            self._refresh()
-        logger.info("picker[total_open]: %.3fs", time.perf_counter() - t_open)
-        if self._profile is not None:
-            self._profile.disable()
-            stats = pstats.Stats(self._profile)
-            stats.strip_dirs().sort_stats("cumulative")
-            limit = 40 if _PROFILE_FLAG == "2" else 20
-            import io
-            buf = io.StringIO()
-            stats.stream = buf
-            stats.print_stats(limit)
-            logger.info("picker cProfile (top %d by cumulative):\n%s", limit, buf.getvalue())
+        self._refresh()
 
     # -- Filtering -----------------------------------------------------------
 
@@ -819,37 +820,47 @@ class SC4PathPickerDialog(wx.Dialog):
         return True
 
     def _refresh(self) -> None:
-        with _Phase("filter"):
-            self._visible = [it for it in self._catalog if self._passes_filters(it)]
-        logger.info("picker: visible = %d", len(self._visible))
+        self._visible = [it for it in self._catalog if self._passes_filters(it)]
         self._row_by_iid.clear()
-        with _Phase("preload_sync"):
-            initial_iids = [it.iid for it in self._visible[: self._estimate_visible_rows()]
-                            if it.iid not in self._thumb_provider.cache]
-            if initial_iids:
-                self._thumb_provider.PreloadSync(initial_iids)
+        initial_iids = [it.iid for it in self._visible[: self._estimate_visible_rows()]
+                        if it.iid not in self._thumb_provider.cache]
+        if initial_iids:
+            self._thumb_provider.PreloadSync(initial_iids)
         target_row = -1
-        with _Phase("insert_rows"):
-            self.list.Freeze()
-            try:
-                rows = []
-                for row, item in enumerate(self._visible):
-                    md = self._metadata_for(item)
-                    image_index = self._image_index_for(item)
-                    transports_text = (", ".join(TRANSPORT_LABELS.get(t, "T%d" % t)
-                                                 for t in sorted(md.get("transports", ())))
-                                       or md.get("error", "") or "")
-                    paths = str(md["paths"]) if md.get("paths") else ""
-                    stops = str(md["stops"]) if md.get("stops") else ""
-                    warnings = str(md["warnings"]) if md.get("warnings") else ""
-                    rows.append((image_index, item.hex_iid, transports_text,
-                                 paths, stops, warnings))
-                    self._row_by_iid[item.iid] = row
-                    if item.iid == self._selected_iid:
-                        target_row = row
-                self.list.set_rows(rows)
-            finally:
-                self.list.Thaw()
+        self.list.Freeze()
+        try:
+            rows = []
+            for row, item in enumerate(self._visible):
+                md = self._metadata_for(item)
+                image_index = self._image_index_for(item)
+                transports_text = (", ".join(TRANSPORT_LABELS.get(t, "T%d" % t)
+                                             for t in sorted(md.get("transports", ())))
+                                   or md.get("error", "") or "")
+                source = os.path.basename(md.get("file_name", "") or item.file_name or "")
+                warnings = md.get("warning_text") or ""
+                if not warnings and md.get("warnings"):
+                    warnings = "%d warning%s" % (
+                        int(md["warnings"]),
+                        "" if int(md["warnings"]) == 1 else "s",
+                    )
+                info_lines = [
+                    "%d path%s, %d stop point%s" % (
+                        int(md.get("paths") or 0),
+                        "" if int(md.get("paths") or 0) == 1 else "s",
+                        int(md.get("stops") or 0),
+                        "" if int(md.get("stops") or 0) == 1 else "s",
+                    )
+                ]
+                if warnings:
+                    info_lines.extend(str(warnings).splitlines())
+                rows.append((image_index, item.hex_iid, transports_text,
+                             source, "\n".join(info_lines)))
+                self._row_by_iid[item.iid] = row
+                if item.iid == self._selected_iid:
+                    target_row = row
+            self.list.set_rows(rows)
+        finally:
+            self.list.Thaw()
         if target_row >= 0:
             self.list.Select(target_row)
             self.list.EnsureVisible(target_row)
