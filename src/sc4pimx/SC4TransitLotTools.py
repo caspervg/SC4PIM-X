@@ -660,7 +660,7 @@ def _draw_mask_edges(minx, miny, mask, orientation):
     glBegin(GL_LINES)
     for _name, normal_bit, alt_bit, direction in DIR_BITS:
         if mask & (normal_bit | alt_bit):
-            edge, inner = DIR_GEOMETRY[(direction + rotation_steps) % 4]
+            edge, inner = DIR_GEOMETRY[(direction - rotation_steps) % 4]
             ex = minx + edge[0] * 16
             ey = miny + edge[1] * 16
             ix = minx + inner[0] * 16

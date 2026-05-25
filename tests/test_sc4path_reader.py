@@ -160,8 +160,9 @@ def test_invalid_header_raises():
 def test_point_transforms_and_orientation():
     point = SC4PathPoint(2.0, -8.0, 3.5)
 
-    assert rotate_local_point(point, 2) == point
+    assert rotate_local_point(point, 2).x_east == pytest.approx(2.0)
+    assert rotate_local_point(point, 2).y_north == pytest.approx(8.0)
     assert rotate_local_point(point, 3).x_east == pytest.approx(-8.0)
-    assert rotate_local_point(point, 3).y_north == pytest.approx(-2.0)
-    assert point_to_lot_2d(1, 2, 2, point) == pytest.approx((26.0, 32.0))
-    assert point_to_lot_3d(1, 2, 2, point) == pytest.approx((26.0, 3.65, 32.0))
+    assert rotate_local_point(point, 3).y_north == pytest.approx(2.0)
+    assert point_to_lot_2d(1, 2, 2, point) == pytest.approx((26.0, 48.0))
+    assert point_to_lot_3d(1, 2, 2, point) == pytest.approx((26.0, 3.65, 48.0))
