@@ -747,15 +747,16 @@ class MyTreeCtrl(wx.TreeCtrl):
             if model.is_valid:
                 virtual_dat.standardModelsDict[entry.tgi] = model
                 virtual_dat.standardModels.append(StandardModel(entry, model))
-            elif entry.tgi[1] == 3134937073 and entry.tgi[2] == 235995136:
+            else:
+                # Animated / single-mesh S3Ds don't follow the IID+N variant
+                # pattern that SC4Model expects, so they fail is_valid and were
+                # previously dropped. Fall back to SC4ModelMesh so they reach
+                # otherModels and the thumbnail pipeline.
+                del model
                 what = SC4ModelMesh(entry.tgi[1], entry.tgi[2], virtual_dat)
-                if not what.is_valid:
-                    del model
-                else:
+                if what.is_valid:
                     virtual_dat.otherModels.append(StandardModel(entry, what))
                     virtual_dat.otherModelsDict[entry.tgi] = what
-            else:
-                del model
         if entry.tgi[0] == 698733036:
             atc = ATC(entry, virtual_dat)
             virtual_dat.atcsDict[entry.tgi] = atc
@@ -4225,6 +4226,19 @@ class MainFrame(wx.Frame):
                         dlg.Increment()
 
                     dlg2.Destroy()
+            missing_atcs = getattr(self.virtualDAT, 'missing_atc_pictures', None) or []
+            if missing_atcs:
+                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
+                    logger.debug('Skipping missing ATC thumbnail generation')
+                else:
+                    logger.debug('Generating %d missing ATC thumbnails', len(missing_atcs))
+                    for file_name, atc in missing_atcs:
+                        try:
+                            _generate_atc_thumbnail(self.virtualDAT, atc, file_name)
+                        except Exception:
+                            logger.exception("Could not generate ATC thumbnail for 0x%08X-0x%08X",
+                                             atc.tgi[1], atc.tgi[2])
+                        dlg.Increment()
             logger.debug('Loading prop image list')
             if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
                 propLoader = ImageListLoaderProps(self.virtualDAT)
@@ -4610,6 +4624,52 @@ class App(wx.App):
     def OnExceptionInMainLoop(self):
         logger.exception('Unhandled exception in wx main loop')
         return True
+
+
+def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
+    """Crop frame 0 from the ATC's source FSH and save it as small + large
+    thumbnails so the asset browser can resolve <gid>-<iid>.jpg for the prop.
+    """
+    atc.read_file()
+    if atc.fsh_tgi is None or atc.avp_iids is None or atc.avp_tid is None:
+        return
+    # Highest-detail zoom carries the largest frame. Earlier zooms are often 0.
+    avp_iid = next((i for i in reversed(atc.avp_iids) if i), 0)
+    if not avp_iid:
+        return
+    avp_entry = virtual_dat.getEntry(atc.avp_tid, atc.avp_gid, avp_iid)
+    fsh_entry = virtual_dat.getEntry(atc.fsh_tgi[0], atc.fsh_tgi[1], atc.fsh_tgi[2])
+    if avp_entry is None or fsh_entry is None:
+        return
+    avp = AVP(avp_entry, 256)
+    if not avp.chunks:
+        return
+    plane, (x_start, y_start), (w, h), _hotspot = avp.chunks[0]
+    if w <= 0 or h <= 0:
+        return
+    fsh_entry.read_file(None, True, True)
+    try:
+        nbrLayers, trueAlpha, img, alpha, size = FSHConverter.decodeFSH(fsh_entry.content)
+    finally:
+        fsh_entry.content = None
+        fsh_entry.rawContent = None
+    pil = Image.frombytes('RGB', size, img[:size[0] * size[1] * 3])
+    if trueAlpha:
+        # Match the mid-gray background of S3D thumbnails (rendered against
+        # glClearColor(0.5, 0.5, 0.5)) for a consistent asset-browser look.
+        blank = Image.new('RGB', size, (128, 128, 128))
+        alpha_layer = Image.frombytes('L', size, alpha[:size[0] * size[1]])
+        pil = Image.composite(pil, blank, alpha_layer)
+    # Clamp the crop region to the atlas bounds so a malformed AVP doesn't
+    # propagate to a PIL.crop with an out-of-bounds box.
+    x_end = min(size[0], x_start + w)
+    y_end = min(size[1], y_start + h)
+    cropped = pil.crop((max(0, x_start), max(0, y_start), x_end, y_end))
+    head, name = os.path.split(dest_path)
+    large_dir = head + 'Large'
+    os.makedirs(large_dir, exist_ok=True)
+    cropped.resize((128, 128), Image.BICUBIC).save(os.path.join(large_dir, name))
+    cropped.resize((64, 64), Image.BICUBIC).save(dest_path)
 
 
 def main() -> None:
