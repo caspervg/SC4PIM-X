@@ -18374,6 +18374,130 @@
     </CATEGORY>
 
   </CATEGORIES>
+  <!--
+    Maxis-supplied prop families whose cohort exemplars ship without a readable
+    name. These IDs (range 0xA0000001+) are referenced by props via the
+    Building/prop Family property (0x27812870) but resolve to "0xA000005C" style
+    hex in the UI unless we supply the display name here. The runtime cohort
+    scan still overrides these whenever the user actually has the cohort.
+  -->
+  <FAMILIES>
+    <FAMILY ID="0xA0000001" Name="Res_4x8_backsideyard"/>
+    <FAMILY ID="0xA0000002" Name="Com$$StatueProps"/>
+    <FAMILY ID="0xA0000003" Name="Res_4x8_frontlawn"/>
+    <FAMILY ID="0xA0000005" Name="Res_6x6_backsideyard"/>
+    <FAMILY ID="0xA0000006" Name="CSF14x2_storefront"/>
+    <FAMILY ID="0xA0000007" Name="Res_6x6_frontlawn"/>
+    <FAMILY ID="0xA0000008" Name="Res_6x12_backsideyard"/>
+    <FAMILY ID="0xA000000A" Name="CSF12x2_storefront"/>
+    <FAMILY ID="0xA000000B" Name="CSF16x2_storefront"/>
+    <FAMILY ID="0xA000000C" Name="Flora-Planter4x4Flower"/>
+    <FAMILY ID="0xA000000D" Name="Res_8x8_backsideyard"/>
+    <FAMILY ID="0xA000000F" Name="ResCarClusters"/>
+    <FAMILY ID="0xA0000011" Name="Res_8x8_frontyard"/>
+    <FAMILY ID="0xA0000013" Name="ParkingGarages2story"/>
+    <FAMILY ID="0xA0000014" Name="Res_12x12_backsideyard"/>
+    <FAMILY ID="0xA0000015" Name="Res_12x12_manbacksideyard"/>
+    <FAMILY ID="0xA0000016" Name="CR_12x0x12_Graffiti"/>
+    <FAMILY ID="0xA0000017" Name="Res_8x8_mangarage"/>
+    <FAMILY ID="0xA000001C" Name="CR_8x0x12_Graffiti2"/>
+    <FAMILY ID="0xA000001D" Name="CR_16x0x10_Graffiti"/>
+    <FAMILY ID="0xA000001F" Name="Res_16x16_backsideyard"/>
+    <FAMILY ID="0xA0000021" Name="GAbackcrates"/>
+    <FAMILY ID="0xA0000023" Name="CR_8x0x12_Graffiti1"/>
+    <FAMILY ID="0xA0000026" Name="CSF_6x2_storefront"/>
+    <FAMILY ID="0xA0000027" Name="CSF_8x2_storefront"/>
+    <FAMILY ID="0xA0000028" Name="Street Props"/>
+    <FAMILY ID="0xA0000032" Name="ParkingGarages5story"/>
+    <FAMILY ID="0xA0000038" Name="ResSingleCars"/>
+    <FAMILY ID="0xA0000039" Name="Flora-Planter6x3Flower"/>
+    <FAMILY ID="0xA000003A" Name="Flora-Planter4x4Bush"/>
+    <FAMILY ID="0xA000003C" Name="SpotLight"/>
+    <FAMILY ID="0xA000003D" Name="ComCarClusters"/>
+    <FAMILY ID="0xA000003F" Name="Flora-Planter6x3Bush"/>
+    <FAMILY ID="0xA0000041" Name="CSign_2x4"/>
+    <FAMILY ID="0xA0000042" Name="CSign_11x1"/>
+    <FAMILY ID="0xA0000043" Name="CSign_1x4"/>
+    <FAMILY ID="0xA0000044" Name="CSign_1x2"/>
+    <FAMILY ID="0xA0000045" Name="CBill_12x2"/>
+    <FAMILY ID="0xA0000046" Name="CBill_12x4"/>
+    <FAMILY ID="0xA0000047" Name="Res_6x12_carcontain"/>
+    <FAMILY ID="0xA0000048" Name="ResTrash"/>
+    <FAMILY ID="0xA000004A" Name="Flora-smallshrubs"/>
+    <FAMILY ID="0xA000004B" Name="Flora-Mediumshrubs"/>
+    <FAMILY ID="0xA000004C" Name="Flora-Grasses"/>
+    <FAMILY ID="0xA000004D" Name="Flora-MediumBushes"/>
+    <FAMILY ID="0xA000004E" Name="Flora-Flowers_small"/>
+    <FAMILY ID="0xA000004F" Name="Flora-SmallPottedShrubs"/>
+    <FAMILY ID="0xA0000050" Name="Flora-MediumFulltrees"/>
+    <FAMILY ID="0xA0000051" Name="Flora-LargeFulltrees"/>
+    <FAMILY ID="0xA0000052" Name="Flora-SmallfruitTrees"/>
+    <FAMILY ID="0xA0000054" Name="Flora-RectPlanters"/>
+    <FAMILY ID="0xA0000055" Name="Flora-flowersSquare"/>
+    <FAMILY ID="0xA0000056" Name="Effect-FarmAnimals"/>
+    <FAMILY ID="0xA0000057" Name="Flora-FlowersMed"/>
+    <FAMILY ID="0xA0000058" Name="Phonebooth"/>
+    <FAMILY ID="0xA0000059" Name="Animated_GolfersDrivers"/>
+    <FAMILY ID="0xA000005A" Name="Vending_Machines"/>
+    <FAMILY ID="0xA000005B" Name="Animated_GolfersPutter"/>
+    <FAMILY ID="0xA000005C" Name="Milling_People"/>
+    <FAMILY ID="0xA000005D" Name="R_BoatTrailer"/>
+    <FAMILY ID="0xA000005E" Name="R2x2_Res_backside"/>
+    <FAMILY ID="0xA000005F" Name="Street_Trashcans"/>
+    <FAMILY ID="0xA0000060" Name="Streetlights"/>
+    <FAMILY ID="0xA0000061" Name="FireHydrants"/>
+    <FAMILY ID="0xA0000062" Name="SeaportCargo"/>
+    <FAMILY ID="0xA0000063" Name="Streetlights-diagonal"/>
+    <FAMILY ID="0xA0000064" Name="Industrial_semiTrailers"/>
+    <FAMILY ID="0xA0000065" Name="Person_Child_General"/>
+    <FAMILY ID="0xA0000066" Name="Person_General"/>
+    <FAMILY ID="0xA0000067" Name="Person_Positive"/>
+    <FAMILY ID="0xA0000068" Name="Person_Negative"/>
+    <FAMILY ID="0xA0000069" Name="Person_Adult_General"/>
+    <FAMILY ID="0xA000006A" Name="Balloons"/>
+    <FAMILY ID="0xA000006B" Name="ChairSitting"/>
+    <FAMILY ID="0xA000006C" Name="RWBanners"/>
+    <FAMILY ID="0xA000006D" Name="IWaterTrough"/>
+    <FAMILY ID="0xA000006E" Name="BasketballDribble8-10.5"/>
+    <FAMILY ID="0xA000006F" Name="BasketballGuard8-10.5"/>
+    <FAMILY ID="0xA0000070" Name="BasketballGuard28-10.5"/>
+    <FAMILY ID="0xA0000071" Name="Farm_FieldPickers"/>
+    <FAMILY ID="0xA0000074" Name="Res_Tables"/>
+    <FAMILY ID="0xA0000075" Name="Streetlights-Highwealth"/>
+    <FAMILY ID="0xA0000076" Name="Swimmers"/>
+    <FAMILY ID="0xA0000077" Name="Flora_LargeFullTrees-NoPalm"/>
+    <FAMILY ID="0xA0000078" Name="Flora_MedTrees-NoPalm"/>
+    <FAMILY ID="0xA0000079" Name="DoubleHouseres"/>
+    <FAMILY ID="0xA000007A" Name="Person_Child_Idle"/>
+    <FAMILY ID="0xA000007B" Name="Person_Adult_Idle"/>
+    <FAMILY ID="0xA000007C" Name="Person_General_Idle"/>
+    <FAMILY ID="0xA000007D" Name="Person_Military"/>
+    <FAMILY ID="0xA000007E" Name="Person_Police"/>
+    <FAMILY ID="0xA000007F" Name="Person_Business"/>
+    <FAMILY ID="0xA0000090" Name="Tree_TP"/>
+    <FAMILY ID="0xA0000091" Name="Park_Trees1"/>
+    <FAMILY ID="0xA0000092" Name="Park_Trees2"/>
+    <FAMILY ID="0xA0000093" Name="CriminalSwimmers"/>
+    <FAMILY ID="0xA0000094" Name="CopCars"/>
+    <FAMILY ID="0xA0000095" Name="LawnBunkers"/>
+    <FAMILY ID="0xA0000096" Name="Soccerkidssidelines"/>
+    <FAMILY ID="0xA0000097" Name="BaseballKids"/>
+    <FAMILY ID="0xA0000098" Name="BasketballDribble11-13.5"/>
+    <FAMILY ID="0xA0000099" Name="BasketballGuard11-13.5"/>
+    <FAMILY ID="0xA000009A" Name="BasketballGuard211-13.5"/>
+    <FAMILY ID="0xA000009B" Name="BasketballDribble14-16.5"/>
+    <FAMILY ID="0xA000009C" Name="BasketballGuard14-16.5"/>
+    <FAMILY ID="0xA000009D" Name="BasketballGuard214-16.5"/>
+    <FAMILY ID="0xA000009E" Name="BasketballDribble17-20"/>
+    <FAMILY ID="0xA000009F" Name="BasketballGuard17-20"/>
+    <FAMILY ID="0xA0000100" Name="BasketballGuard217-20"/>
+    <FAMILY ID="0xA0000101" Name="Nightclub"/>
+    <FAMILY ID="0xA0000102" Name="Expensive Carwash"/>
+    <FAMILY ID="0xA0000103" Name="RandomSwitchstands"/>
+    <FAMILY ID="0xA0000104" Name="Treepicking"/>
+    <FAMILY ID="0xA0000105" Name="Highway"/>
+    <FAMILY ID="0xA0000106" Name="Highwaydiag"/>
+  </FAMILIES>
   <LOTCREATION>
     <STAGEvsDENSITY purpose="R" wealth="0" ratio="4.8,6.8,11.0,23.0,50.7,94.7,159,249,354,463,575,692,812,937" baseTex="0x261a0000"/>
     <STAGEvsDENSITY purpose="R" wealth="1" ratio="2.4,3.4,5.5,11.5,28.4,62.8,112,176,250,327,407,489,574,662" baseTex="0x25f40000"/>

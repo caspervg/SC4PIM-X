@@ -1647,10 +1647,15 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def _family_item(self, cat_id):
         hex_id = hex2str(cat_id)[2:]
+        label = ''
         try:
             category = VirtualDat.this.categories[cat_id]
-            label = category.Name or hex_id
+            label = category.Name or ''
         except Exception:
+            pass
+        if not label:
+            label = VirtualDat.this.builtin_family_names.get(cat_id, '')
+        if not label:
             label = hex_id
         members = self._family_member_names(cat_id)
         sublabel = '%d %s' % (len(members), LEXAssetBrowserMembers) if members else ''
