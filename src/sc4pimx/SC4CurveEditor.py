@@ -36,6 +36,19 @@ def points_to_value_text(points):
     return ",".join(values)
 
 
+def _centre_on_top_level(dialog, parent):
+    top = wx.GetTopLevelParent(parent)
+    if top is None:
+        dialog.CentreOnParent()
+        return
+    top_pos = top.GetScreenPosition()
+    top_size = top.GetSize()
+    dlg_size = dialog.GetSize()
+    x = top_pos.x + max(0, (top_size.width - dlg_size.width) // 2)
+    y = top_pos.y + max(0, (top_size.height - dlg_size.height) // 2)
+    dialog.SetPosition((x, y))
+
+
 def padded_axis_ranges(points, padding=0.08):
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
@@ -231,6 +244,7 @@ class CurveEditorDialog(wx.Dialog):
             self.points.GetItemText(row, 1),
         )
         try:
+            dlg.CentreOnParent()
             if dlg.ShowModal() == wx.ID_OK:
                 x, y = dlg.GetPoint()
                 self.points.SetItem(row, 0, format_float_value(x))
@@ -289,6 +303,7 @@ class PointEditDialog(wx.Dialog):
 def edit_curve_property(parent, title, prop_name, values):
     dlg = CurveEditorDialog(parent, title, prop_name, values)
     try:
+        _centre_on_top_level(dlg, parent)
         if dlg.ShowModal() == wx.ID_OK:
             return dlg.GetValueText()
     finally:
