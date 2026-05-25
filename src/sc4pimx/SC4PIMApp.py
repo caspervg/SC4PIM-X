@@ -696,6 +696,12 @@ class MyTreeCtrl(wx.TreeCtrl):
                                 is_named_family = True
                                 chosen_cohort = cohort
                                 break
+                    if not is_named_family:
+                        builtin = self.virtual_dat.builtin_family_names.get(family)
+                        if builtin:
+                            name = builtin + ' - [0x%08X]' % family
+                            parent_family_cat_id = 4089086497
+                            is_named_family = True
 
                     xml_str = '<?xml version="1.0" encoding="UTF-8"?><temp><CATEGORY Name="%s" ID="%s" ParentID="%s">' % (
                         name, hex2str(family), hex2str(parent_family_cat_id))

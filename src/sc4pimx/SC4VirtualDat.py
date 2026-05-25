@@ -45,6 +45,9 @@ class VirtualDat(object):
         self.tree = visual_tree
         self.properties = {}
         self.categories = {}
+        # Fallback display names for Maxis-supplied prop families that ship
+        # without a readable cohort name. Loaded from new_properties.xml.
+        self.builtin_family_names = {}
         self.standardModels = []
         self.standardModelsDict = {}
         self.otherModels = []
@@ -175,6 +178,17 @@ class VirtualDat(object):
                         else:
                             self.rootCategory = category
                         self.categories[category.ID] = category
+
+            if node.nodeType == node.ELEMENT_NODE and node.tagName == 'FAMILIES':
+                for subNode in node.childNodes:
+                    if subNode.nodeType == subNode.ELEMENT_NODE and subNode.tagName == 'FAMILY':
+                        try:
+                            family_id = int(subNode.getAttribute('ID'), 16)
+                        except ValueError:
+                            continue
+                        name = subNode.getAttribute('Name')
+                        if name:
+                            self.builtin_family_names[family_id] = name
 
             if node.nodeType == node.ELEMENT_NODE and node.tagName == 'LOTCREATION':
                 for subNode in node.childNodes:

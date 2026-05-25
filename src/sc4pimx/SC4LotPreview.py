@@ -278,6 +278,7 @@ class LEInspectorPanel(wx.Panel):
     def __init__(self, parent, editor):
         wx.Panel.__init__(self, parent, -1)
         self.editor = editor
+        self._family_members = []
         self.SetBackgroundColour(wx.Colour(250, 251, 252))
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.text = wx.TextCtrl(self, -1, LEXInspectorPrompt,
@@ -313,15 +314,26 @@ class LEInspectorPanel(wx.Panel):
         self.applyBtn.Bind(wx.EVT_BUTTON, self.OnApply)
         fields.Add(self.applyBtn, 0, wx.EXPAND | wx.ALL, 4)
         self.transitPanel = TransitInspectorPanel(self, editor)
+        family_box = wx.StaticBox(self, -1, 'Family variations')
+        family_fields = wx.StaticBoxSizer(family_box, wx.VERTICAL)
+        self.familyGrid = wx.ScrolledWindow(self, -1, style=wx.BORDER_NONE | wx.VSCROLL)
+        self.familyGrid.SetBackgroundColour(wx.Colour(250, 251, 252))
+        self.familyGrid.SetScrollRate(0, 12)
+        self.familySizer = wx.WrapSizer(wx.HORIZONTAL)
+        self.familyGrid.SetSizer(self.familySizer)
+        family_fields.Add(self.familyGrid, 1, wx.EXPAND | wx.ALL, 4)
         sizer.Add(self.text, 1, wx.EXPAND | wx.ALL, 6)
         sizer.Add(fields, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         sizer.Add(self.transitPanel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        sizer.Add(family_fields, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         self.SetSizer(sizer)
         self._outer = sizer
         self._fields = fields
         self._transit = self.transitPanel
+        self._family_fields = family_fields
         self.HideFields()
         self.HideTransit()
+        self.HideFamilyVariations()
 
     def SetText(self, value):
         self.text.SetValue(value)
@@ -342,6 +354,7 @@ class LEInspectorPanel(wx.Panel):
 
     def ShowTransit(self, values_list, defaults):
         self.HideFields()
+        self.HideFamilyVariations()
         self._transit.ShowFor(values_list, defaults)
         self._outer.Show(self._transit, True, recursive=True)
         self.Layout()
@@ -349,6 +362,54 @@ class LEInspectorPanel(wx.Panel):
     def HideTransit(self):
         self._outer.Show(self._transit, False, recursive=True)
         self.Layout()
+
+    def ShowFamilyVariations(self, family_id, members, selected_tgi):
+        self._family_members = list(members)
+        self.familySizer.Clear(True)
+        for idx, desc in enumerate(self._family_members):
+            bmp = self._family_member_bitmap(desc)
+            item = wx.Panel(self.familyGrid, -1)
+            item_sizer = wx.BoxSizer(wx.VERTICAL)
+            btn = wx.BitmapToggleButton(item, -1, bmp, size=(58, 58))
+            btn.SetValue(desc.exemplar.entry.tgi == selected_tgi)
+            btn.SetToolTip('%s\n%s' % (desc.name, hex2str(desc.exemplar.entry.tgi[2])))
+            btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, i=idx: self.OnFamilyVariation(i))
+            label = wx.StaticText(item, -1, hex2str(desc.exemplar.entry.tgi[2])[-4:])
+            label.SetFont(wx.Font(7, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            item_sizer.Add(btn, 0, wx.ALIGN_CENTER)
+            item_sizer.Add(label, 0, wx.ALIGN_CENTER | wx.TOP, 1)
+            item.SetSizer(item_sizer)
+            self.familySizer.Add(item, 0, wx.ALL, 2)
+        self.familyGrid.FitInside()
+        self.familyGrid.SetMinSize((-1, 76 if len(self._family_members) <= 4 else 136))
+        self._outer.Show(self._family_fields, True, recursive=True)
+        self.Layout()
+
+    def HideFamilyVariations(self):
+        self._family_members = []
+        self.familySizer.Clear(True)
+        self._outer.Show(self._family_fields, False, recursive=True)
+        self.Layout()
+
+    def _family_member_bitmap(self, desc):
+        try:
+            image = BuildImagesForPropStates(desc.exemplar, 52)[0]
+            return BitmapFromPIL(image)
+        except Exception:
+            bmp = wx.Bitmap(52, 52)
+            dc = wx.MemoryDC(bmp)
+            dc.SetBackground(wx.Brush(wx.Colour(232, 235, 238)))
+            dc.Clear()
+            dc.SetTextForeground(wx.Colour(98, 108, 118))
+            dc.DrawLabel('!', wx.Rect(0, 0, 52, 52), wx.ALIGN_CENTER)
+            dc.SelectObject(wx.NullBitmap)
+            return bmp
+
+    def OnFamilyVariation(self, idx):
+        if idx < 0 or idx >= len(self._family_members):
+            return
+        desc = self._family_members[idx]
+        self.editor.SetFamilyVariation(desc)
 
     def OnApply(self, event):
         try:
@@ -388,6 +449,7 @@ class LotEditorWin(wx.Frame):
         self.lotPropDescs = []
         self.lotFamiliesPropID = []
         self.lotFloraDescs = []
+        self.familyVariations = {}
         self.modeDisplay = MODE_DISPLAY_FULL
         self.modeEdit = MODE_EDIT_PAN
         self.transitDefaults = dict(DEFAULT_TRANSIT_SETTINGS)
@@ -674,6 +736,8 @@ class LotEditorWin(wx.Frame):
         if values[0] == 0:
             return LEXBuilding
         if values[0] == 1:
+            if self._family_members(values[12]):
+                return LEXAssetTypeFamily
             return LEXAssetTypeProp
         if values[0] == 2:
             tex_id = values[12]
@@ -682,6 +746,8 @@ class LotEditorWin(wx.Frame):
                     return LEXAssetTypeOverlayTexture
             return LEXAssetTypeBaseTexture
         if values[0] == 4:
+            if self._family_members(values[12]):
+                return LEXAssetTypeFamily
             return LEXAssetTypeFlora
         if values[0] == 5:
             return LEXConstraintWater
@@ -712,6 +778,46 @@ class LotEditorWin(wx.Frame):
         ])
         return '\n'.join(lines)
 
+    def _family_members(self, family_id):
+        if not hasattr(self, 'virtualDAT') or family_id not in self.virtualDAT.categories:
+            return []
+        members = []
+        for desc in self.virtualDAT.categories[family_id].descriptors:
+            try:
+                if desc.exemplar.entry.tgi[0] != 1697917002:
+                    continue
+                if desc.exemplar.GetProp(16)[0] in (15, 30):
+                    members.append(desc)
+            except Exception:
+                pass
+        members.sort(key=lambda n: n.name.upper())
+        return members
+
+    def _selected_family_desc(self, family_id):
+        members = self._family_members(family_id)
+        if not members:
+            return None
+        selected_tgi = self.familyVariations.get(family_id)
+        if selected_tgi is not None:
+            for desc in members:
+                if desc.exemplar.entry.tgi == selected_tgi:
+                    return desc
+        return members[0]
+
+    def SetFamilyVariation(self, desc):
+        family_id = None
+        selected_id = self.selected[0] if len(self.selected) == 1 else None
+        if selected_id is not None:
+            values = self._lot_config_for_selection(selected_id)
+            if values is not None and values[0] in (1, 4):
+                family_id = values[12]
+        if family_id is None:
+            return
+        self.familyVariations[family_id] = desc.exemplar.entry.tgi
+        self._rebuild_scene()
+        self.UpdateSelectionInspector()
+        self.on_draw()
+
     def UpdateSelectionInspector(self):
         self._update_edit_buttons()
         if not hasattr(self, 'inspector'):
@@ -723,6 +829,7 @@ class LotEditorWin(wx.Frame):
             else:
                 self.inspector.HideFields()
                 self.inspector.HideTransit()
+                self.inspector.HideFamilyVariations()
             return
         selected_values = []
         for selected_id in self.selected:
@@ -759,6 +866,9 @@ class LotEditorWin(wx.Frame):
             self.inspector.ShowTransit(selected_values, self.transitDefaults)
             return
         editable = False
+        family_members = []
+        family_id = None
+        selected_family_tgi = None
         if len(self.selected) == 1:
             values = self._lot_config_for_selection(self.selected[0])
             if values is not None:
@@ -778,6 +888,14 @@ class LotEditorWin(wx.Frame):
                 # is no rep-13 name/reference to show.
                 if len(values) > 12:
                     lines.append('%s: %s' % (LEXInspectorName, hex2str(values[12])))
+                    if values[0] in (1, 4):
+                        family_members = self._family_members(values[12])
+                        if family_members:
+                            family_id = values[12]
+                            desc = self._selected_family_desc(family_id)
+                            if desc is not None:
+                                selected_family_tgi = desc.exemplar.entry.tgi
+                                lines.append('Variation: %s' % desc.name)
                 lines.extend([
                     '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
                     '%s: %.2f, %.2f - %.2f, %.2f' % ((LEXInspectorBounds,) + bounds),
@@ -791,6 +909,10 @@ class LotEditorWin(wx.Frame):
         if not editable:
             self.inspector.HideFields()
         self.inspector.HideTransit()
+        if family_members:
+            self.inspector.ShowFamilyVariations(family_id, family_members, selected_family_tgi)
+        else:
+            self.inspector.HideFamilyVariations()
 
     def ApplyInspectorEdit(self, px, py, height):
         """Write inspector position/height fields back to the single selection."""
@@ -1533,6 +1655,9 @@ class LotEditorWin(wx.Frame):
         self.building = None
         self.buildingViewer = []
         self.currentBuilding = 0
+        self.lotFamiliesPropID = []
+        self.lotPropDescs = []
+        self.lotFloraDescs = []
         self.props = []
         self.propViewers = []
         self.floras = []
@@ -2241,14 +2366,13 @@ class LotEditorWin(wx.Frame):
                     cat = 210746660
                 if propID in self.virtualDAT.categories:
                     bOk = False
-                    for desc in self.virtualDAT.categories[propID].descriptors:
+                    for desc in self._family_members(propID):
                         name = self.virtualDAT.categories[propID].Name
-                        if desc.exemplar.GetProp(16)[0] == 30 and desc.exemplar.entry.tgi[0] == 1697917002:
-                            bOk = True
-                            selectedDesc = desc
-                            if propID not in self.lotFamiliesPropID:
-                                self.lotFamiliesPropID.append(propID)
-                            continue
+                        bOk = True
+                        selectedDesc = self._selected_family_desc(propID)
+                        if propID not in self.lotFamiliesPropID:
+                            self.lotFamiliesPropID.append(propID)
+                        break
 
                     if not bOk:
                         continue
@@ -2275,16 +2399,12 @@ class LotEditorWin(wx.Frame):
     def LoadPropModel(self, propID):
         selectedDesc = None
         if propID in self.virtualDAT.categories:
-            bOk = False
-            for desc in self.virtualDAT.categories[propID].descriptors:
+            selectedDesc = self._selected_family_desc(propID)
+            if selectedDesc is not None:
                 name = self.virtualDAT.categories[propID].Name
-                if desc.exemplar.GetProp(16)[0] == 30 and desc.exemplar.entry.tgi[0] == 1697917002:
-                    bOk = True
-                    selectedDesc = desc
+                if propID not in self.lotFamiliesPropID:
                     self.lotFamiliesPropID.append(propID)
-                    break
-
-            if not bOk:
+            else:
                 return (None, 'not found')
         if selectedDesc is None:
             possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[210746660].descriptors)
@@ -2299,8 +2419,9 @@ class LotEditorWin(wx.Frame):
         rkt1 = selectedDesc.exemplar.GetProp(662775841)
         rkt3 = selectedDesc.exemplar.GetProp(662775843)
         rkt4 = selectedDesc.exemplar.GetProp(662775844)
-        rkt5 = desc.exemplar.GetProp(662775845)
-        self.lotPropDescs.append(selectedDesc)
+        rkt5 = selectedDesc.exemplar.GetProp(662775845)
+        if selectedDesc not in self.lotPropDescs:
+            self.lotPropDescs.append(selectedDesc)
         propViewer = None
         if rkt0:
             propViewer = ResourceViewer(662775840, rkt0, self.virtualDAT, None)
@@ -2333,6 +2454,14 @@ class LotEditorWin(wx.Frame):
 
     def LoadFloraModel(self, propID):
         selectedDesc = None
+        if propID in self.virtualDAT.categories:
+            selectedDesc = self._selected_family_desc(propID)
+            if selectedDesc is not None:
+                name = self.virtualDAT.categories[propID].Name
+                if propID not in self.lotFamiliesPropID:
+                    self.lotFamiliesPropID.append(propID)
+            else:
+                return (None, 'not found')
         if selectedDesc is None:
             possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[1830116951].descriptors)
             for desc in possibles:
@@ -2342,7 +2471,8 @@ class LotEditorWin(wx.Frame):
 
         if selectedDesc is None:
             return (None, 'not found')
-        self.lotFloraDescs.append(selectedDesc)
+        if selectedDesc not in self.lotFloraDescs:
+            self.lotFloraDescs.append(selectedDesc)
         rkt0 = selectedDesc.exemplar.GetProp(662775840)
         rkt1 = selectedDesc.exemplar.GetProp(662775841)
         rkt3 = selectedDesc.exemplar.GetProp(662775843)
@@ -2446,6 +2576,9 @@ class LotEditorWin(wx.Frame):
         self.texOverlays = []
         self.building = None
         self.buildingViewer = []
+        self.lotFamiliesPropID = []
+        self.lotPropDescs = []
+        self.lotFloraDescs = []
         self.props = []
         self.propViewers = []
         self.floras = []
