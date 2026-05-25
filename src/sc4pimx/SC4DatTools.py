@@ -87,11 +87,11 @@ def hex2str(v, size=32):
         else:
             return '0x%016x' % int(v)
     elif size == 32:
-        return hex(struct.unpack('I', struct.pack('i', v))[0])[:-1]
+        return '0x%08x' % (int(v) & 0xFFFFFFFF)
     elif size == 8:
-        return '0x%02x' % int(255 - ~v)
+        return '0x%02x' % (int(v) & 0xFF)
     else:
-        return '0x%016x' % int(18446744073709551615 - ~v)
+        return '0x%016x' % (int(v) & 0xFFFFFFFFFFFFFFFF)
 
 
 class Prop():
@@ -216,44 +216,42 @@ class Prop():
                             if s[0] == '-':
                                 mul = -1
                                 s = s[1:]
-                            if len(s) > 2:
-                                if s[1].upper() == 'X':
-                                    v = int(s, 16)
-                                else:
-                                    try:
-                                        v = int(s)
-                                    except ValueError:
-                                        v = int(s, 16)
+                            is_hex = len(s) > 2 and s[1].upper() == 'X'
+                            try:
+                                v = int(s, 16) if is_hex else int(s)
+                            except ValueError:
+                                is_hex = True
+                                v = int(s, 16)
 
-                            else:
-                                try:
-                                    v = int(s)
-                                except ValueError:
-                                    v = int(s, 16)
-
-                                v *= mul
-                                if self.typeValue == 768:
-                                    if v < 0:
-                                        return 0
-                                    if v > 4294967295:
-                                        return 4294967295
-                                if self.typeValue == 1792:
-                                    v = struct.unpack('l', struct.pack('L', v))[0]
-                                    if v > 2147483647:
-                                        return 2147483647
-                                    if v < -2147483648:
-                                        return -2147483648
-                                if self.typeValue == 2816:
-                                    v = struct.unpack('b', struct.pack('B', v))[0]
-                                    if v > 127:
-                                        return 127
-                                    if v < -128:
-                                        return -128
-                                if self.typeValue == 256:
-                                    if v < 0:
-                                        return 0
-                                    if v > 255:
-                                        return 255
+                            v *= mul
+                            if self.typeValue == 768:
+                                if v < 0:
+                                    return 0
+                                if v > 4294967295:
+                                    return 4294967295
+                            if self.typeValue == 1792:
+                                if is_hex:
+                                    v &= 0xFFFFFFFF
+                                    if v >= 0x80000000:
+                                        v -= 0x100000000
+                                if v > 2147483647:
+                                    return 2147483647
+                                if v < -2147483648:
+                                    return -2147483648
+                            if self.typeValue == 2816:
+                                if is_hex:
+                                    v &= 0xFF
+                                    if v >= 0x80:
+                                        v -= 0x100
+                                if v > 127:
+                                    return 127
+                                if v < -128:
+                                    return -128
+                            if self.typeValue == 256:
+                                if v < 0:
+                                    return 0
+                                if v > 255:
+                                    return 255
                             return v
 
                         self.values = [ convH(stripLabel(x)) for x in fields[3][1:-1].split(',') ]
