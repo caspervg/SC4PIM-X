@@ -1568,6 +1568,44 @@ class NoteBookPanel(wx.Panel):
 
         value = prop.ToStr()
         if prop_def is not None:
+            from .SC4StructuredPropertyEditors import edit_structured_property, editor_kind
+            if editor_kind(prop, prop_def):
+                newValue = edit_structured_property(self, title, prop, prop_def)
+                if newValue is None:
+                    return
+                newPropStr = CreateAPropFromString(prop_def, newValue)
+                try:
+                    newProp = Prop(newPropStr, False, self.exemplar)
+                except Exception:
+                    raise
+
+                self.exemplar.props[idx - 3] = newProp
+                self.exemplar.modified = True
+                formatted = ConvertAPropToReadable(newProp, prop_def)
+                listItems.SetItem(idx, 0, name)
+                listItems.SetItem(idx, 1, '0x%08X' % newProp.id)
+                listItems.SetItem(idx, 2, '%s' % Prop.format2String[newProp.typeValue])
+                listItems.SetItem(idx, 3, '%d' % len(newProp.values))
+                listItems.SetItem(idx, 4, '%s' % formatted)
+                self.bSave.Enable(True)
+                self.descriptor.name = self.exemplar.GetProp(32)[0]
+                self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
+                self.parent.parent.listItems.Refresh()
+                self.listProperties.DeleteAllItems()
+                self.FillTheList()
+                item = self.parent.parent.tree.GetSelection()
+                try:
+                    data = self.parent.parent.tree.GetItemData(item)
+                except Exception:
+                    data = None
+
+                if data:
+                    if data.__class__.__name__ == 'list':
+                        self.parent.parent.FillItemsListModel(data)
+                    elif data.__class__.__name__ == 'DictWrapper':
+                        self.parent.parent.FillItemsList(data)
+                return
+
             from .SC4CurveEditor import edit_curve_property, is_curve_property
             if is_curve_property(prop, prop_def):
                 newValue = edit_curve_property(self, title, name, prop.values)
