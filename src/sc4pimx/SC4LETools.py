@@ -657,6 +657,19 @@ class LEAssetItem(object):
             pass
         return '%s:%s' % (self.kind, self.sublabel)
 
+    @property
+    def occupant_size(self):
+        """(width, height, depth) tuple in metres for prop/flora, else None."""
+        if self.kind not in ('prop', 'flora'):
+            return None
+        try:
+            size = self.source.exemplar.GetProp(662775824)  # 0x27812810 Occupant Size
+        except Exception:
+            return None
+        if not size or len(size) < 3:
+            return None
+        return float(size[0]), float(size[1]), float(size[2])
+
 
 class LEAssetThumbnailProvider(object):
 
@@ -1150,6 +1163,9 @@ class LEAssetGrid(wx.ScrolledWindow):
             pass
         if item.sublabel and item.sublabel != item.label and item.sublabel != file_name:
             lines.append(item.sublabel)
+        size = item.occupant_size
+        if size:
+            lines.append('%.1f x %.1f x %.1f m' % size)
         if file_name and file_name != item.label:
             lines.append(file_name)
         return '\n'.join(lines)

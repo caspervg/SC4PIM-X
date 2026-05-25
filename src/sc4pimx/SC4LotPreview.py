@@ -644,6 +644,9 @@ class LotEditorWin(wx.Frame):
             lines.append('%s: %s' % (LEXInspectorName, item.label))
         if hex_id:
             lines.append('%s: 0x%s' % (LEXInspectorID, hex_id))
+        size = getattr(item, 'occupant_size', None)
+        if size:
+            lines.append('%s: %.1f x %.1f x %.1f m' % (LEXInspectorSize, size[0], size[1], size[2]))
         try:
             source = item.source
             file_name = getattr(source, 'fileName', None)
