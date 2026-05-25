@@ -689,6 +689,38 @@ class LEAssetItem(object):
             return None
         return float(size[0]), float(size[1]), float(size[2])
 
+    @property
+    def behavior_dots(self):
+        """Tuple of (r,g,b) for each active behaviour, in fixed order.
+
+        Drawn as small corner dots; matches P&P's badge colours.
+        """
+        cached = self.__dict__.get('_behavior_dots')
+        if cached is not None:
+            return cached
+        flags = ()
+        if self.kind in ('prop', 'flora'):
+            try:
+                ex = self.source.exemplar
+                result = []
+                nighttime = ex.GetProp(0x49c9c93c)
+                if nighttime and nighttime[0]:
+                    result.append((0x63, 0x66, 0xF1))    # Day/Night - indigo
+                tod = ex.GetProp(0x4a149631)
+                if tod and len(tod) >= 2:
+                    result.append((0xF5, 0x9E, 0x0B))    # Timed - amber
+                if (ex.GetProp(0xca7515cc) or ex.GetProp(0x4a764564) or
+                        ex.GetProp(0x0a751675)):
+                    result.append((0x10, 0xB9, 0x81))    # Seasonal - emerald
+                rc = ex.GetProp(0x4a751ad5)
+                if rc and rc[0] < 100:
+                    result.append((0xF4, 0x3F, 0x5E))    # Random chance - rose
+                flags = tuple(result)
+            except Exception:
+                flags = ()
+        self.__dict__['_behavior_dots'] = flags
+        return flags
+
 
 class LEAssetThumbnailProvider(object):
 
@@ -1099,6 +1131,17 @@ class LEAssetGrid(wx.ScrolledWindow):
         tx = rect.x + (rect.width - self.THUMB) // 2
         ty = rect.y + 12
         dc.DrawBitmap(bmp, tx, ty, True)
+        dots = item.behavior_dots
+        if dots:
+            radius = 4
+            gap = 3
+            right = tx + self.THUMB - 4
+            cy = ty + 4 + radius
+            dc.SetPen(wx.Pen(wx.Colour(255, 255, 255), 1))
+            for i, (r, g, b) in enumerate(dots):
+                cx = right - radius - i * (2 * radius + gap)
+                dc.SetBrush(wx.Brush(wx.Colour(r, g, b)))
+                dc.DrawCircle(cx, cy, radius)
         state_count = self.thumbnail_provider.StateCount(item)
         if state_count > 1:
             state_label = str(state_count)
