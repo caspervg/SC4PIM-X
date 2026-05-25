@@ -1251,7 +1251,7 @@ class LEAssetList(wx.ListCtrl):
             return asset.label
         if col == 1:
             return asset.type_label
-        return asset.sublabel
+        return getattr(asset, 'hex_id', '') or asset.sublabel
 
     def OnSelected(self, event):
         idx = event.GetIndex()

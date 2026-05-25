@@ -634,13 +634,16 @@ class LotEditorWin(wx.Frame):
             self.assetBrowser.RefreshAssets()
 
     def UpdateAssetInspector(self, item):
+        hex_id = getattr(item, 'hex_id', '') or ''
         lines = [
             LEXInspectorAsset,
             '',
             '%s: %s' % (LEXInspectorType, item.type_label),
-            '%s: %s' % (LEXInspectorName, item.label),
-            '%s: %s' % (LEXInspectorID, item.sublabel),
         ]
+        if item.label and item.label != hex_id:
+            lines.append('%s: %s' % (LEXInspectorName, item.label))
+        if hex_id:
+            lines.append('%s: 0x%s' % (LEXInspectorID, hex_id))
         try:
             source = item.source
             file_name = getattr(source, 'fileName', None)
