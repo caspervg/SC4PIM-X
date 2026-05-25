@@ -7,7 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 import wx
 
 from .dat_cache import DatFileCache, serialize_entries
-from .paths import data_file_path, image_db_path
+from .paths import data_file_path, image_db_path, sc4path_thumb_path
+from .SC4PathReader import list_sc4path_entries
 from .SC4DataFunctions import (
     DuplicateProp,
     FinalizeCategory,
@@ -26,6 +27,9 @@ class VirtualDat(object):
 
     def __init__(self, visual_tree):
         self.missing_pictures = None
+        self.sc4path_entries = []
+        self.missing_sc4path_pictures = []
+        self.sc4path_metadata = {}
         VirtualDat.this = self
         self.ilOver = wx.ImageList(64, 64, True)
         self.ilBase = wx.ImageList(64, 64, True)
@@ -493,6 +497,16 @@ class VirtualDat(object):
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(atc.tgi[1]), hex2str(atc.tgi[2]))))
             if not os.path.exists(file_name):
                 self.missing_atc_pictures.append((file_name, atc))
+        # SC4Paths get picker-grid thumbnails rendered the same way: collect
+        # every entry here and let _load_finalize parse them, populate the
+        # metadata table, and render PNGs for the ones missing from the cache.
+        self.sc4path_entries = list_sc4path_entries(self)
+        self.missing_sc4path_pictures = [
+            (str(sc4path_thumb_path(item.iid)), item)
+            for item in self.sc4path_entries
+            if not sc4path_thumb_path(item.iid).exists()
+        ]
+        self.sc4path_metadata = {}
         logger.debug(
             'Finalized virtual DAT in %.3fs: %d standard models, %d other models, %d textures, %d missing pictures, %d missing ATC pictures',
             time.time() - start,

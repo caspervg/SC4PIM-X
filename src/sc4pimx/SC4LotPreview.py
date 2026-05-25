@@ -18,12 +18,20 @@ from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
 from .SC4LETools import *
 from .SC4OpenGL import *
+from .SC4PathReader import (
+    SC4PATH_GIDS,
+    SC4PATH_TYPE,
+    SC4PathParseError,
+    parse_sc4path,
+)
 from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
 from .SC4TransitLotTools import (
     DEFAULT_TRANSIT_SETTINGS,
     TRANSIT_OBJECT_TYPE,
     TransitInspectorPanel,
     cached_transit,
+    draw_sc4path_overlay_2d,
+    draw_sc4path_overlay_3d,
     draw_transit_overlay,
     ensure_transit_values,
     format_hex32,
@@ -33,8 +41,8 @@ from .SC4TransitLotTools import (
     network_label,
     quad_for_values,
     remove_cached_transit,
+    transit_path_status,
     tile_quad,
-    update_cached_transit,
 )
 from .translation import *
 
@@ -64,6 +72,7 @@ LAYER_OVERLAY = 'overlay_textures'
 LAYER_WATER = 'water_constraints'
 LAYER_LAND = 'land_constraints'
 LAYER_TRANSIT = 'transit'
+LAYER_SC4PATHS = 'sc4_paths'
 LAYER_ROAD_EDGES = 'road_edges'
 LAYER_BUILDING = 'building'
 LAYER_PROPS = 'props'
@@ -79,6 +88,7 @@ LAYER_SPECS = [
     (LAYER_WATER, LEXLayerWaterConstraints),
     (LAYER_LAND, LEXLayerLandConstraints),
     (LAYER_TRANSIT, LEXLayerTransit),
+    (LAYER_SC4PATHS, LEXLayerSC4Paths),
     (LAYER_ROAD_EDGES, LEXLayerRoadEdges),
     (LAYER_BUILDING, LEXLayerBuilding),
     (LAYER_PROPS, LEXLayerProps),
@@ -487,6 +497,7 @@ class LotEditorWin(wx.Frame):
         self._undo_stack = []
         self._redo_stack = []
         self._drag_undo_pending = False
+        self._sc4path_cache = {}
         return
 
     def _make_toolbar_button(self, parent, label, tooltip, handler, hint=None, art_id=None, size=(32, 28)):
@@ -855,6 +866,16 @@ class LotEditorWin(wx.Frame):
             ])
             if len(selected_values) == 1:
                 values = ensure_transit_values(selected_values[0][:])
+                for tex_data in getattr(self, 'te', []):
+                    if len(tex_data) > 5 and tex_data[5] == values[11]:
+                        path_status = transit_path_status(tex_data)
+                        if path_status:
+                            lines.append('%s: %s' % (LEXLayerSC4Paths, path_status))
+                        path_info = tex_data[8] if len(tex_data) > 8 else None
+                        path_file = path_info.get("path_file") if path_info else None
+                        if path_file is not None and path_file.warnings:
+                            lines.append('%s: %s' % (LEXInspectorWarnings, path_file.warnings[0]))
+                        break
                 cx = ToCoord(values[3])
                 cy = ToCoord(values[5])
                 lines.extend([
@@ -992,7 +1013,7 @@ class LotEditorWin(wx.Frame):
             values[13] = int(settings['rep14'])
             values[14] = int(settings['direction_mask'])
             values[15] = int(settings['rep16'])
-            update_cached_transit(self.te, values)
+            self._update_cached_transit(values)
         self.UpdatePIM()
         self.UpdateSelectionInspector()
         self.on_draw()
@@ -1418,7 +1439,7 @@ class LotEditorWin(wx.Frame):
                         if not z:
                             UpdateTexData(self.texOverlays)
                     elif values[0] == 7:
-                        update_cached_transit(self.te, ensure_transit_values(values))
+                        self._update_cached_transit(ensure_transit_values(values))
                     elif values[0] in (5, 6):
                         pool = self.waters if values[0] == 5 else self.lands
                         for texData in pool:
@@ -1525,7 +1546,7 @@ class LotEditorWin(wx.Frame):
                         if not z:
                             UpdateTexData(self.texOverlays)
                     elif values[0] == 7:
-                        update_cached_transit(self.te, ensure_transit_values(values))
+                        self._update_cached_transit(ensure_transit_values(values))
                     elif values[0] in (5, 6):
                         pool = self.waters if values[0] == 5 else self.lands
                         for texData in pool:
@@ -2565,7 +2586,7 @@ class LotEditorWin(wx.Frame):
              ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960, values[11]]
             self.lands.append(texData)
         if values[0] == 7:
-            self.te.append(cached_transit(values))
+            self.te.append(self._cached_transit_with_path(values))
 
     def PreCache(self):
         self.glCanvas2D.SetCurrent()
@@ -2586,6 +2607,7 @@ class LotEditorWin(wx.Frame):
         self.waters = []
         self.lands = []
         self.te = []
+        self._sc4path_cache = {}
         base, roadTex = self.GetTextures(641146880)
         self.textures[641146880] = [roadTex, base]
         base, waterLandTex = self.GetTexturesLE(3412818905, 1802442183)
@@ -2602,6 +2624,53 @@ class LotEditorWin(wx.Frame):
             self.PreCacheObject(values)
 
         return
+
+    def _cached_transit_with_path(self, values):
+        values = ensure_transit_values(values[:])
+        data = cached_transit(values)
+        data.append(self._resolve_sc4path_info(values[15]))
+        return data
+
+    def _update_cached_transit(self, values):
+        replacement = self._cached_transit_with_path(values)
+        for idx, item in enumerate(self.te):
+            if len(item) > 5 and item[5] == values[11]:
+                self.te[idx] = replacement
+                return
+        self.te.append(replacement)
+
+    def _resolve_sc4path_info(self, iid):
+        iid = int(iid) & 0xFFFFFFFF
+        if iid == 0:
+            return {"iid": 0, "path_file": None, "entry": None, "error": ""}
+        cached = self._sc4path_cache.get(iid)
+        if cached is not None:
+            return cached
+        info = {"iid": iid, "path_file": None, "entry": None, "error": "missing"}
+        entry = self._find_sc4path_entry(iid)
+        if entry is not None:
+            info["entry"] = entry
+            try:
+                entry.read_file(None, True, True)
+                info["path_file"] = parse_sc4path(entry.content)
+                info["error"] = ""
+            except SC4PathParseError as exc:
+                info["error"] = "parse error: %s" % exc
+            except Exception as exc:
+                logger.exception("Failed to load SC4Path 0x%08X", iid)
+                info["error"] = "load error: %s" % exc
+            finally:
+                entry.rawContent = None
+                entry.content = None
+        self._sc4path_cache[iid] = info
+        return info
+
+    def _find_sc4path_entry(self, iid):
+        for gid in SC4PATH_GIDS:
+            entry = self.virtualDAT.getEntry(SC4PATH_TYPE, gid, iid)
+            if entry is not None:
+                return entry
+        return None
 
     def Display(self, exemplar, virtualDAT, bForIcon=False):
         wx.BeginBusyCursor()
@@ -2926,10 +2995,18 @@ class LotEditorWin(wx.Frame):
                         self.quadHighs.append([minx, miny, maxx, maxy])
                     if not self.dragSelect and px >= minx and px <= maxx and py >= miny and py <= maxy:
                         bUnderMouse = True
-                        self.SetStatusText('%s %s' % (network_label(texData[3][0]), mask_label(texData[4])), 5)
+                        status = '%s %s' % (network_label(texData[3][0]), mask_label(texData[4]))
+                        path_status = transit_path_status(texData)
+                        if path_status and path_status != "No SC4Path ID":
+                            status = '%s - %s' % (status, path_status)
+                        self.SetStatusText(status, 5)
                         self.highlighted = [texData[5]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                 draw_transit_overlay(self, texData, self.modeEdit == MODE_EDIT_TRANSIT, rot2D, scaling)
+
+        if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_SC4PATHS):
+            for texData in self.te:
+                draw_sc4path_overlay_2d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         glColor3f(1, 1, 1)
         if self._is_layer_visible('2d', LAYER_ROAD_EDGES):
@@ -3283,6 +3360,10 @@ class LotEditorWin(wx.Frame):
             if self.exemplar.GetProp(1246398704)[0] & 4:
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
                     self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+
+        if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('3d', LAYER_SC4PATHS):
+            for texData in self.te:
+                draw_sc4path_overlay_3d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         glMatrixMode(GL_TEXTURE)
         glLoadIdentity()
@@ -3704,7 +3785,7 @@ class LotEditorWin(wx.Frame):
                             values[8] = ToUnsigned(int((cx + 8.0) * 65536))
                             values[9] = ToUnsigned(int((cy + 8.0) * 65536))
                             q[:] = quad_for_values(values)
-                            update_cached_transit(self.te, values)
+                            self._update_cached_transit(values)
                     break
 
         return

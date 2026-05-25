@@ -115,3 +115,25 @@ def image_db_dir(large: bool = False) -> Path:
 def image_db_path(name: str, large: bool = False) -> Path:
     """Path to a single cached thumbnail inside :func:`image_db_dir`."""
     return image_db_dir(large) / name
+
+
+SC4PATH_THUMB_SIZE = (192, 128)
+
+
+def sc4path_thumb_dir() -> Path:
+    """Directory holding the cached SC4Path picker thumbnails (PNG, line art).
+
+    Sibling of ``ImageDB`` / ``ImageDBLarge`` so per-user state stays tidy.
+    """
+    return user_data_dir() / "ImageDBPaths"
+
+
+def sc4path_thumb_path(iid: int, size: tuple[int, int] = SC4PATH_THUMB_SIZE) -> Path:
+    """Path to a single SC4Path picker thumbnail, keyed by IID + size.
+
+    The width/height suffix means changing the picker's thumbnail size
+    invalidates the on-disk cache automatically — old files stay on disk but
+    no longer collide with the new ones, so the next Finalize re-renders.
+    """
+    w, h = size
+    return sc4path_thumb_dir() / ("0x%08X-%dx%d.png" % (int(iid) & 0xFFFFFFFF, w, h))
