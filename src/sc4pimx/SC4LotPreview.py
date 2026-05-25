@@ -2538,6 +2538,11 @@ class LotEditorWin(wx.Frame):
         if self.panel == 3 or self.panel == 1:
             self.Draw3D()
         self.glCanvas2D.SwapBuffers()
+        # Self-rescheduling tick: keeps animated S3D meshes and ATCs ticking
+        # without requiring user interaction.
+        t2 = getattr(self, 't2', None)
+        if t2 is not None:
+            t2.Restart(100)
 
     def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False):
         glEnable(GL_TEXTURE_2D)

@@ -1,6 +1,7 @@
 """S3D (SimCity 4 3D model) file reader."""
 import logging
 import struct
+import time
 
 import numpy
 import numpy as np
@@ -52,6 +53,7 @@ class S3D(object):
         entry.content = None
         entry.rawContent = None
         self.currentFrame = 0
+        self._lastFrameTime = None
         return
 
     def ReadHead(self, buffer):
@@ -273,6 +275,10 @@ class S3D(object):
         buffer = buffer[16:]
         self.anims = {}
         self.anims['frameCount'] = frameCount
+        self.anims['frameRate'] = frameRate
+        # 1 = Loop (default), 2 = Ping-pong, 3 = One-shot. Loop fallback for
+        # unknown values to preserve current behaviour.
+        self.anims['animMode'] = animMode
         self.anims['animatedMeshes'] = []
         for nMesh in range(nbrMeshes):
             nameLen = struct.unpack('B', buffer[0:1])[0]
@@ -304,8 +310,24 @@ class S3D(object):
         except Exception:
             return
 
-        self.currentFrame += 1
-        if self.currentFrame == self.anims['frameCount']:
+        frame_count = max(1, self.anims.get('frameCount', 1))
+        if frame_count > 1:
+            # Decouple animation speed from draw call rate: advance by elapsed
+            # time at the model's intended frameRate, not once per draw.
+            fps = self.anims.get('frameRate') or 10
+            interval = 1.0 / fps
+            now = time.monotonic()
+            if self._lastFrameTime is None:
+                self._lastFrameTime = now
+            elapsed = now - self._lastFrameTime
+            steps = int(elapsed / interval)
+            if steps > 0:
+                self._lastFrameTime += steps * interval
+                # animMode encoding is not yet confirmed against real BAT data;
+                # always loop until ping-pong / one-shot values can be verified
+                # so we never freeze on the last frame.
+                self.currentFrame = (self.currentFrame + steps) % frame_count
+        if self.currentFrame >= frame_count:
             self.currentFrame = 0
         funcTable = [
          GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS]
