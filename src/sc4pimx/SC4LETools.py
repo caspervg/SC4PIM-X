@@ -603,7 +603,7 @@ def DisplayNameForTex(entry):
 
 class LEAssetItem(object):
 
-    def __init__(self, kind, label, sublabel, proxy, source=None, badge=None, extra_text=''):
+    def __init__(self, kind, label, sublabel, proxy, source=None, badge=None, extra_text='', hex_id=''):
         self.kind = kind
         self.label = label
         self.sublabel = sublabel
@@ -612,6 +612,8 @@ class LEAssetItem(object):
         self.badge = badge or kind
         # Extra free text folded into search (e.g. a family's member names).
         self.extra_text = extra_text
+        # Canonical hex instance ID (no 0x prefix), surfaced in tooltip/inspector.
+        self.hex_id = hex_id
 
     @property
     def search_text(self):
@@ -624,8 +626,9 @@ class LEAssetItem(object):
                 file_name = src.exemplar.entry.fileName or ''
         except Exception:
             file_name = ''
-        return ('%s %s %s %s %s %s' % (self.kind, self.badge, self.label,
-                                       self.sublabel, self.extra_text, file_name)).lower()
+        return ('%s %s %s %s %s %s %s' % (self.kind, self.badge, self.label,
+                                          self.sublabel, self.hex_id, self.extra_text,
+                                          file_name)).lower()
 
     @property
     def type_label(self):
@@ -1132,17 +1135,23 @@ class LEAssetGrid(wx.ScrolledWindow):
 
     def _card_tooltip(self, item):
         lines = [item.label, item.type_label]
-        if item.sublabel and item.sublabel != item.label:
-            lines.append(item.sublabel)
+        hex_id = getattr(item, 'hex_id', '')
+        if hex_id and hex_id != item.label:
+            lines.append('0x' + hex_id)
+        file_name = ''
         try:
             source = item.source
-            file_name = getattr(source, 'fileName', None)
-            if file_name is None and hasattr(source, 'exemplar'):
-                file_name = source.exemplar.entry.fileName
-            if file_name:
-                lines.append(os.path.split(file_name)[1])
+            fn = getattr(source, 'fileName', None)
+            if fn is None and hasattr(source, 'exemplar'):
+                fn = source.exemplar.entry.fileName
+            if fn:
+                file_name = os.path.split(fn)[1]
         except Exception:
             pass
+        if item.sublabel and item.sublabel != item.label and item.sublabel != file_name:
+            lines.append(item.sublabel)
+        if file_name and file_name != item.label:
+            lines.append(file_name)
         return '\n'.join(lines)
 
     def OnMotion(self, event):
@@ -1423,16 +1432,22 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def _texture_item(self, entry, overlay):
         iid = entry.tgi[2] - 3
+        hex_id = hex2str(iid)[2:]
         kind = 'overlay texture' if overlay else 'base texture'
         badge = LEXAssetBrowserOverlayBadge if overlay else LEXAssetBrowserBaseBadge
-        return LEAssetItem(kind, hex2str(iid)[2:], os.path.split(entry.fileName)[1], OverlayProxy(entry) if overlay else BaseProxy(entry), entry, badge)
+        return LEAssetItem(kind, hex_id, os.path.split(entry.fileName)[1],
+                           OverlayProxy(entry) if overlay else BaseProxy(entry), entry, badge,
+                           hex_id=hex_id)
 
     def _prop_item(self, desc, flora=False):
         name = desc.exemplar.GetProp(32)
-        label = name[0] if name else hex2str(desc.exemplar.entry.tgi[2])[2:]
+        hex_id = hex2str(desc.exemplar.entry.tgi[2])[2:]
+        label = name[0] if name else hex_id
+        file_name = desc.exemplar.entry.fileName
+        sublabel = os.path.split(file_name)[1] if file_name else ''
         kind = 'flora' if flora else 'prop'
         badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserPropBadge
-        return LEAssetItem(kind, label, hex2str(desc.exemplar.entry.tgi[2])[2:], PropProxy(desc), desc, badge)
+        return LEAssetItem(kind, label, sublabel, PropProxy(desc), desc, badge, hex_id=hex_id)
 
     def _family_member_names(self, cat_id):
         names = []
@@ -1450,14 +1465,16 @@ class LEAssetBrowserPanel(wx.Panel):
         return names
 
     def _family_item(self, cat_id):
+        hex_id = hex2str(cat_id)[2:]
         try:
             category = VirtualDat.this.categories[cat_id]
-            label = category.Name
+            label = category.Name or hex_id
         except Exception:
-            label = hex2str(cat_id)
-        members = ' '.join(self._family_member_names(cat_id))
-        return LEAssetItem('family', label, hex2str(cat_id)[2:], FamilyProxy(cat_id), cat_id,
-                           LEXAssetBrowserFamilyBadge, members)
+            label = hex_id
+        members = self._family_member_names(cat_id)
+        sublabel = '%d %s' % (len(members), LEXAssetBrowserMembers) if members else ''
+        return LEAssetItem('family', label, sublabel, FamilyProxy(cat_id), cat_id,
+                           LEXAssetBrowserFamilyBadge, ' '.join(members), hex_id=hex_id)
 
     def _build_items(self):
         items = []
