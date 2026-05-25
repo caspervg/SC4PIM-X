@@ -4324,6 +4324,36 @@ class MainFrame(wx.Frame):
                             logger.exception("Could not generate ATC thumbnail for 0x%08X-0x%08X",
                                              atc.tgi[1], atc.tgi[2])
                         dlg.Increment()
+            sc4path_entries = getattr(self.virtualDAT, 'sc4path_entries', None) or []
+            if sc4path_entries:
+                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
+                    logger.debug('Skipping SC4Path metadata/thumbnail generation')
+                else:
+                    from .SC4PathPicker import SC4PathImageBuilder, populate_sc4path_cache
+                    missing_paths = {item.iid: png for png, item
+                                     in getattr(self.virtualDAT,
+                                                'missing_sc4path_pictures', None) or []}
+                    logger.debug('Caching %d SC4Path metadata entries (%d need thumbs)',
+                                 len(sc4path_entries), len(missing_paths))
+                    preview = None
+                    if missing_paths:
+                        preview = SC4PathImageBuilder(self)
+                        preview.Show(show=True)
+                    metadata_table = {}
+                    try:
+                        for item in sc4path_entries:
+                            png_path = missing_paths.get(item.iid)
+                            try:
+                                metadata_table[item.iid] = populate_sc4path_cache(
+                                    item, png_path, preview=preview
+                                )
+                            except Exception:
+                                logger.exception("Could not cache SC4Path 0x%08X", item.iid)
+                            dlg.Increment()
+                    finally:
+                        if preview is not None:
+                            preview.Destroy()
+                    self.virtualDAT.sc4path_metadata = metadata_table
             logger.debug('Loading prop image list')
             if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
                 propLoader = ImageListLoaderProps(self.virtualDAT)

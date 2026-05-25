@@ -9,7 +9,9 @@ import math
 import wx
 from OpenGL.GL import (
     GL_BLEND,
+    GL_DEPTH_TEST,
     GL_LINES,
+    GL_LINE_STRIP,
     GL_LINE_LOOP,
     GL_ONE_MINUS_SRC_ALPHA,
     GL_QUADS,
@@ -32,7 +34,29 @@ from OpenGL.GL import (
 )
 
 from .SC4DataFunctions import ToCoord, ToUnsigned
+from .SC4PathPicker import pick_sc4path
+from .SC4PathReader import point_to_lot_2d, point_to_lot_3d
 from .translation import *
+
+
+# Maps the lot-editor "network" value (NETWORK_TYPES) to SC4Path transport
+# types worth preselecting in the path picker. Empty tuple = no preselection
+# (show all). The values match SC4PathReader.TRANSPORT_TYPES.
+NETWORK_TO_TRANSPORTS = {
+    0: (1, 2),       # Road -> Car + Sim
+    1: (3,),         # Rail -> Train
+    2: (1,),         # Highway -> Car
+    3: (1, 2),       # Street -> Car + Sim
+    4: (),           # Pipe
+    5: (),           # Powerline
+    6: (1, 2),       # Avenue
+    7: (4,),         # Subway
+    8: (6,),         # Light rail -> Elevated train
+    9: (7,),         # Monorail
+    10: (1, 2),      # One-way road
+    11: (1, 2),      # Dirt road
+    12: (1,),        # Ground highway
+}
 
 
 TRANSIT_OBJECT_TYPE = 7
@@ -236,6 +260,39 @@ def remove_cached_transit(cache, object_id):
             cache.remove(item)
 
 
+def transit_path_info(tex_data):
+    if len(tex_data) > 8 and isinstance(tex_data[8], dict):
+        return tex_data[8]
+    return None
+
+
+def transit_path_status(tex_data):
+    info = transit_path_info(tex_data)
+    if not info:
+        return ""
+    iid = int(info.get("iid", 0) or 0)
+    if not iid:
+        return "No SC4Path ID"
+    path_file = info.get("path_file")
+    if path_file is not None:
+        suffix = ""
+        if getattr(path_file, "warnings", None):
+            suffix = " (%d warning%s)" % (
+                len(path_file.warnings),
+                "" if len(path_file.warnings) == 1 else "s",
+            )
+        return "SC4Path 0x%08X: %d paths, %d stops%s" % (
+            iid,
+            len(path_file.paths),
+            len(path_file.stops),
+            suffix,
+        )
+    error = info.get("error")
+    if error:
+        return "SC4Path 0x%08X: %s" % (iid, error)
+    return "SC4Path 0x%08X: missing" % iid
+
+
 def _preset_index(mask):
     mask = int(mask) & 0xFFFFFFFF
     for idx, (_label, preset_mask) in enumerate(EDGE_PRESETS):
@@ -275,6 +332,12 @@ class TransitInspectorPanel(wx.Panel):
         self.directionHex = wx.TextCtrl(self, -1, "", style=wx.TE_READONLY | wx.TE_CENTER)
         self.rep14Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.rep16Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
+        self.pickPathButton = wx.Button(self, -1, LEXTransitPickPath, style=wx.BU_EXACTFIT)
+        self.clearPathButton = wx.Button(self, -1, LEXTransitClearPath, style=wx.BU_EXACTFIT)
+        rep16_row = wx.BoxSizer(wx.HORIZONTAL)
+        rep16_row.Add(self.rep16Hex, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        rep16_row.Add(self.pickPathButton, 0, wx.RIGHT, 2)
+        rep16_row.Add(self.clearPathButton, 0)
 
         # Per-edge direction bytes laid out as a cross. The 2D lot view is
         # South-up (an orientation-0 / South-facing object faces up), so the
@@ -305,7 +368,7 @@ class TransitInspectorPanel(wx.Panel):
             (LEXTransitDirectionPreset, self.directionPresetChoice),
             (LEXTransitDirectionHex, self.directionHex),
             (LEXTransitRep14, self.rep14Hex),
-            (LEXTransitRep16, self.rep16Hex),
+            (LEXTransitRep16, rep16_row),
         ]:
             grid.Add(wx.StaticText(self, -1, label), 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(ctrl, 1, wx.EXPAND)
@@ -325,6 +388,8 @@ class TransitInspectorPanel(wx.Panel):
         for ctrl in self.dirCtrls + [self.rep14Hex, self.rep16Hex]:
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnTextControl)
             ctrl.Bind(wx.EVT_KILL_FOCUS, self.OnTextControl)
+        self.pickPathButton.Bind(wx.EVT_BUTTON, self.OnPickPath)
+        self.clearPathButton.Bind(wx.EVT_BUTTON, self.OnClearPath)
 
     def ShowFor(self, values_list, defaults):
         values_list = values_list or []
@@ -438,6 +503,29 @@ class TransitInspectorPanel(wx.Panel):
         if hasattr(event, "Skip"):
             event.Skip()
 
+    def OnPickPath(self, event):
+        virtual_dat = getattr(self.editor, "virtualDAT", None)
+        if virtual_dat is None:
+            event.Skip()
+            return
+        try:
+            current = parse_hex32(self.rep16Hex.GetValue())
+        except ValueError:
+            current = 0
+        network = self._choice_network()
+        preselect = NETWORK_TO_TRANSPORTS.get(network, ())
+        chosen = pick_sc4path(self, virtual_dat, current_iid=current,
+                              preselect_transports=preselect)
+        if chosen is None:
+            event.Skip()
+            return
+        self.rep16Hex.SetValue(format_hex32(chosen))
+        self._apply_controls(event)
+
+    def OnClearPath(self, event):
+        self.rep16Hex.SetValue(format_hex32(0))
+        self._apply_controls(event)
+
 
 def draw_transit_overlay(editor, tex_data, active, rot2d, scaling):
     tile_x = tex_data[0]
@@ -496,6 +584,73 @@ def draw_transit_overlay(editor, tex_data, active, rot2d, scaling):
         glPopMatrix()
 
 
+def draw_sc4path_overlay_2d(editor, tex_data, active=False):
+    info = transit_path_info(tex_data)
+    if not info:
+        return
+    if int(info.get("iid", 0) or 0) == 0:
+        return
+    tile_x, tile_y, orientation = tex_data[0], tex_data[1], tex_data[2] & 15
+    selected = tex_data[5] in getattr(editor, "selected", [])
+
+    glPushMatrix()
+    try:
+        glTranslatef(-editor.lotSizeXOffset, -editor.lotSizeYOffset, 0)
+        glDisable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        path_file = info.get("path_file")
+        if path_file is None:
+            _draw_path_warning_2d(tile_x, tile_y)
+            return
+        glLineWidth(3.0 if selected else 2.0 if active else 1.5)
+        for path in path_file.paths:
+            _set_transport_color(path.transport, 0.95 if selected or active else 0.72)
+            _draw_path_line_2d(tile_x, tile_y, orientation, path.points)
+            _draw_path_arrow_2d(tile_x, tile_y, orientation, path.points)
+        glLineWidth(2.0 if selected else 1.4)
+        for stop in path_file.stops:
+            _draw_stop_cross_2d(tile_x, tile_y, orientation, stop.point)
+        glLineWidth(1.0)
+    finally:
+        glDisable(GL_BLEND)
+        glPopMatrix()
+
+
+def draw_sc4path_overlay_3d(editor, tex_data, active=False):
+    info = transit_path_info(tex_data)
+    if not info:
+        return
+    if int(info.get("iid", 0) or 0) == 0:
+        return
+    tile_x, tile_y, orientation = tex_data[0], tex_data[1], tex_data[2] & 15
+    selected = tex_data[5] in getattr(editor, "selected", [])
+
+    glPushMatrix()
+    try:
+        glTranslatef(-editor.lotSizeXOffset, 0, -editor.lotSizeYOffset)
+        glDisable(GL_TEXTURE_2D)
+        glEnable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        path_file = info.get("path_file")
+        if path_file is None:
+            _draw_path_warning_3d(tile_x, tile_y)
+            return
+        glLineWidth(3.0 if selected else 2.0 if active else 1.5)
+        for path in path_file.paths:
+            _set_transport_color(path.transport, 0.95 if selected or active else 0.76)
+            _draw_path_line_3d(tile_x, tile_y, orientation, path.points)
+            _draw_path_arrow_3d(tile_x, tile_y, orientation, path.points)
+        glLineWidth(2.0 if selected else 1.4)
+        for stop in path_file.stops:
+            _draw_stop_cross_3d(tile_x, tile_y, orientation, stop.point)
+        glLineWidth(1.0)
+    finally:
+        glDisable(GL_BLEND)
+        glPopMatrix()
+
+
 def _draw_mask_edges(minx, miny, mask, orientation):
     cx = minx + 8
     cy = miny + 8
@@ -515,3 +670,168 @@ def _draw_mask_edges(minx, miny, mask, orientation):
             glVertex2f(ix, iy)
             glVertex2f(ex, ey)
     glEnd()
+
+
+def _set_transport_color(transport, alpha):
+    colors = {
+        1: (0.45, 1.0, 0.45),   # Car/road: light green
+        2: (0.18, 0.48, 1.0),   # Sim/pedestrian: blue
+        3: (1.0, 0.42, 0.42),   # Surface rail: light red
+        4: (1.0, 0.9, 0.12),    # Subway: yellow
+        5: (0.72, 0.72, 0.72),  # Unused: neutral gray
+        6: (1.0, 0.42, 0.82),   # Elevated rail: pink
+        7: (0.72, 0.52, 1.0),   # Monorail: light purple
+    }
+    r, g, b = colors.get(int(transport), (0.95, 0.95, 0.95))
+    glColor4f(r, g, b, alpha)
+
+
+def _draw_path_line_2d(tile_x, tile_y, orientation, points):
+    if len(points) < 2:
+        return
+    glBegin(GL_LINE_STRIP)
+    for point in points:
+        x, y = point_to_lot_2d(tile_x, tile_y, orientation, point)
+        glVertex2f(x, y)
+    glEnd()
+
+
+def _draw_path_line_3d(tile_x, tile_y, orientation, points):
+    if len(points) < 2:
+        return
+    glBegin(GL_LINE_STRIP)
+    for point in points:
+        x, y, z = point_to_lot_3d(tile_x, tile_y, orientation, point)
+        glVertex3f(x, y, z)
+    glEnd()
+
+
+def _draw_path_arrow_2d(tile_x, tile_y, orientation, points):
+    if len(points) < 2:
+        return
+    x1, y1 = point_to_lot_2d(tile_x, tile_y, orientation, points[-2])
+    x2, y2 = point_to_lot_2d(tile_x, tile_y, orientation, points[-1])
+    dx = x2 - x1
+    dy = y2 - y1
+    length = math.hypot(dx, dy)
+    if length < 0.01:
+        return
+    dx /= length
+    dy /= length
+    size = 1.4
+    bx = x2 - dx * size
+    by = y2 - dy * size
+    px = -dy * size * 0.55
+    py = dx * size * 0.55
+    glBegin(GL_LINES)
+    glVertex2f(x2, y2)
+    glVertex2f(bx + px, by + py)
+    glVertex2f(x2, y2)
+    glVertex2f(bx - px, by - py)
+    glEnd()
+
+
+def _draw_path_arrow_3d(tile_x, tile_y, orientation, points):
+    if len(points) < 2:
+        return
+    x1, y1, z1 = point_to_lot_3d(tile_x, tile_y, orientation, points[-2])
+    x2, y2, z2 = point_to_lot_3d(tile_x, tile_y, orientation, points[-1])
+    dx = x2 - x1
+    dz = z2 - z1
+    length = math.hypot(dx, dz)
+    if length < 0.01:
+        return
+    dx /= length
+    dz /= length
+    size = 1.4
+    bx = x2 - dx * size
+    bz = z2 - dz * size
+    px = -dz * size * 0.55
+    pz = dx * size * 0.55
+    glBegin(GL_LINES)
+    glVertex3f(x2, y2, z2)
+    glVertex3f(bx + px, y2, bz + pz)
+    glVertex3f(x2, y2, z2)
+    glVertex3f(bx - px, y2, bz - pz)
+    glEnd()
+
+
+def _draw_stop_cross_2d(tile_x, tile_y, orientation, point):
+    x, y = point_to_lot_2d(tile_x, tile_y, orientation, point)
+    size = 0.75
+    glLineWidth(2.0)
+    glColor4f(0.06, 0.04, 0.04, 0.95)
+    glBegin(GL_LINES)
+    glVertex2f(x - size, y - size)
+    glVertex2f(x + size, y + size)
+    glVertex2f(x - size, y + size)
+    glVertex2f(x + size, y - size)
+    glEnd()
+    glLineWidth(0.8)
+    glColor4f(0.78, 0.05, 0.04, 0.85)
+    glBegin(GL_LINES)
+    glVertex2f(x - size * 0.55, y - size * 0.55)
+    glVertex2f(x + size * 0.55, y + size * 0.55)
+    glVertex2f(x - size * 0.55, y + size * 0.55)
+    glVertex2f(x + size * 0.55, y - size * 0.55)
+    glEnd()
+    glLineWidth(1.0)
+
+
+def _draw_stop_cross_3d(tile_x, tile_y, orientation, point):
+    x, y, z = point_to_lot_3d(tile_x, tile_y, orientation, point)
+    size = 0.75
+    glLineWidth(2.0)
+    glColor4f(0.06, 0.04, 0.04, 0.95)
+    glBegin(GL_LINES)
+    glVertex3f(x - size, y, z - size)
+    glVertex3f(x + size, y, z + size)
+    glVertex3f(x - size, y, z + size)
+    glVertex3f(x + size, y, z - size)
+    glVertex3f(x, y, z)
+    glVertex3f(x, y + 1.2, z)
+    glEnd()
+    glLineWidth(0.8)
+    glColor4f(0.78, 0.05, 0.04, 0.85)
+    glBegin(GL_LINES)
+    glVertex3f(x - size * 0.55, y + 0.02, z - size * 0.55)
+    glVertex3f(x + size * 0.55, y + 0.02, z + size * 0.55)
+    glVertex3f(x - size * 0.55, y + 0.02, z + size * 0.55)
+    glVertex3f(x + size * 0.55, y + 0.02, z - size * 0.55)
+    glVertex3f(x, y + 0.02, z)
+    glVertex3f(x, y + 0.8, z)
+    glEnd()
+    glLineWidth(1.0)
+
+
+def _draw_path_warning_2d(tile_x, tile_y):
+    minx = tile_x * 16 + 2
+    miny = tile_y * 16 + 2
+    maxx = tile_x * 16 + 14
+    maxy = tile_y * 16 + 14
+    glLineWidth(2.0)
+    glColor4f(1.0, 0.55, 0.0, 0.95)
+    glBegin(GL_LINES)
+    glVertex2f(minx, miny)
+    glVertex2f(maxx, maxy)
+    glVertex2f(minx, maxy)
+    glVertex2f(maxx, miny)
+    glEnd()
+    glLineWidth(1.0)
+
+
+def _draw_path_warning_3d(tile_x, tile_y):
+    minx = tile_x * 16 + 2
+    minz = tile_y * 16 + 2
+    maxx = tile_x * 16 + 14
+    maxz = tile_y * 16 + 14
+    y = 0.25
+    glLineWidth(2.0)
+    glColor4f(1.0, 0.55, 0.0, 0.95)
+    glBegin(GL_LINES)
+    glVertex3f(minx, y, minz)
+    glVertex3f(maxx, y, maxz)
+    glVertex3f(minx, y, maxz)
+    glVertex3f(maxx, y, minz)
+    glEnd()
+    glLineWidth(1.0)
