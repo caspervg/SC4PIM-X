@@ -1,6 +1,7 @@
 """ATC (Animated Texture Catalog) file reader for SC4."""
 
 import struct
+import time
 
 from OpenGL.GL import (
     GL_BLEND,
@@ -30,6 +31,7 @@ class ATC(object):
         self.tgi = entry.tgi
         self.virtual_dat = virtual_dat
         self.current_frame = 0
+        self._lastFrameTime = None
         self.type = self.fsh_tgi = self.avp_tid = self.avp_gid = self.avp_iids = self.num_frames = self.hotspot = None
 
     def read_file(self):
@@ -100,9 +102,20 @@ class ATC(object):
             rot *= 2
         if rot >= len(self.avps[zoom].chunks):
             return False
-        # Freeze on the first frame: the lot/model preview is a layout tool,
-        # and a self-advancing animation only flickered as the view redrew.
-        self.current_frame = 0
+        # Advance current_frame based on elapsed time. ATC headers don't carry
+        # a frame rate; default to 10 fps to match the viewer/LE tick.
+        total = max(1, getattr(self, "num_frames", 1) or 1)
+        if total > 1:
+            interval = 1.0 / 10.0
+            now = time.monotonic()
+            if self._lastFrameTime is None:
+                self._lastFrameTime = now
+            else:
+                elapsed = now - self._lastFrameTime
+                steps = int(elapsed / interval)
+                if steps > 0:
+                    self._lastFrameTime += steps * interval
+                    self.current_frame = (self.current_frame + steps) % total
         avp_data = self.avps[zoom].chunks[rot]
         self.hotspot = avp_data[3]
         self.current_layer = avp_data[0]
