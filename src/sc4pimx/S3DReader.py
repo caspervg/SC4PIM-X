@@ -358,7 +358,13 @@ class S3D(object):
             except IndexError:
                 continue
 
-            texInfo = material['textures'][0]
+            textures = material.get('textures') or []
+            if not textures:
+                # Materials without any texture entry (rare for animated meshes
+                # that reference an external/missing texture) -- skip drawing
+                # this mesh rather than crashing the viewer.
+                continue
+            texInfo = textures[0]
             # Use the per-mesh key resolved in LEInit. Fall back to the
             # historical single tgi2search if the per-mesh list is missing
             # (older code path, defensive).
