@@ -19,6 +19,19 @@ from .translation import *  # noqa: F401,F403
 PROP_OCCUPANT_GROUPS = 0xAA1DD396
 
 
+def _centre_on_top_level(dialog: wx.Dialog, parent: wx.Window) -> None:
+    top = wx.GetTopLevelParent(parent)
+    if top is None:
+        dialog.CentreOnParent()
+        return
+    top_pos = top.GetScreenPosition()
+    top_size = top.GetSize()
+    dlg_size = dialog.GetSize()
+    x = top_pos.x + max(0, (top_size.width - dlg_size.width) // 2)
+    y = top_pos.y + max(0, (top_size.height - dlg_size.height) // 2)
+    dialog.SetPosition((x, y))
+
+
 @dataclass(frozen=True)
 class OccupantGroupItem:
     value: int
@@ -377,6 +390,7 @@ def pick_occupant_groups(
         allow_manual=allow_manual,
     )
     try:
+        _centre_on_top_level(dlg, parent)
         if dlg.ShowModal() == wx.ID_OK:
             return dlg.GetOccupantGroups()
         return None

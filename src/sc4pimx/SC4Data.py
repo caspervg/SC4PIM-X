@@ -315,7 +315,9 @@ def ConvertAPropToReadable(prop, propFormat):
         elif prop.typeValue == 2304:
             resultat += format_float_value(v)
         elif prop.typeValue == 2048 and propFormat.ShowAsHex:
-            resultat += '0x%016X' % v
+            resultat += hex2str(v, 64)
+        elif prop.typeValue == 1792 and propFormat.ShowAsHex:
+            resultat += hex2str(v)
         elif propFormat.ShowAsHex:
             resultat += '0x%08X' % v
         else:
