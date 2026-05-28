@@ -1286,7 +1286,7 @@ class NoteBookPanel(wx.Panel):
             idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(), name)
             self.listProperties.SetItem(idx, 1, '0x%08X' % prop.id)
             self.listProperties.SetItem(idx, 2, '%s' % Prop.format2String[prop.typeValue])
-            self.listProperties.SetItem(idx, 3, '%d' % len(prop.values))
+            self.listProperties.SetItem(idx, 3, '%d' % prop.count)
             self.listProperties.SetItem(idx, 4, '%s' % formatted)
             if prop.id == 138265735:
                 if prop.values != [0.0] * 256:
@@ -1318,7 +1318,7 @@ class NoteBookPanel(wx.Panel):
                     idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(), name)
                     self.listProperties.SetItem(idx, 1, '0x%08X' % prop.id)
                     self.listProperties.SetItem(idx, 2, '%s' % Prop.format2String[prop.typeValue])
-                    self.listProperties.SetItem(idx, 3, '%d' % len(prop.values))
+                    self.listProperties.SetItem(idx, 3, '%d' % prop.count)
                     self.listProperties.SetItem(idx, 4, '%s' % formatted)
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(213, 239, 255))
 
@@ -1342,7 +1342,7 @@ class NoteBookPanel(wx.Panel):
                     idx = self.listProperties.InsertItem(self.listProperties.GetItemCount(), name)
                     self.listProperties.SetItem(idx, 1, '0x%08X' % prop.id)
                     self.listProperties.SetItem(idx, 2, '%s' % Prop.format2String[prop.typeValue])
-                    self.listProperties.SetItem(idx, 3, '%d' % len(prop.values))
+                    self.listProperties.SetItem(idx, 3, '%d' % prop.count)
                     self.listProperties.SetItem(idx, 4, '%s' % formatted)
                     self.listProperties.SetItemBackgroundColour(idx, wx.Colour(255, 239, 213))
 
@@ -1585,7 +1585,7 @@ class NoteBookPanel(wx.Panel):
                 listItems.SetItem(idx, 0, name)
                 listItems.SetItem(idx, 1, '0x%08X' % newProp.id)
                 listItems.SetItem(idx, 2, '%s' % Prop.format2String[newProp.typeValue])
-                listItems.SetItem(idx, 3, '%d' % len(newProp.values))
+                listItems.SetItem(idx, 3, '%d' % newProp.count)
                 listItems.SetItem(idx, 4, '%s' % formatted)
                 self.bSave.Enable(True)
                 self.descriptor.name = self.exemplar.GetProp(32)[0]
@@ -1623,7 +1623,7 @@ class NoteBookPanel(wx.Panel):
                 listItems.SetItem(idx, 0, name)
                 listItems.SetItem(idx, 1, '0x%08X' % newProp.id)
                 listItems.SetItem(idx, 2, '%s' % Prop.format2String[newProp.typeValue])
-                listItems.SetItem(idx, 3, '%d' % len(newProp.values))
+                listItems.SetItem(idx, 3, '%d' % newProp.count)
                 listItems.SetItem(idx, 4, '%s' % formatted)
                 self.bSave.Enable(True)
                 self.descriptor.name = self.exemplar.GetProp(32)[0]
@@ -1668,7 +1668,7 @@ class NoteBookPanel(wx.Panel):
             listItems.SetItem(idx, 0, name)
             listItems.SetItem(idx, 1, '0x%08X' % newProp.id)
             listItems.SetItem(idx, 2, '%s' % Prop.format2String[newProp.typeValue])
-            listItems.SetItem(idx, 3, '%d' % len(newProp.values))
+            listItems.SetItem(idx, 3, '%d' % newProp.count)
             listItems.SetItem(idx, 4, '%s' % formatted)
             self.bSave.Enable(True)
             self.descriptor.name = self.exemplar.GetProp(32)[0]
