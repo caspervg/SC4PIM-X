@@ -10,7 +10,7 @@ from typing import List, NamedTuple, Tuple
 
 import numpy as np
 
-from .QFSDecompressor import QFSDecompressor
+from . import QFS
 
 
 class Bitmap(NamedTuple):
@@ -94,9 +94,11 @@ class FSHReader:
 
         # Decompress if needed
         file_span = buffer
-        if QFSDecompressor.is_qfs_compressed(buffer):
+        if QFS.is_qfs_compressed(buffer):
             try:
-                file_span = QFSDecompressor.decompress(buffer)
+                file_span = QFS.decode(buffer)
+                if file_span is None:
+                    raise ValueError("Invalid QFS stream")
             except ValueError as e:
                 raise ValueError(f"Failed to decompress FSH payload: {e}") from e
 
@@ -144,9 +146,9 @@ class FSHReader:
 
             width = entry_reader.read_le_u16()
             height = entry_reader.read_le_u16()
-            x_center = entry_reader.read_le_u16()
-            y_center = entry_reader.read_le_u16()
-            x_offset = entry_reader.read_le_u16()
+            _x_center = entry_reader.read_le_u16()
+            _y_center = entry_reader.read_le_u16()
+            _x_offset = entry_reader.read_le_u16()
             y_offset = entry_reader.read_le_u16()
 
             entry.format_code = record_byte & 0x7F
