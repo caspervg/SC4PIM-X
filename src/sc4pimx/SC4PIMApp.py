@@ -654,6 +654,28 @@ class MyTreeCtrl(wx.TreeCtrl):
         return
 
     def Recategorize(self, desc, is_old=True, do_finalize=True):
+        def ensure_cohort_exemplar(cohort):
+            if cohort is None:
+                return False
+            if 'exemplar' in cohort.__dict__:
+                return True
+            try:
+                cohort.read_file(None, True, True)
+                cohort.exemplar = SC4Exemplar(cohort, self.virtual_dat)
+                cohort.rawContent = None
+                cohort.content = None
+                return True
+            except Exception:
+                logger.debug(
+                    'Unable to load family cohort exemplar 0x%08X 0x%08X 0x%08X from %s',
+                    cohort.tgi[0],
+                    cohort.tgi[1],
+                    cohort.tgi[2],
+                    cohort.fileName,
+                    exc_info=True,
+                )
+                return False
+
         if is_old:
             for idCat, category in self.virtual_dat.categories.items():
                 try:
@@ -671,7 +693,8 @@ class MyTreeCtrl(wx.TreeCtrl):
                 desc.cats = [3379372343]
         prop_families = desc.exemplar.GetProp(662775920)
         if prop_families:
-            for family in prop_families:
+            for raw_family in prop_families:
+                family = raw_family & 0xFFFFFFFF
                 if family not in self.virtual_dat.categories:
                     parent_family_cat_id = 4089087265
                     name = '0x%08X' % family
@@ -686,9 +709,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                             4089082401]
                         potential_cohorts = [chosen_cohort]
                     for cohort in potential_cohorts:
-                        if 'exemplar' not in cohort.__dict__:
-                            pass
-                        else:
+                        if ensure_cohort_exemplar(cohort):
                             name = cohort.exemplar.GetProp(32)
                             if name is not None:
                                 name = name[0] + ' - [0x%08X]' % family
@@ -727,7 +748,7 @@ class MyTreeCtrl(wx.TreeCtrl):
                             self.SetItemData(item, category)
                             category.item = item
 
-                    if chosen_cohort and is_named_family:
+                    if chosen_cohort and is_named_family and ensure_cohort_exemplar(chosen_cohort):
                         desc_cohort = BuildingDesc(chosen_cohort)
                         self.virtual_dat.categories[family].descriptors.append(desc_cohort)
                 try:

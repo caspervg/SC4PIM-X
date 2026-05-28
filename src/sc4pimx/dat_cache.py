@@ -26,7 +26,7 @@ Cache blobs use a tight little-endian binary format rather than ``pickle``:
 
 Note on compression: SC4Entry.read_file() decodes QFS-compressed bodies into
 ``content`` and leaves ``rawContent`` holding the raw on-disk bytes (compressed
-or not). QFSDecompressor is pure Python, so re-decoding on every cache hit
+or not). QFS decoding is pure Python, so re-decoding on every cache hit
 would dominate warm-start time. The cache therefore stores the *decompressed*
 bytes and restores entries with ``compressed=False``; the (rare) re-save path
 will write uncompressed entries unless explicitly recompressed via
