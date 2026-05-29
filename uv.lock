@@ -507,7 +507,7 @@ wheels = [
 
 [[package]]
 name = "sc4pim-x"
-version = "2026.4a0"
+version = "2026.4b0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
