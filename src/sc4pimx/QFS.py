@@ -7,7 +7,33 @@ return ``None``.
 
 from __future__ import annotations
 
+import logging
 from array import array
+from typing import Callable
+
+logger = logging.getLogger(__name__)
+
+# Optional native accelerator (sc4pimx._qfs, built by hatch_build.py on Windows
+# when an MSVC toolchain is available).  It mirrors the pure-Python codec below
+# byte-for-byte; when absent we transparently fall back to it.  Bind the two
+# entry points to typed callables so the rest of the module is backend-agnostic.
+_Codec = Callable[[bytes], "bytes | None"]
+_native_decode: _Codec | None
+_native_encode: _Codec | None
+try:
+    from . import _qfs  # type: ignore[attr-defined]
+
+    _native_decode = _qfs.decode
+    _native_encode = _qfs.encode
+except ImportError:
+    _native_decode = None
+    _native_encode = None
+
+# Log the active backend exactly once, at import, rather than on every call.
+if _native_decode is not None:
+    logger.info("QFS: native accelerator enabled (sc4pimx._qfs).")
+else:
+    logger.debug("QFS: native accelerator unavailable; using pure-Python codec.")
 
 _MAGIC0 = 0x10
 _MAGIC1 = 0xFB
@@ -35,6 +61,8 @@ def decode(buffer: bytes) -> bytes | None:
     """Decompress a QFS / RefPack stream, returning ``None`` on invalid input."""
 
     try:
+        if _native_decode is not None:
+            return _native_decode(buffer)
         return _decode(buffer)
     except Exception:
         return None
@@ -48,6 +76,8 @@ def encode(buffer: bytes) -> bytes | None:
     """
 
     try:
+        if _native_encode is not None:
+            return _native_encode(buffer)
         return _encode(buffer)
     except Exception:
         return None

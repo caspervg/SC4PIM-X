@@ -55,6 +55,12 @@ dmypy.json
 *.pyd
 *.pyo
 
+# Native extension build intermediates (MSVC)
+*.obj
+*.lib
+*.exp
+src/sc4pimx/_build_qfs.bat
+
 # Temporary files
 *.tmp
 *.bak
