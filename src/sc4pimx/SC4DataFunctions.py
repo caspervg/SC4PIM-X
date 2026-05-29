@@ -154,7 +154,7 @@ def ToTile(val):
     # the unsigned range before packing, matching Python 2 overflow masking.
     try:
         masked = int(val) & 0xFFFFFFFF
-        return float(struct.unpack("l", struct.pack("L", masked))[0]) / float(1048576)
+        return float(struct.unpack("<i", struct.pack("<I", masked))[0]) / float(1048576)
     except Exception:
         logger.exception("Failed to convert value to tile coordinate: %r (%s)", val, type(val).__name__)
         raise
