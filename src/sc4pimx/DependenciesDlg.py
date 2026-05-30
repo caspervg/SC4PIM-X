@@ -82,6 +82,12 @@ class DependenciesDlg(sc.SizedDialog):
     def AddFileName(self, fileName):
         self.lb.Append(fileName)
 
+    def AppendMissingItem(self, parent, text):
+        item = self.tree.AppendItem(parent, text, ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
+        self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
+        self.lb.Missing(DepDlgMissing)
+        return item
+
     def AddBuildingOrProp(self, rootItem, desc):
 
         def isValidRTK(rtk):
@@ -106,8 +112,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.lb.Append(rtkEntry.fileName)
                 self.tree.CheckItem(rtkItem, True)
             else:
-                rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.lb.Missing(DepDlgMissing)
+                rtkItem = self.AppendMissingItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]))
         rtk = desc.exemplar.GetProp(662775841)
         if isValidRTK(rtk):
             rtkEntry = self.virtualDAT.getEntry(rtk[0], rtk[1], rtk[2])
@@ -116,8 +121,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.lb.Append(rtkEntry.fileName)
                 self.tree.CheckItem(rtkItem, True)
             else:
-                rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.lb.Missing(DepDlgMissing)
+                rtkItem = self.AppendMissingItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (rtk[0], rtk[1], rtk[2]))
         rtk = desc.exemplar.GetProp(662775844)
         if rtk:
             rktData = tuple(rtk)
@@ -135,8 +139,7 @@ class DependenciesDlg(sc.SizedDialog):
                     self.lb.Append(entry.fileName)
                     self.tree.CheckItem(rtkItem, True)
                 else:
-                    rtkItem = self.tree.AppendItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (data[5], data[6], data[7]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                    self.lb.Missing(DepDlgMissing)
+                    rtkItem = self.AppendMissingItem(thisBuildingItem, 'Model 0x%08X-0x%08X-0x%08X' % (data[5], data[6], data[7]))
 
         propQuery = desc.exemplar.GetProp(709468037)
         if propQuery:
@@ -146,8 +149,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.lb.Append(entry.fileName)
                 self.tree.CheckItem(item, True)
             else:
-                item = self.tree.AppendItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872, propQuery[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.lb.Missing(DepDlgMissing)
+                item = self.AppendMissingItem(thisBuildingItem, 'Query 0x%08X-0x%08X-0x%08X' % (0, 2527069872, propQuery[0]))
         propIcon = desc.exemplar.GetProp(2317746872)
         if propIcon:
             entry = self.virtualDAT.getEntry(2238569388, 1782082854, propIcon[0])
@@ -156,8 +158,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.lb.Append(entry.fileName)
                 self.tree.CheckItem(item, True)
             else:
-                item = self.tree.AppendItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388, 1782082854, propIcon[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.lb.Missing(DepDlgMissing)
+                item = self.AppendMissingItem(thisBuildingItem, 'Icon 0x%08X-0x%08X-0x%08X' % (2238569388, 1782082854, propIcon[0]))
         for propId in [2854081431, 1246499630, 172757963, 3384359510, 3390691274]:
             propSound = desc.exemplar.GetProp(propId)
             if propSound:
@@ -167,9 +168,7 @@ class DependenciesDlg(sc.SizedDialog):
                     self.lb.Append(entry.fileName)
                     self.tree.CheckItem(item, True)
                 else:
-                    item = self.tree.AppendItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371, propSound[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                    self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
-                    self.lb.Missing(DepDlgMissing)
+                    item = self.AppendMissingItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371, propSound[0]))
 
         UVNK = desc.exemplar.GetProp(2319542937)
         if UVNK:
@@ -183,9 +182,7 @@ class DependenciesDlg(sc.SizedDialog):
                     bFound = True
 
             if not bFound:
-                item = self.tree.AppendItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (UVNK[0], UVNK[1], UVNK[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
-                self.lb.Missing(DepDlgMissing)
+                item = self.AppendMissingItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (UVNK[0], UVNK[1], UVNK[2]))
         IDK = self.exemplar.GetProp(3393284789)
         if IDK:
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
@@ -198,9 +195,7 @@ class DependenciesDlg(sc.SizedDialog):
                     bFound = True
 
             if not bFound:
-                item = self.tree.AppendItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (IDK[0], IDK[1], IDK[2]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.tree.SetItemBackgroundColour(item, wx.Colour(255, 0, 0))
-                self.lb.Missing(DepDlgMissing)
+                item = self.AppendMissingItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (IDK[0], IDK[1], IDK[2]))
         self.tree.Expand(thisBuildingItem)
 
     def FillTheTree(self):
@@ -222,8 +217,7 @@ class DependenciesDlg(sc.SizedDialog):
                 bAdded = True
 
             if not bAdded:
-                item = self.tree.AppendItem(self.buildFound, hex2str(buildingFoundation[0]), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                self.lb.Missing(DepDlgMissing)
+                item = self.AppendMissingItem(self.buildFound, hex2str(buildingFoundation[0]))
             self.tree.Expand(self.buildFound)
         for lcp in range(2297284864, 2297286144):
             values = self.exemplar.GetProp(lcp)
@@ -248,8 +242,7 @@ class DependenciesDlg(sc.SizedDialog):
                         bAdded = True
 
                 if not bAdded:
-                    item = self.tree.AppendItem(self.buildingsItem, hex2str(buildingID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                    self.lb.Missing(DepDlgMissing)
+                    item = self.AppendMissingItem(self.buildingsItem, hex2str(buildingID))
             if values[0] == 1:
                 if self.propsItem is None:
                     self.propsItem = self.tree.AppendItem(self.root, DepDlgProps)
@@ -271,8 +264,7 @@ class DependenciesDlg(sc.SizedDialog):
                             bAdded = True
 
                     if not bAdded:
-                        item = self.tree.AppendItem(self.propsItem, hex2str(propID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                        self.lb.Missing(DepDlgMissing)
+                        item = self.AppendMissingItem(self.propsItem, hex2str(propID))
             if values[0] == 2:
                 if self.texturesItem is None:
                     self.texturesItem = self.tree.AppendItem(self.root, DepDlgTextures)
@@ -281,8 +273,7 @@ class DependenciesDlg(sc.SizedDialog):
                 if texID not in texIDs:
                     texEntry = self.virtualDAT.getEntry(2058686020, 159781726, texID)
                     if texEntry is None:
-                        item = self.tree.AppendItem(self.texturesItem, hex2str(texID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                        self.lb.Missing(DepDlgMissing)
+                        item = self.AppendMissingItem(self.texturesItem, hex2str(texID))
                     else:
                         item = self.tree.AppendItem(self.texturesItem, hex2str(texID), ct_type=1, wnd=wx.StaticText(self.tree, -1, os.path.split(texEntry.fileName)[1]))
                         self.AddFileName(texEntry.fileName)
@@ -302,8 +293,7 @@ class DependenciesDlg(sc.SizedDialog):
                         bAdded = True
 
                     if not bAdded:
-                        item = self.tree.AppendItem(self.florasItem, hex2str(floraID), ct_type=1, wnd=wx.StaticText(self.tree, -1, DepDlgNotFound))
-                        self.lb.Missing(DepDlgMissing)
+                        item = self.AppendMissingItem(self.florasItem, hex2str(floraID))
 
         if self.buildingsItem:
             self.tree.Expand(self.buildingsItem)
