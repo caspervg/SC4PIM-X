@@ -4233,6 +4233,7 @@ class MainFrame(wx.Frame):
                 for name in ('simcity_1.dat', 'simcity_2.dat', 'simcity_3.dat',
                              'simcity_4.dat', 'simcity_5.dat', 'ep1.dat'):
                     jobs.append(('file', os.path.join(self.maxisFolder, name), False))
+                jobs.append(('file', os.path.join(self.maxisFolder, 'sound.dat'), False))
                 jobs.append(('file', os.path.join(self.maxisFolder,
                                                   self._maxis_locale_file()), False))
             else:
