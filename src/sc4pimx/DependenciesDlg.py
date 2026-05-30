@@ -21,6 +21,17 @@ from .translation import *
 
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
 
+SOUND_TYPE_ID = 0x0B8D821A
+SOUND_GIDS = (
+    0x2A4D1937,  # Disaster, Destruction, Siren, Splash, Low Pitch Ambient
+    0x2A4D193D,  # Query Sounds
+    0xAA4D1920,  # Activate, Audio Loop, Ambience Decayed, HLS Entries
+    0xAA4D1930,  # Fireworks, Construction, Sims, UDI, Alien, Crowds, Animals
+    0xCA4D1943,  # UI Button Click & Plop, Wire, Fire, Tools Effects
+    0xCA4D1948,  # Occupant Instance Sounds
+    0xEA4D192A,  # Fireworks, Riots, Children, Anger, Demo, Crime, Construction, Jet
+)
+
 
 _STATUS_SORT_KEY = {"missing": 0, "catalog": 1, "found": 2, "ignored": 3}
 
@@ -606,13 +617,22 @@ class DependenciesDlg(sc.SizedDialog):
         for prop_id in [2854081431, 1246499630, 172757963, 3384359510, 3390691274]:
             prop_sound = desc.exemplar.GetProp(prop_id)
             if prop_sound:
-                tgi = (193823258, 3394050371, prop_sound[0])
-                entry = self.virtualDAT.getEntry(tgi[0], tgi[1], tgi[2])
-                if entry:
-                    self.AddFoundRow("Sound", "", self.TGIText(tgi), entry.fileName, referenced_by,
-                                     parent_id=pid, tgi=tgi)
+                iid = prop_sound[0]
+                found_entry = None
+                found_tgi = None
+                for gid in SOUND_GIDS:
+                    entry = self.virtualDAT.getEntry(SOUND_TYPE_ID, gid, iid)
+                    if entry:
+                        found_entry = entry
+                        found_tgi = (SOUND_TYPE_ID, gid, iid)
+                        break
+                if found_entry:
+                    self.AddFoundRow("Sound", "", self.TGIText(found_tgi), found_entry.fileName,
+                                     referenced_by, parent_id=pid, tgi=found_tgi)
                 else:
-                    self.AddMissingRow("Sound", "", self.TGIText(tgi), referenced_by, parent_id=pid)
+                    label = "0x%08X-(any sound G)-0x%08X" % (SOUND_TYPE_ID, iid)
+                    self.AddMissingRow("Sound", "", label, referenced_by, parent_id=pid,
+                                       iid=iid, catalog_category="Sound")
 
         UVNK = desc.exemplar.GetProp(2319542937)
         if self.IsValidLTEXTKey(UVNK):
