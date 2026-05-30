@@ -88,6 +88,15 @@ class DependenciesDlg(sc.SizedDialog):
         self.lb.Missing(DepDlgMissing)
         return item
 
+    def IsValidLTEXTKey(self, tgi):
+        if tgi is None:
+            return False
+        if tgi[0] == 0 and tgi[1] == 0 and tgi[2] == 0:
+            return False
+        if tgi[0] == 0x2026960B and tgi[1] == 0 and tgi[2] == 0:
+            return False
+        return True
+
     def AddBuildingOrProp(self, rootItem, desc):
 
         def isValidRTK(rtk):
@@ -171,7 +180,7 @@ class DependenciesDlg(sc.SizedDialog):
                     item = self.AppendMissingItem(thisBuildingItem, 'Sound 0x%08X-0x%08X-0x%08X' % (193823258, 3394050371, propSound[0]))
 
         UVNK = desc.exemplar.GetProp(2319542937)
-        if UVNK:
+        if self.IsValidLTEXTKey(UVNK):
             uvnks = [ self.virtualDAT.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID ]
             bFound = False
             for i, entry in enumerate(uvnks):
@@ -183,8 +192,8 @@ class DependenciesDlg(sc.SizedDialog):
 
             if not bFound:
                 item = self.AppendMissingItem(thisBuildingItem, 'LTEXT 0x%08X-0x%08X-0x%08X' % (UVNK[0], UVNK[1], UVNK[2]))
-        IDK = self.exemplar.GetProp(3393284789)
-        if IDK:
+        IDK = desc.exemplar.GetProp(3393284789)
+        if self.IsValidLTEXTKey(IDK):
             idks = [ self.virtualDAT.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID ]
             bFound = False
             for i, entry in enumerate(idks):
