@@ -114,6 +114,14 @@ AssetFilter = "all"
 AssetSearch = ""
 AssetCompact = false
 
+# --- Dependency catalog lookups ---
+# Optional online enrichment for missing prop/texture dependencies. Set BaseUrl
+# to a local catalog instance if preferred, for example "http://localhost:3000".
+[DependencyCatalog]
+Enabled = true
+BaseUrl = "https://sc4proptexturecatalog-production.up.railway.app"
+TimeoutSeconds = 5
+
 # --- Plugin scan folders ---
 # Populated by the Configure dialog. Each entry has a path and a recurse flag.
 # Example:

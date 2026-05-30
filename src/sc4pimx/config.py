@@ -57,6 +57,12 @@ DEFAULT_MAIN_WINDOW = {
     "TreeExpanded": [],
 }
 
+DEFAULT_DEPENDENCY_CATALOG = {
+    "Enabled": False,
+    "BaseUrl": "",
+    "TimeoutSeconds": 5,
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -117,6 +123,15 @@ def load_main_window() -> dict:
     """Persisted main-window geometry and column layout."""
     value = load().get("MainWindow", {})
     settings = DEFAULT_MAIN_WINDOW.copy()
+    if isinstance(value, dict):
+        settings.update(value)
+    return settings
+
+
+def load_dependency_catalog() -> dict:
+    """Settings for optional online dependency catalog lookups."""
+    value = load().get("DependencyCatalog", {})
+    settings = DEFAULT_DEPENDENCY_CATALOG.copy()
     if isinstance(value, dict):
         settings.update(value)
     return settings
