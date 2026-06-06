@@ -270,9 +270,11 @@ def _prop_values_equal(left, right):
     return True
 
 
-def _prop_scalar_delta(left, right):
+def _prop_scalar_delta(prop_def, left, right):
     """Return -1/0/1 for simple numeric value changes, or None for non-scalars."""
     if left is None or right is None:
+        return None
+    if getattr(prop_def, "ShowAsHex", False):
         return None
     if left.typeValue not in (256, 768, 1792, 2048, 2304):
         return None
@@ -283,6 +285,16 @@ def _prop_scalar_delta(left, right):
     if abs(new - old) <= 0.000001:
         return 0
     return 1 if new > old else -1
+
+
+def _prop_trend_icon(delta):
+    if delta == 1:
+        return "↑"
+    if delta == -1:
+        return "↓"
+    if delta == 0:
+        return "="
+    return ""
 
 
 def _current_local_prop_map(exemplar):
@@ -332,13 +344,19 @@ def build_recompute_preview_rows(virtual_dat, exemplar, category, app_gid, filli
     rows = []
 
     def add_row(prop_id, status, current_prop, generated_prop, line=None, selected=True):
+        try:
+            prop_def = virtual_dat.properties[prop_id]
+        except Exception:
+            prop_def = None
+        delta = _prop_scalar_delta(prop_def, current_prop, generated_prop)
         rows.append({
             "id": prop_id,
             "status": status,
             "name": _prop_display_name(virtual_dat, prop_id),
             "current": _prop_display_value(virtual_dat, current_prop),
             "recomputed": _prop_display_value(virtual_dat, generated_prop),
-            "delta": _prop_scalar_delta(current_prop, generated_prop),
+            "delta": delta,
+            "trend": _prop_trend_icon(delta),
             "line": line,
             "selected": selected,
         })
@@ -609,6 +627,19 @@ class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
         self._mainWin.InsertItem(info)
         return index
 
+    def InsertHeaderItem(self, index, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        self._apply_text(info, label)
+        info.SetTextColour(wx.Colour(78, 86, 94))
+        info._mask |= ULC.ULC_MASK_FONTCOLOUR
+        font = self.GetFont()
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        info.SetFont(font)
+        info._mask |= ULC.ULC_MASK_FONT
+        self._mainWin.InsertItem(info)
+        return index
+
     def SetItem(self, index, col, label):
         info = ULC.UltimateListItem()
         info._itemId = index
@@ -629,6 +660,10 @@ class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
         info._mask = ULC.ULC_MASK_FONTCOLOUR
         info.SetTextColour(colour)
         self._mainWin.SetItem(info)
+
+    def SetRowTextColour(self, index, colour):
+        for col in range(self.GetColumnCount()):
+            self.SetCellTextColour(index, col, colour)
 
     def _on_size(self, event):
         event.Skip()
@@ -672,9 +707,10 @@ class RecomputePreviewDialog(wx.Dialog):
         self.list = RecomputePreviewListCtrl(self)
         self.list.InsertColumn(0, recomputePreviewColApply, width=55)
         self.list.InsertColumn(1, recomputePreviewColStatus, width=90)
-        self.list.InsertColumn(2, recomputePreviewColProperty, width=220)
-        self.list.InsertColumn(3, recomputePreviewColCurrent, width=260)
-        self.list.InsertColumn(4, recomputePreviewColRecomputed, width=260)
+        self.list.InsertColumn(2, recomputePreviewColTrend, width=38)
+        self.list.InsertColumn(3, recomputePreviewColProperty, width=220)
+        self.list.InsertColumn(4, recomputePreviewColCurrent, width=260)
+        self.list.InsertColumn(5, recomputePreviewColRecomputed, width=260)
         root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         self.status = wx.StaticText(self, -1, "")
@@ -705,11 +741,50 @@ class RecomputePreviewDialog(wx.Dialog):
         self.Bind(wx.EVT_TEXT, self.OnFillingDegreeChanged, self.fillingDegree)
         self.Bind(wx.EVT_TIMER, self.OnPreviewTimer, self._preview_timer)
         self.Bind(wx.EVT_CHECKBOX, self.OnShowUnchanged, self.showUnchanged)
+        self.list.Bind(ULC.EVT_LIST_ITEM_CHECKED, self.OnTableChecked)
         self.Bind(wx.EVT_BUTTON, self.OnSelectAll, self.selectAll)
         self.Bind(wx.EVT_BUTTON, self.OnSelectNone, self.selectNone)
         self.Bind(wx.EVT_BUTTON, self.OnApplySelected, self.applySelected)
         self.Bind(wx.EVT_BUTTON, self.OnApplyAll, self.applyAll)
         self.RefreshPreview()
+        self.Layout()
+
+    def _status_tag(self, status):
+        return "[%s]" % status
+
+    def _status_colour(self, status):
+        if status == recomputePreviewStatusAdd:
+            return wx.Colour(20, 115, 55)
+        if status == recomputePreviewStatusUpdate:
+            return wx.Colour(150, 95, 0)
+        if status == recomputePreviewStatusRemove:
+            return wx.Colour(170, 35, 35)
+        return wx.Colour(95, 100, 105)
+
+    def _trend_colour(self, delta):
+        if delta == 1:
+            return wx.Colour(20, 115, 55)
+        if delta == -1:
+            return wx.Colour(170, 35, 35)
+        return wx.Colour(95, 100, 105)
+
+    def _group_specs(self, show_unchanged):
+        specs = [
+            (recomputePreviewStatusAdd, recomputePreviewGroupAdd),
+            (recomputePreviewStatusUpdate, recomputePreviewGroupUpdate),
+            (recomputePreviewStatusRemove, recomputePreviewGroupRemove),
+        ]
+        if show_unchanged:
+            specs.append((recomputePreviewStatusSame, recomputePreviewGroupSame))
+        return specs
+
+    def _selected_count(self):
+        return sum(1 for row in self.rows if row["selected"])
+
+    def _update_apply_summary(self):
+        selected = self._selected_count()
+        self.applySelected.SetLabel(recomputePreviewApplySelectedCount % selected)
+        self.applySelected.Enable(selected > 0)
         self.Layout()
 
     def FillingDegreeValue(self):
@@ -741,39 +816,49 @@ class RecomputePreviewDialog(wx.Dialog):
             selected = 0
             changes = 0
             show_unchanged = self.showUnchanged.GetValue()
-            for idx, row in enumerate(self.rows):
-                changed = row["status"] != recomputePreviewStatusSame
-                if changed:
+            for row in self.rows:
+                if row["status"] != recomputePreviewStatusSame:
                     changes += 1
                 if row["selected"]:
                     selected += 1
-                if not changed and not show_unchanged:
+            for status, label in self._group_specs(show_unchanged):
+                group = [(idx, row) for idx, row in enumerate(self.rows) if row["status"] == status]
+                if not group:
                     continue
-                item = self.list.InsertItem(self.list.GetItemCount(), "")
-                self._visible_row_indices.append(idx)
-                self.list.SetItem(item, 1, row["status"])
-                self.list.SetItem(item, 2, row["name"])
-                self.list.SetItem(item, 3, row["current"])
-                self.list.SetItem(item, 4, row["recomputed"])
-                if row["delta"] == 1:
-                    self.list.SetCellTextColour(item, 4, wx.Colour(20, 115, 55))
-                elif row["delta"] == -1:
-                    self.list.SetCellTextColour(item, 4, wx.Colour(170, 35, 35))
-                self.list.CheckItem(item, bool(row["selected"]))
-                shown += 1
+                header = self.list.InsertHeaderItem(self.list.GetItemCount(), "%s (%d)" % (label, len(group)))
+                self.list.SetRowTextColour(header, wx.Colour(78, 86, 94))
+                for idx, row in group:
+                    item = self.list.InsertItem(self.list.GetItemCount(), "")
+                    self._visible_row_indices.append((item, idx))
+                    self.list.SetItem(item, 1, self._status_tag(row["status"]))
+                    self.list.SetItem(item, 2, row["trend"])
+                    self.list.SetItem(item, 3, row["name"])
+                    self.list.SetItem(item, 4, row["current"])
+                    self.list.SetItem(item, 5, row["recomputed"])
+                    self.list.SetCellTextColour(item, 1, self._status_colour(row["status"]))
+                    if row["trend"]:
+                        self.list.SetCellTextColour(item, 2, self._trend_colour(row["delta"]))
+                    if row["delta"] == 1:
+                        self.list.SetCellTextColour(item, 5, wx.Colour(20, 115, 55))
+                    elif row["delta"] == -1:
+                        self.list.SetCellTextColour(item, 5, wx.Colour(170, 35, 35))
+                    self.list.CheckItem(item, bool(row["selected"]))
+                    shown += 1
             if shown == 0:
                 item = self.list.InsertItem(0, "")
-                self.list.SetItem(item, 2, recomputePreviewNoChanges)
+                self.list.SetItem(item, 3, recomputePreviewNoChanges)
             self.status.SetLabel(recomputePreviewCount % (changes, selected))
+            self._update_apply_summary()
         finally:
             self.list.Thaw()
 
     def _sync_checks(self):
         if not hasattr(self.list, "IsItemChecked"):
             return
-        for item, idx in enumerate(self._visible_row_indices):
+        for item, idx in self._visible_row_indices:
             if 0 <= idx < len(self.rows):
                 self.rows[idx]["selected"] = self.list.IsItemChecked(item)
+        self._update_apply_summary()
 
     def SelectedRows(self):
         self._sync_checks()
@@ -794,6 +879,10 @@ class RecomputePreviewDialog(wx.Dialog):
     def OnShowUnchanged(self, event):
         self._sync_checks()
         self.RefreshList()
+
+    def OnTableChecked(self, event):
+        self._sync_checks()
+        event.Skip()
 
     def OnSelectAll(self, event):
         for row in self.rows:
