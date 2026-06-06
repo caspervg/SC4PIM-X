@@ -28,9 +28,9 @@ except ImportError:
 import wx.adv
 
 from . import SC4IconMakerDlg, config, treeDnD
-from .logsetup import configure_logging
 from .ATCViewer import *
 from .DependenciesDlg import *
+from .logsetup import configure_logging
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .settings import *
@@ -1592,8 +1592,11 @@ class NoteBookPanel(wx.Panel):
 
         value = prop.ToStr()
         if prop_def is not None:
+            from .SC4CurveEditor import edit_curve_property, is_curve_property
             from .SC4StructuredPropertyEditors import edit_structured_property, editor_kind
-            if editor_kind(prop, prop_def):
+            # The curve editor is a more specific view of paired-Float32 data
+            # (e.g. Population vs. Distance); let it win over the generic table.
+            if editor_kind(prop, prop_def) and not is_curve_property(prop, prop_def):
                 newValue = edit_structured_property(self, title, prop, prop_def)
                 if newValue is None:
                     return
@@ -1630,7 +1633,6 @@ class NoteBookPanel(wx.Panel):
                         self.parent.parent.FillItemsList(data)
                 return
 
-            from .SC4CurveEditor import edit_curve_property, is_curve_property
             if is_curve_property(prop, prop_def):
                 newValue = edit_curve_property(self, title, name, prop.values)
                 if newValue is None:
