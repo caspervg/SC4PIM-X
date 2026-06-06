@@ -2143,6 +2143,12 @@ class NoteBookPanel(wx.Panel):
         sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 6)
         dlg.SetSizerAndFit(sizer)
 
+        def _on_ok(_evt):
+            if panel.validate():
+                dlg.EndModal(wx.ID_OK)
+
+        ok_btn.Bind(wx.EVT_BUTTON, _on_ok)
+
         try:
             if dlg.ShowModal() == wx.ID_OK:
                 rows, cost, capacity = panel.get_state()
