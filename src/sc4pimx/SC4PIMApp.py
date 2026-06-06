@@ -34,7 +34,7 @@ from .DependenciesDlg import *
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .settings import *
-from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
+from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
 from .version import get_version
@@ -3174,13 +3174,13 @@ class NoteBookPanel(wx.Panel):
         buffer += newVal
         ltextEntry.content = buffer
         ltextEntry.Maj()
-        self.InternalSave(ltextEntry.fileName)
         self.virtual_dat.addEntries([ltextEntry], None, False, False)
         self.exemplar.RemoveProp(propid2remove)
         if propid2add:
             newPropStr = CreateAPropFromString(self.virtual_dat.properties[propid2add],
                                                '0x%08X,0x%08X,0x%08X' % (t, g, i))
             self.exemplar.AddTextProp(newPropStr)
+        self.InternalSave(ltextEntry.fileName)
         self.listProperties.DeleteAllItems()
         self.FillTheList()
         if propid2add:
@@ -3193,13 +3193,7 @@ class NoteBookPanel(wx.Panel):
     def OnAddLangUVNK(self, event):
         idMenu = event.GetId()
         txt = self.exemplar.GetPropObject(32).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         UVNK = self.exemplar.GetProp(2319542937)
         if UVNK:
@@ -3224,13 +3218,7 @@ class NoteBookPanel(wx.Panel):
         except Exception:
             txt = self.exemplar.GetPropObject(32).rawdata
 
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         if self.exemplar.GetProp(1788208387) and self.exemplar.GetProp(1788208387)[0]:
             newProp = CreateAProp(self.virtual_dat.properties[1788208387], (False,))
@@ -3240,13 +3228,7 @@ class NoteBookPanel(wx.Panel):
     def OnAddLangIDK(self, event):
         idMenu = event.GetId()
         txt = self.exemplar.GetPropObject(32).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         IDK = self.exemplar.GetProp(3393284789)
         if IDK:
@@ -3268,13 +3250,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnConvertToIDK(self, event):
         txt = self.exemplar.GetPropObject(2317746857).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         self.CreateLTEXTEntry(utxt, 539399691, self.exemplar.entry.tgi[1], self.exemplar.entry.tgi[2], 3393284789,
                               2317746857)
