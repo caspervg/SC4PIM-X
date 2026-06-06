@@ -86,6 +86,8 @@ def readPropertyDef(node):
     else:
         prop.ShowAsHex = False
     options = {}
+    option_groups = {}
+    current_option_group = ""
     prop.ShowAsMap = False
     minVal = node.getAttribute("MinValue")
     maxVal = node.getAttribute("MaxValue")
@@ -125,6 +127,10 @@ def readPropertyDef(node):
     for subNode in node.childNodes:
         if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "FORMAT":
             prop.ShowAsMap = True
+        if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "HELP":
+            help_text = getText(subNode.childNodes).strip()
+            if help_text.startswith("SubMenuROOT"):
+                current_option_group = help_text
         if subNode.nodeType == node.ELEMENT_NODE and subNode.tagName == "OPTION":
             value = subNode.getAttribute("Value").upper()
             if value[:3] == "COL":
@@ -135,8 +141,11 @@ def readPropertyDef(node):
                 value = int(value)
             meaning = subNode.getAttribute("Name")
             options[value] = meaning
+            if current_option_group:
+                option_groups[value] = current_option_group
 
     prop.Options = options
+    prop.OptionGroups = option_groups
     return prop
 
 
@@ -327,6 +336,7 @@ def DuplicateProp(dup, new_instance_id):
     prop.maxVal = dup.maxVal if hasattr(dup, "maxVal") else None
     prop.minVal = dup.minVal if hasattr(dup, "minVal") else None
     prop.Options = dup.Options
+    prop.OptionGroups = getattr(dup, "OptionGroups", {})
     return prop
 
 
