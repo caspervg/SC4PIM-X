@@ -1541,7 +1541,7 @@ class NoteBookPanel(wx.Panel):
     def OnActivated(self, event):
         allowedPropEdit = [
             32, 662775824, 2308635565, 2317746857, 2317746872, 1246398704, 1771767972, 2297284498, 3919251084,
-            2297284501, 2297284502, 662775920, 662775825, 2854081430]
+            2297284501, 2297284502, 662775920, 662775825, 2854081430, 0xAA1DD399]
         listItems = event.GetEventObject()
         idx = event.GetIndex()
         if idx < 3:
@@ -1579,6 +1579,9 @@ class NoteBookPanel(wx.Panel):
             return
         if prop.id == 0xAA1DD396:
             self.OnEditOccupantGroups(event)
+            return
+        if prop.id == 0xAA1DD399:
+            self.OnEditBuildingSubmenus(event)
             return
         try:
             prop_def = self.virtual_dat.properties[prop.id]
@@ -1816,6 +1819,7 @@ class NoteBookPanel(wx.Panel):
             self.popupID37 = wx.NewIdRef()
             self.popupID38 = wx.NewIdRef()  # Edit Transit Switches…
             self.popupID39 = wx.NewIdRef()  # Apply Transit Preset…
+            self.popupID40 = wx.NewIdRef()
             self.popupID1 = wx.NewIdRef()
             self.popupID2 = wx.NewIdRef()
             self.popupID3 = wx.NewIdRef()
@@ -1868,6 +1872,7 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnOpenLotWithProp, id=self.popupID36)
             self.Bind(wx.EVT_MENU, self.OnEditTransitSwitches, id=self.popupID38)
             self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
+            self.Bind(wx.EVT_MENU, self.OnEditBuildingSubmenus, id=self.popupID40)
         menu = wx.Menu()
         if bAdvancedUser:
             menu.Append(self.popupID1, popupPropertyMenuItem1)
@@ -2000,6 +2005,7 @@ class NoteBookPanel(wx.Panel):
                 bSep = True
                 menu.AppendSeparator()
             menu.Append(self.popupID17, popupPropertyMenuItem17)
+            menu.Append(self.popupID40, LEXBuildingSubmenuMenuItem)
             if IsFromCategory(self.virtual_dat.categories[749358634], self.exemplar) and self.exemplar.entry.tgi[
                 0] == 1697917002:
                 menu.Append(self.popupID28, popupPropertyMenuItem28)
@@ -2314,6 +2320,35 @@ class NoteBookPanel(wx.Panel):
         )
         if finalOgs is not None:
             self._write_occupant_groups(finalOgs)
+
+    def OnEditBuildingSubmenus(self, _event):
+        from .SC4BuildingSubmenuPicker import PROP_BUILDING_SUBMENUS, pick_building_submenus
+
+        finalSubmenus = pick_building_submenus(
+            self,
+            self.virtual_dat,
+            self.exemplar.GetProp(PROP_BUILDING_SUBMENUS) or [],
+            title=LEXBuildingSubmenuPickerTitle,
+            preserve_unlisted=True,
+        )
+        if finalSubmenus is not None:
+            self._write_building_submenus(finalSubmenus)
+
+    def _write_building_submenus(self, submenus):
+        prop_id = 0xAA1DD399
+        values = sorted(set(submenus))
+        if values:
+            prop = CreateAProp(self.virtual_dat.properties[prop_id], tuple(values))
+            self.exemplar.AddTextProp(prop)
+        else:
+            self.exemplar.RemoveProp(prop_id)
+            self.exemplar.modified = True
+        self.listProperties.DeleteAllItems()
+        self.FillTheList()
+        self.bSave.Enable(True)
+        self.descriptor.name = self.exemplar.GetProp(32)[0]
+        self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
+        self.parent.parent.listItems.Refresh()
 
     def _write_occupant_groups(self, ogs):
         prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(sorted(set(ogs))))
