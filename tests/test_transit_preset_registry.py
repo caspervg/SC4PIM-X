@@ -1,6 +1,9 @@
 import importlib.util
 import sys
+import tomllib
 from pathlib import Path
+
+import pytest
 
 from sc4pimx import SC4TransitPresetRegistry as registry
 
@@ -86,6 +89,8 @@ def test_tyberius_on_top_bus_stop_preset_is_loaded():
 
 def test_tyberius_imported_presets_match_source_switches():
     source = ROOT / tyberius_importer.DEFAULT_SOURCE
+    if not source.exists():
+        pytest.skip("Tyberius source notes are local authoring input and are not committed")
     target = ROOT / tyberius_importer.DEFAULT_TARGET
     existing_keys = tyberius_importer._existing_keys(target, ignore_imported_block=True)
     imported_presets = tyberius_importer.add_global_garage_variants(tyberius_importer.parse_source(source))
@@ -104,6 +109,20 @@ def test_tyberius_imported_presets_match_source_switches():
 
         assert preset is not None, imported.id
         assert preset.switches == imported.switches, imported.id
+
+
+def test_tyberius_imported_presets_are_committed():
+    target = ROOT / tyberius_importer.DEFAULT_TARGET
+    text = target.read_text(encoding="utf-8")
+    assert tyberius_importer.IMPORTED_MARKER in text
+    imported_text = text.split(tyberius_importer.IMPORTED_MARKER, 1)[1]
+    imported_presets = tomllib.loads(imported_text).get("preset", [])
+
+    assert len(imported_presets) == 69
+    for item in imported_presets:
+        options = tuple(sorted(str(option) for option in item.get("options", [])))
+        preset = registry.find_preset(str(item["base"]), str(item["placement"]), options)
+        assert preset is not None, item["id"]
 
 
 def test_infers_transit_preset_base_from_occupant_groups():
