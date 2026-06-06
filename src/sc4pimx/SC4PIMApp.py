@@ -2082,10 +2082,9 @@ class NoteBookPanel(wx.Panel):
         # eval-driven preset formula).
         if (self.exemplar.GetProp(16)[0] == 2
                 and self.exemplar.GetProp(662775824) is not None):
-            menu.AppendSeparator()
-            menu.Append(self.popupID38, LEXTransitSwitchEditor)
             from . import SC4TransitPresets as _tp
             if _tp.has_transit_presets(self.virtual_dat):
+                menu.AppendSeparator()
                 menu.Append(self.popupID39, LEXTransitPresetMenuItem)
         self.PopupMenu(menu)
         menu.Destroy()
