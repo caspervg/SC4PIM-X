@@ -233,6 +233,148 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
     return props
 
 
+def _prop_from_text(exemplar, line):
+    """Parse a text property line without adding it to the exemplar."""
+    return Prop(line, False, exemplar)
+
+
+def _prop_display_value(virtual_dat, prop):
+    if prop is None:
+        return ""
+    try:
+        return ConvertAPropToReadable(prop, virtual_dat.properties[prop.id])
+    except Exception:
+        return prop.ToStr()
+
+
+def _prop_display_name(virtual_dat, prop_id):
+    try:
+        return virtual_dat.properties[prop_id].Name
+    except Exception:
+        return "0x%08X" % prop_id
+
+
+def _prop_values_equal(left, right):
+    if left is None or right is None:
+        return left is right
+    if left.typeValue != right.typeValue:
+        return False
+    if len(left.values) != len(right.values):
+        return False
+    for a, b in zip(left.values, right.values):
+        if left.typeValue == 2304:
+            if abs(float(a) - float(b)) > 0.000001:
+                return False
+        elif a != b:
+            return False
+    return True
+
+
+def _prop_scalar_delta(left, right):
+    """Return -1/0/1 for simple numeric value changes, or None for non-scalars."""
+    if left is None or right is None:
+        return None
+    if left.typeValue not in (256, 768, 1792, 2048, 2304):
+        return None
+    if len(left.values) != 1 or len(right.values) != 1:
+        return None
+    old = float(left.values[0])
+    new = float(right.values[0])
+    if abs(new - old) <= 0.000001:
+        return 0
+    return 1 if new > old else -1
+
+
+def _current_local_prop_map(exemplar):
+    return {prop.id: prop for prop in exemplar.props}
+
+
+def _recompute_scope(virtual_dat, exemplar, category, app_gid, filling_degree):
+    IID = exemplar.entry.tgi[2]
+    Height = height = exemplar.GetProp(662775824)[1]
+    Width = width = exemplar.GetProp(662775824)[0]
+    Depth = depth = exemplar.GetProp(662775824)[2]
+    exemplarName = exemplar.GetProp(32)[0]
+    LotSizeX = 1
+    LotSizeY = 1
+    if IsFromCategory(virtual_dat.categories[210746197], exemplar):
+        if IsFromCategory(virtual_dat.categories[3431971885], exemplar):
+            lotDesc = virtual_dat.FindLotFromBuilding(exemplar)
+            if lotDesc is not None:
+                try:
+                    LotSizeX = lotDesc.exemplar.GetProp(2297284496)[0]
+                    LotSizeY = lotDesc.exemplar.GetProp(2297284496)[1]
+                except Exception:
+                    pass
+    Volume = volume = Height * Width * Depth * filling_degree
+    return {
+        'Height': Height, 'height': height,
+        'Width': Width, 'width': width,
+        'Depth': Depth, 'depth': depth,
+        'Volume': Volume, 'volume': volume,
+        'LotSizeX': LotSizeX, 'LotSizeY': LotSizeY,
+        'fillingDegree': filling_degree,
+        'IID': IID, 'GID': app_gid,
+        'exemplarName': exemplarName,
+    }
+
+
+def build_recompute_preview_rows(virtual_dat, exemplar, category, app_gid, filling_degree):
+    """Return row dictionaries describing a dry-run rebuild for one filling degree."""
+    scope = _recompute_scope(virtual_dat, exemplar, category, app_gid, filling_degree)
+    generated_lines = build_category_props_for_preset(virtual_dat, exemplar, category, scope)
+    generated = {}
+    for line in generated_lines:
+        prop = _prop_from_text(exemplar, line)
+        generated[prop.id] = (line, prop)
+
+    current = _current_local_prop_map(exemplar)
+    rows = []
+
+    def add_row(prop_id, status, current_prop, generated_prop, line=None, selected=True):
+        rows.append({
+            "id": prop_id,
+            "status": status,
+            "name": _prop_display_name(virtual_dat, prop_id),
+            "current": _prop_display_value(virtual_dat, current_prop),
+            "recomputed": _prop_display_value(virtual_dat, generated_prop),
+            "delta": _prop_scalar_delta(current_prop, generated_prop),
+            "line": line,
+            "selected": selected,
+        })
+
+    # Filling Degree drives the dry-run but is not emitted by the category
+    # generator. Show it explicitly so accepting a preview stores the candidate.
+    fd_line = CreateAPropFromString(virtual_dat.properties[662775825], str(filling_degree))
+    fd_prop = _prop_from_text(exemplar, fd_line)
+    current_fd = current.get(662775825)
+    if current_fd is None:
+        add_row(662775825, recomputePreviewStatusAdd, None, fd_prop, fd_line, True)
+    elif not _prop_values_equal(current_fd, fd_prop):
+        add_row(662775825, recomputePreviewStatusUpdate, current_fd, fd_prop, fd_line, True)
+    else:
+        add_row(662775825, recomputePreviewStatusSame, current_fd, fd_prop, fd_line, False)
+
+    for prop_id in sorted(generated):
+        if prop_id == 662775825:
+            continue
+        line, generated_prop = generated[prop_id]
+        current_prop = current.get(prop_id)
+        if current_prop is None:
+            add_row(prop_id, recomputePreviewStatusAdd, None, generated_prop, line, True)
+        elif _prop_values_equal(current_prop, generated_prop):
+            add_row(prop_id, recomputePreviewStatusSame, current_prop, generated_prop, line, False)
+        else:
+            add_row(prop_id, recomputePreviewStatusUpdate, current_prop, generated_prop, line, True)
+
+    for prop_id in sorted(category.removeProperties.keys()):
+        current_prop = current.get(prop_id)
+        if current_prop is not None:
+            add_row(prop_id, recomputePreviewStatusRemove, current_prop, None, None, False)
+
+    return rows
+
+
 def _read_s3d_bbox(mesh):
     """Return an S3D mesh bbox as (width, height, depth), or None if unreadable."""
     if mesh is None or getattr(mesh, 'entry', None) is None:
@@ -436,6 +578,244 @@ class ProcessDlg(wx.Dialog):
     @staticmethod
     def OnCloseWindow(event):
         event.Veto()
+
+
+class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
+    def __init__(self, parent):
+        ULC.UltimateListCtrl.__init__(
+            self,
+            parent,
+            -1,
+            agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_SHOW_TOOLTIPS | ULC.ULC_SINGLE_SEL,
+        )
+        self.Bind(wx.EVT_SIZE, self._on_size)
+
+    def _apply_text(self, info, label):
+        info._mask = ULC.ULC_MASK_TEXT
+        label = label or ""
+        if "\n" in label or "\r" in label:
+            info._text = label.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+            info._tooltip = label
+            info._mask |= ULC.ULC_MASK_TOOLTIP
+        else:
+            info._text = label
+
+    def InsertItem(self, index, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        self._apply_text(info, label)
+        info._mask |= ULC.ULC_MASK_KIND
+        info._kind = 1
+        self._mainWin.InsertItem(info)
+        return index
+
+    def SetItem(self, index, col, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        info._col = col
+        self._apply_text(info, label)
+        self._mainWin.SetItem(info)
+        return True
+
+    def CheckItem(self, index, checked, send_event=False):
+        item = ULC.CreateListItem(index, 0)
+        item = self._mainWin.GetItem(item, 0)
+        self._mainWin.CheckItem(item, checked, send_event)
+
+    def SetCellTextColour(self, index, col, colour):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        info._col = col
+        info._mask = ULC.ULC_MASK_FONTCOLOUR
+        info.SetTextColour(colour)
+        self._mainWin.SetItem(info)
+
+    def _on_size(self, event):
+        event.Skip()
+        wx.CallAfter(self.AutoFillLastColumn)
+
+    def AutoFillLastColumn(self):
+        count = self.GetColumnCount()
+        if count < 2:
+            return
+        used = sum(self.GetColumnWidth(c) for c in range(count - 1))
+        remaining = self.GetClientSize().width - used - 4
+        if remaining > 80:
+            self.SetColumnWidth(count - 1, remaining)
+
+
+class RecomputePreviewDialog(wx.Dialog):
+    """Dry-run preview for category property recomputation."""
+
+    def __init__(self, parent, category, filling_degree):
+        wx.Dialog.__init__(self, parent, -1, "%s - %s" % (recomputePreviewTitle, category.Name),
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.page = parent
+        self.category = category
+        self.rows = []
+        self._apply_all = False
+        self._preview_timer = wx.Timer(self)
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        top = wx.BoxSizer(wx.VERTICAL)
+        fd_row = wx.BoxSizer(wx.HORIZONTAL)
+        fd_row.Add(wx.StaticText(self, -1, recomputePreviewFillingDegree), 0,
+                   wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self.fillingDegree = wx.TextCtrl(self, -1, str(filling_degree), style=wx.TE_PROCESS_ENTER)
+        self.showUnchanged = wx.CheckBox(self, -1, recomputePreviewShowUnchanged)
+        fd_row.Add(self.fillingDegree, 0, wx.RIGHT, 6)
+        fd_row.Add(self.showUnchanged, 0, wx.ALIGN_CENTER_VERTICAL)
+        top.Add(fd_row, 0, wx.EXPAND)
+        root.Add(top, 0, wx.EXPAND | wx.ALL, 8)
+
+        self._visible_row_indices = []
+        self.list = RecomputePreviewListCtrl(self)
+        self.list.InsertColumn(0, recomputePreviewColApply, width=55)
+        self.list.InsertColumn(1, recomputePreviewColStatus, width=90)
+        self.list.InsertColumn(2, recomputePreviewColProperty, width=220)
+        self.list.InsertColumn(3, recomputePreviewColCurrent, width=260)
+        self.list.InsertColumn(4, recomputePreviewColRecomputed, width=260)
+        root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.status = wx.StaticText(self, -1, "")
+        root.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        row_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.selectAll = wx.Button(self, -1, recomputePreviewSelectAll)
+        self.selectNone = wx.Button(self, -1, recomputePreviewSelectNone)
+        row_buttons.Add(self.selectAll, 0, wx.RIGHT, 4)
+        row_buttons.Add(self.selectNone, 0, wx.RIGHT, 4)
+        root.Add(row_buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.applySelected = wx.Button(self, wx.ID_OK, recomputePreviewApplySelected)
+        self.applyAll = wx.Button(self, -1, recomputePreviewApplyAll)
+        self.cancel = wx.Button(self, wx.ID_CANCEL)
+        self.applySelected.SetDefault()
+        buttons.AddStretchSpacer(1)
+        buttons.Add(self.applySelected, 0, wx.RIGHT, 6)
+        buttons.Add(self.applyAll, 0, wx.RIGHT, 6)
+        buttons.Add(self.cancel, 0)
+        root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.SetSizer(root)
+        self.SetMinSize((900, 480))
+        self.SetSize((980, 560))
+        self.Bind(wx.EVT_TEXT_ENTER, self.OnPreview, self.fillingDegree)
+        self.Bind(wx.EVT_TEXT, self.OnFillingDegreeChanged, self.fillingDegree)
+        self.Bind(wx.EVT_TIMER, self.OnPreviewTimer, self._preview_timer)
+        self.Bind(wx.EVT_CHECKBOX, self.OnShowUnchanged, self.showUnchanged)
+        self.Bind(wx.EVT_BUTTON, self.OnSelectAll, self.selectAll)
+        self.Bind(wx.EVT_BUTTON, self.OnSelectNone, self.selectNone)
+        self.Bind(wx.EVT_BUTTON, self.OnApplySelected, self.applySelected)
+        self.Bind(wx.EVT_BUTTON, self.OnApplyAll, self.applyAll)
+        self.RefreshPreview()
+        self.Layout()
+
+    def FillingDegreeValue(self):
+        try:
+            value = float(self.fillingDegree.GetValue().strip())
+        except ValueError:
+            raise ValueError(recomputePreviewInvalidFillingDegree)
+        if value < 0.0 or value > 1.0:
+            raise ValueError(recomputePreviewInvalidFillingDegree)
+        return value
+
+    def RefreshPreview(self):
+        try:
+            filling_degree = self.FillingDegreeValue()
+        except ValueError as exc:
+            self.status.SetLabel(str(exc))
+            return
+        self.rows = build_recompute_preview_rows(
+            self.page.virtual_dat, self.page.exemplar, self.category,
+            self.page.parent.parent.GID, filling_degree)
+        self.RefreshList()
+
+    def RefreshList(self):
+        self.list.Freeze()
+        try:
+            self.list.DeleteAllItems()
+            self._visible_row_indices = []
+            shown = 0
+            selected = 0
+            changes = 0
+            show_unchanged = self.showUnchanged.GetValue()
+            for idx, row in enumerate(self.rows):
+                changed = row["status"] != recomputePreviewStatusSame
+                if changed:
+                    changes += 1
+                if row["selected"]:
+                    selected += 1
+                if not changed and not show_unchanged:
+                    continue
+                item = self.list.InsertItem(self.list.GetItemCount(), "")
+                self._visible_row_indices.append(idx)
+                self.list.SetItem(item, 1, row["status"])
+                self.list.SetItem(item, 2, row["name"])
+                self.list.SetItem(item, 3, row["current"])
+                self.list.SetItem(item, 4, row["recomputed"])
+                if row["delta"] == 1:
+                    self.list.SetCellTextColour(item, 4, wx.Colour(20, 115, 55))
+                elif row["delta"] == -1:
+                    self.list.SetCellTextColour(item, 4, wx.Colour(170, 35, 35))
+                self.list.CheckItem(item, bool(row["selected"]))
+                shown += 1
+            if shown == 0:
+                item = self.list.InsertItem(0, "")
+                self.list.SetItem(item, 2, recomputePreviewNoChanges)
+            self.status.SetLabel(recomputePreviewCount % (changes, selected))
+        finally:
+            self.list.Thaw()
+
+    def _sync_checks(self):
+        if not hasattr(self.list, "IsItemChecked"):
+            return
+        for item, idx in enumerate(self._visible_row_indices):
+            if 0 <= idx < len(self.rows):
+                self.rows[idx]["selected"] = self.list.IsItemChecked(item)
+
+    def SelectedRows(self):
+        self._sync_checks()
+        return [row for row in self.rows if row["selected"]]
+
+    def OnPreview(self, event):
+        if self._preview_timer.IsRunning():
+            self._preview_timer.Stop()
+        self.RefreshPreview()
+
+    def OnFillingDegreeChanged(self, event):
+        self._preview_timer.StartOnce(250)
+        event.Skip()
+
+    def OnPreviewTimer(self, event):
+        self.RefreshPreview()
+
+    def OnShowUnchanged(self, event):
+        self._sync_checks()
+        self.RefreshList()
+
+    def OnSelectAll(self, event):
+        for row in self.rows:
+            if row["status"] != recomputePreviewStatusSame:
+                row["selected"] = True
+        self.RefreshList()
+
+    def OnSelectNone(self, event):
+        for row in self.rows:
+            row["selected"] = False
+        self.RefreshList()
+
+    def OnApplySelected(self, event):
+        self._apply_all = False
+        self.EndModal(wx.ID_OK)
+
+    def OnApplyAll(self, event):
+        for row in self.rows:
+            if row["status"] != recomputePreviewStatusSame:
+                row["selected"] = True
+        self._apply_all = True
+        self.EndModal(wx.ID_OK)
 
 
 class MyTreeCtrl(wx.TreeCtrl):
@@ -3061,58 +3441,40 @@ class NoteBookPanel(wx.Panel):
 
     def OnRebuildProperties(self, event):
         bCategorized, includedCats = GetCategories(self.virtual_dat.rootCategory, self.descriptor)
+        if not bCategorized or len(includedCats) == 0:
+            return
         category = self.virtual_dat.categories[includedCats[0][1]]
-        IID = self.exemplar.entry.tgi[2]
-        Height = height = self.exemplar.GetProp(662775824)[1]
-        Width = width = self.exemplar.GetProp(662775824)[0]
-        Depth = depth = self.exemplar.GetProp(662775824)[2]
-        exemplarName = self.exemplar.GetProp(32)[0]
         try:
             fillingDegree = self.exemplar.GetProp(662775825)[0]
         except Exception:
             fillingDegree = 0.5
 
-        LotSizeX = 1
-        LotSizeY = 1
-        if IsFromCategory(self.virtual_dat.categories[210746197], self.exemplar):
-            if IsFromCategory(self.virtual_dat.categories[3431971885], self.exemplar):
-                lotDesc = self.virtual_dat.FindLotFromBuilding(self.exemplar)
-                if lotDesc is not None:
-                    try:
-                        LotSizeX = lotDesc.exemplar.GetProp(2297284496)[0]
-                        LotSizeY = lotDesc.exemplar.GetProp(2297284496)[1]
-                    except Exception:
-                        pass
-
-            if event is not None:
-                dlg = wx.TextEntryDialog(self, fillingDegreeMsg, fillingDegreeTitleMsg, str(fillingDegree))
-                if dlg.ShowModal() == wx.ID_OK:
-                    newValue = dlg.GetValue()
-                    newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775825], newValue)
-                    self.exemplar.AddTextProp(newPropStr)
-                    fillingDegree = self.exemplar.GetProp(662775825)[0]
-                    dlg.Destroy()
-                else:
-                    dlg.Destroy()
+        if event is not None:
+            dlg = RecomputePreviewDialog(self, category, fillingDegree)
+            try:
+                dlg.CentreOnParent()
+                if dlg.ShowModal() != wx.ID_OK:
                     return
-        Volume = volume = Height * Width * Depth * fillingDegree
-        scope = {
-            'Height': Height, 'height': height,
-            'Width': Width, 'width': width,
-            'Depth': Depth, 'depth': depth,
-            'Volume': Volume, 'volume': volume,
-            'LotSizeX': LotSizeX, 'LotSizeY': LotSizeY,
-            'fillingDegree': fillingDegree,
-            'IID': IID, 'GID': self.parent.parent.GID,
-            'exemplarName': exemplarName,
-        }
-        props = build_category_props_for_preset(
-            self.virtual_dat, self.exemplar, category, scope)
-
-        for prop in category.removeProperties.keys():
-            self.exemplar.RemoveProp(prop)
-        for prop in props:
-            self.exemplar.AddTextProp(prop)
+                rows = dlg.SelectedRows()
+            finally:
+                dlg.Destroy()
+            if not rows:
+                return
+            for row in rows:
+                if row["status"] == recomputePreviewStatusRemove:
+                    self.exemplar.RemoveProp(row["id"])
+                elif row["line"]:
+                    self.exemplar.AddTextProp(row["line"])
+        else:
+            scope = _recompute_scope(
+                self.virtual_dat, self.exemplar, category,
+                self.parent.parent.GID, fillingDegree)
+            props = build_category_props_for_preset(
+                self.virtual_dat, self.exemplar, category, scope)
+            for prop in category.removeProperties.keys():
+                self.exemplar.RemoveProp(prop)
+            for prop in props:
+                self.exemplar.AddTextProp(prop)
 
         self.listProperties.DeleteAllItems()
         self.FillTheList()
