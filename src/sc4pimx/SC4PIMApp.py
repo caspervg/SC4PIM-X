@@ -792,7 +792,7 @@ class RecomputePreviewDialog(wx.Dialog):
             value = float(self.fillingDegree.GetValue().strip())
         except ValueError:
             raise ValueError(recomputePreviewInvalidFillingDegree)
-        if value < 0.0 or value > 1.0:
+        if value < 0.0:
             raise ValueError(recomputePreviewInvalidFillingDegree)
         return value
 

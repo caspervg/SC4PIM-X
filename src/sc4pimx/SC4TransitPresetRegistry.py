@@ -40,6 +40,13 @@ BASE_IDS = (
     "rail_elevated_rail_station",
     "monorail_elevated_rail_station",
     "hrw_elevated_rail_station",
+    "u_rail_station",
+    "el_rail_glr_dual_network_station",
+    "multipurpose_proximity_station",
+    "multipurpose_proximity_hub",
+    "multipurpose_on_top_proximity_rail_station",
+    "multipurpose_on_top_proximity_el_rail_station",
+    "multipurpose_on_top_proximity_monorail_station",
     "garage",
     "toll_booth",
 )
@@ -70,6 +77,13 @@ BASE_LABELS = {
     "rail_elevated_rail_station": LEXTransitPresetBaseRailElevatedRailStation,
     "monorail_elevated_rail_station": LEXTransitPresetBaseMonorailElevatedRailStation,
     "hrw_elevated_rail_station": LEXTransitPresetBaseHRWElevatedRailStation,
+    "u_rail_station": LEXTransitPresetBaseURailStation,
+    "el_rail_glr_dual_network_station": LEXTransitPresetBaseElRailGLRDualNetworkStation,
+    "multipurpose_proximity_station": LEXTransitPresetBaseMultipurposeProximityStation,
+    "multipurpose_proximity_hub": LEXTransitPresetBaseMultipurposeProximityHub,
+    "multipurpose_on_top_proximity_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityRailStation,
+    "multipurpose_on_top_proximity_el_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityElRailStation,
+    "multipurpose_on_top_proximity_monorail_station": LEXTransitPresetBaseMultipurposeOnTopProximityMonorailStation,
     "garage": LEXTransitPresetBaseGarage,
     "toll_booth": LEXTransitPresetBaseTollBooth,
 }
@@ -377,10 +391,24 @@ def infer_base_from_occupant_groups(
     has_rail = bool(groups & {0x1300, 0x1305, 0xB5C00DF3})
     has_freight = bool(groups & {0x1306, 0xB5C00DF4})
     has_el = bool(groups & {0x1303, 0xB5C00DF6, 0xB5C00DF9})
+    has_glr = 0xB5C00DF9 in groups
     has_mono = bool(groups & {0x1307, 0xB5C00DF7})
     has_hrw = 0xB5C00DFA in groups
+    has_subway = bool(groups & {0x1302, 0xB5C00DF5})
+    has_bus = bool(groups & {0x1301, 0x1926, 0xB5C00DF2})
+    has_garage = bool(groups & {0x130A, 0xB5C00DF1})
+    has_multipurpose = (
+        has_el
+        and has_mono
+        and has_rail
+        and has_hrw
+        and has_subway
+        and (has_bus or has_garage)
+    )
 
     candidates = (
+        ("multipurpose_proximity_station", has_multipurpose),
+        ("el_rail_glr_dual_network_station", has_el and has_glr),
         ("hrw_elevated_rail_station", has_hrw and has_el),
         ("monorail_elevated_rail_station", has_mono and has_el),
         ("rail_elevated_rail_station", has_rail and has_el),
@@ -390,10 +418,10 @@ def infer_base_from_occupant_groups(
         ("elevated_rail_station", has_el),
         ("passenger_train_station", has_rail),
         ("freight_train_station", has_freight),
-        ("subway_station", bool(groups & {0x1302, 0xB5C00DF5})),
-        ("bus_stop", bool(groups & {0x1301, 0x1926, 0xB5C00DF2})),
+        ("subway_station", has_subway),
+        ("bus_stop", has_bus),
         ("toll_booth", 0x130B in groups),
-        ("garage", bool(groups & {0x130A, 0xB5C00DF1})),
+        ("garage", has_garage),
     )
     for base, matches in candidates:
         if matches and base in allowed:
