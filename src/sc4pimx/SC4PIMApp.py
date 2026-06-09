@@ -28,13 +28,13 @@ except ImportError:
 import wx.adv
 
 from . import SC4IconMakerDlg, config, treeDnD
-from .logsetup import configure_logging
 from .ATCViewer import *
 from .DependenciesDlg import *
+from .logsetup import configure_logging
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .settings import *
-from .textutil import decode_sc4_text, decode_unicode_escape, encode_sc4_text
+from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
 from .version import get_version
@@ -231,6 +231,166 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
     if IDK is not None:
         props = [p for p in props if str(p[2:2 + 8].upper()) != '8A2602A9']
     return props
+
+
+def _prop_from_text(exemplar, line):
+    """Parse a text property line without adding it to the exemplar."""
+    return Prop(line, False, exemplar)
+
+
+def _prop_display_value(virtual_dat, prop):
+    if prop is None:
+        return ""
+    try:
+        return ConvertAPropToReadable(prop, virtual_dat.properties[prop.id])
+    except Exception:
+        return prop.ToStr()
+
+
+def _prop_display_name(virtual_dat, prop_id):
+    try:
+        return virtual_dat.properties[prop_id].Name
+    except Exception:
+        return "0x%08X" % prop_id
+
+
+def _prop_values_equal(left, right):
+    if left is None or right is None:
+        return left is right
+    if left.typeValue != right.typeValue:
+        return False
+    if len(left.values) != len(right.values):
+        return False
+    for a, b in zip(left.values, right.values):
+        if left.typeValue == 2304:
+            if abs(float(a) - float(b)) > 0.000001:
+                return False
+        elif a != b:
+            return False
+    return True
+
+
+def _prop_scalar_delta(prop_def, left, right):
+    """Return -1/0/1 for simple numeric value changes, or None for non-scalars."""
+    if left is None or right is None:
+        return None
+    if getattr(prop_def, "ShowAsHex", False):
+        return None
+    if left.typeValue not in (256, 768, 1792, 2048, 2304):
+        return None
+    if len(left.values) != 1 or len(right.values) != 1:
+        return None
+    old = float(left.values[0])
+    new = float(right.values[0])
+    if abs(new - old) <= 0.000001:
+        return 0
+    return 1 if new > old else -1
+
+
+def _prop_trend_icon(delta):
+    if delta == 1:
+        return "↑"
+    if delta == -1:
+        return "↓"
+    if delta == 0:
+        return "="
+    return ""
+
+
+def _current_local_prop_map(exemplar):
+    return {prop.id: prop for prop in exemplar.props}
+
+
+def _recompute_scope(virtual_dat, exemplar, category, app_gid, filling_degree):
+    IID = exemplar.entry.tgi[2]
+    Height = height = exemplar.GetProp(662775824)[1]
+    Width = width = exemplar.GetProp(662775824)[0]
+    Depth = depth = exemplar.GetProp(662775824)[2]
+    exemplarName = exemplar.GetProp(32)[0]
+    LotSizeX = 1
+    LotSizeY = 1
+    if IsFromCategory(virtual_dat.categories[210746197], exemplar):
+        if IsFromCategory(virtual_dat.categories[3431971885], exemplar):
+            lotDesc = virtual_dat.FindLotFromBuilding(exemplar)
+            if lotDesc is not None:
+                try:
+                    LotSizeX = lotDesc.exemplar.GetProp(2297284496)[0]
+                    LotSizeY = lotDesc.exemplar.GetProp(2297284496)[1]
+                except Exception:
+                    pass
+    Volume = volume = Height * Width * Depth * filling_degree
+    return {
+        'Height': Height, 'height': height,
+        'Width': Width, 'width': width,
+        'Depth': Depth, 'depth': depth,
+        'Volume': Volume, 'volume': volume,
+        'LotSizeX': LotSizeX, 'LotSizeY': LotSizeY,
+        'fillingDegree': filling_degree,
+        'IID': IID, 'GID': app_gid,
+        'exemplarName': exemplarName,
+    }
+
+
+def build_recompute_preview_rows(virtual_dat, exemplar, category, app_gid, filling_degree):
+    """Return row dictionaries describing a dry-run rebuild for one filling degree."""
+    scope = _recompute_scope(virtual_dat, exemplar, category, app_gid, filling_degree)
+    generated_lines = build_category_props_for_preset(virtual_dat, exemplar, category, scope)
+    generated = {}
+    for line in generated_lines:
+        prop = _prop_from_text(exemplar, line)
+        generated[prop.id] = (line, prop)
+
+    current = _current_local_prop_map(exemplar)
+    rows = []
+
+    def add_row(prop_id, status, current_prop, generated_prop, line=None, selected=True):
+        try:
+            prop_def = virtual_dat.properties[prop_id]
+        except Exception:
+            prop_def = None
+        delta = _prop_scalar_delta(prop_def, current_prop, generated_prop)
+        rows.append({
+            "id": prop_id,
+            "status": status,
+            "name": _prop_display_name(virtual_dat, prop_id),
+            "current": _prop_display_value(virtual_dat, current_prop),
+            "recomputed": _prop_display_value(virtual_dat, generated_prop),
+            "delta": delta,
+            "trend": _prop_trend_icon(delta),
+            "line": line,
+            "selected": selected,
+        })
+
+    # Filling Degree drives the dry-run but is not emitted by the category
+    # generator. Show it explicitly so accepting a preview stores the candidate.
+    fd_line = CreateAPropFromString(virtual_dat.properties[662775825], str(filling_degree))
+    fd_prop = _prop_from_text(exemplar, fd_line)
+    current_fd = current.get(662775825)
+    if current_fd is None:
+        add_row(662775825, recomputePreviewStatusAdd, None, fd_prop, fd_line, True)
+    elif not _prop_values_equal(current_fd, fd_prop):
+        add_row(662775825, recomputePreviewStatusUpdate, current_fd, fd_prop, fd_line, True)
+    else:
+        add_row(662775825, recomputePreviewStatusSame, current_fd, fd_prop, fd_line, False)
+
+    for prop_id in sorted(generated):
+        if prop_id == 662775825:
+            continue
+        line, generated_prop = generated[prop_id]
+        current_prop = current.get(prop_id)
+        if current_prop is None:
+            add_row(prop_id, recomputePreviewStatusAdd, None, generated_prop, line, True)
+        elif _prop_values_equal(current_prop, generated_prop):
+            add_row(prop_id, recomputePreviewStatusSame, current_prop, generated_prop, line, False)
+        else:
+            add_row(prop_id, recomputePreviewStatusUpdate, current_prop, generated_prop, line, True)
+
+    for prop_id in sorted(category.removeProperties.keys()):
+        current_prop = current.get(prop_id)
+        if current_prop is not None:
+            add_row(prop_id, recomputePreviewStatusRemove, current_prop, None, None, False)
+
+    return rows
 
 
 def _read_s3d_bbox(mesh):
@@ -436,6 +596,315 @@ class ProcessDlg(wx.Dialog):
     @staticmethod
     def OnCloseWindow(event):
         event.Veto()
+
+
+class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
+    def __init__(self, parent):
+        ULC.UltimateListCtrl.__init__(
+            self,
+            parent,
+            -1,
+            agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_SHOW_TOOLTIPS | ULC.ULC_SINGLE_SEL,
+        )
+        self.Bind(wx.EVT_SIZE, self._on_size)
+
+    def _apply_text(self, info, label):
+        info._mask = ULC.ULC_MASK_TEXT
+        label = label or ""
+        if "\n" in label or "\r" in label:
+            info._text = label.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+            info._tooltip = label
+            info._mask |= ULC.ULC_MASK_TOOLTIP
+        else:
+            info._text = label
+
+    def InsertItem(self, index, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        self._apply_text(info, label)
+        info._mask |= ULC.ULC_MASK_KIND
+        info._kind = 1
+        self._mainWin.InsertItem(info)
+        return index
+
+    def InsertHeaderItem(self, index, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        self._apply_text(info, label)
+        info.SetTextColour(wx.Colour(78, 86, 94))
+        info._mask |= ULC.ULC_MASK_FONTCOLOUR
+        font = self.GetFont()
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        info.SetFont(font)
+        info._mask |= ULC.ULC_MASK_FONT
+        self._mainWin.InsertItem(info)
+        return index
+
+    def SetItem(self, index, col, label):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        info._col = col
+        self._apply_text(info, label)
+        self._mainWin.SetItem(info)
+        return True
+
+    def CheckItem(self, index, checked, send_event=False):
+        item = ULC.CreateListItem(index, 0)
+        item = self._mainWin.GetItem(item, 0)
+        self._mainWin.CheckItem(item, checked, send_event)
+
+    def SetCellTextColour(self, index, col, colour):
+        info = ULC.UltimateListItem()
+        info._itemId = index
+        info._col = col
+        info._mask = ULC.ULC_MASK_FONTCOLOUR
+        info.SetTextColour(colour)
+        self._mainWin.SetItem(info)
+
+    def SetRowTextColour(self, index, colour):
+        for col in range(self.GetColumnCount()):
+            self.SetCellTextColour(index, col, colour)
+
+    def _on_size(self, event):
+        event.Skip()
+        wx.CallAfter(self.AutoFillLastColumn)
+
+    def AutoFillLastColumn(self):
+        count = self.GetColumnCount()
+        if count < 2:
+            return
+        used = sum(self.GetColumnWidth(c) for c in range(count - 1))
+        remaining = self.GetClientSize().width - used - 4
+        if remaining > 80:
+            self.SetColumnWidth(count - 1, remaining)
+
+
+class RecomputePreviewDialog(wx.Dialog):
+    """Dry-run preview for category property recomputation."""
+
+    def __init__(self, parent, category, filling_degree):
+        wx.Dialog.__init__(self, parent, -1, "%s - %s" % (recomputePreviewTitle, category.Name),
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.page = parent
+        self.category = category
+        self.rows = []
+        self._apply_all = False
+        self._preview_timer = wx.Timer(self)
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        top = wx.BoxSizer(wx.VERTICAL)
+        fd_row = wx.BoxSizer(wx.HORIZONTAL)
+        fd_row.Add(wx.StaticText(self, -1, recomputePreviewFillingDegree), 0,
+                   wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self.fillingDegree = wx.TextCtrl(self, -1, str(filling_degree), style=wx.TE_PROCESS_ENTER)
+        self.showUnchanged = wx.CheckBox(self, -1, recomputePreviewShowUnchanged)
+        fd_row.Add(self.fillingDegree, 0, wx.RIGHT, 6)
+        fd_row.Add(self.showUnchanged, 0, wx.ALIGN_CENTER_VERTICAL)
+        top.Add(fd_row, 0, wx.EXPAND)
+        root.Add(top, 0, wx.EXPAND | wx.ALL, 8)
+
+        self._visible_row_indices = []
+        self.list = RecomputePreviewListCtrl(self)
+        self.list.InsertColumn(0, recomputePreviewColApply, width=55)
+        self.list.InsertColumn(1, recomputePreviewColStatus, width=90)
+        self.list.InsertColumn(2, recomputePreviewColTrend, width=38)
+        self.list.InsertColumn(3, recomputePreviewColProperty, width=220)
+        self.list.InsertColumn(4, recomputePreviewColCurrent, width=260)
+        self.list.InsertColumn(5, recomputePreviewColRecomputed, width=260)
+        root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.status = wx.StaticText(self, -1, "")
+        root.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        row_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.selectAll = wx.Button(self, -1, recomputePreviewSelectAll)
+        self.selectNone = wx.Button(self, -1, recomputePreviewSelectNone)
+        row_buttons.Add(self.selectAll, 0, wx.RIGHT, 4)
+        row_buttons.Add(self.selectNone, 0, wx.RIGHT, 4)
+        root.Add(row_buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.applySelected = wx.Button(self, wx.ID_OK, recomputePreviewApplySelected)
+        self.applyAll = wx.Button(self, -1, recomputePreviewApplyAll)
+        self.cancel = wx.Button(self, wx.ID_CANCEL)
+        self.applySelected.SetDefault()
+        buttons.AddStretchSpacer(1)
+        buttons.Add(self.applySelected, 0, wx.RIGHT, 6)
+        buttons.Add(self.applyAll, 0, wx.RIGHT, 6)
+        buttons.Add(self.cancel, 0)
+        root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        self.SetSizer(root)
+        self.SetMinSize((900, 480))
+        self.SetSize((980, 560))
+        self.Bind(wx.EVT_TEXT_ENTER, self.OnPreview, self.fillingDegree)
+        self.Bind(wx.EVT_TEXT, self.OnFillingDegreeChanged, self.fillingDegree)
+        self.Bind(wx.EVT_TIMER, self.OnPreviewTimer, self._preview_timer)
+        self.Bind(wx.EVT_CHECKBOX, self.OnShowUnchanged, self.showUnchanged)
+        self.list.Bind(ULC.EVT_LIST_ITEM_CHECKED, self.OnTableChecked)
+        self.Bind(wx.EVT_BUTTON, self.OnSelectAll, self.selectAll)
+        self.Bind(wx.EVT_BUTTON, self.OnSelectNone, self.selectNone)
+        self.Bind(wx.EVT_BUTTON, self.OnApplySelected, self.applySelected)
+        self.Bind(wx.EVT_BUTTON, self.OnApplyAll, self.applyAll)
+        self.RefreshPreview()
+        self.Layout()
+
+    def _status_tag(self, status):
+        return "[%s]" % status
+
+    def _status_colour(self, status):
+        if status == recomputePreviewStatusAdd:
+            return wx.Colour(20, 115, 55)
+        if status == recomputePreviewStatusUpdate:
+            return wx.Colour(150, 95, 0)
+        if status == recomputePreviewStatusRemove:
+            return wx.Colour(170, 35, 35)
+        return wx.Colour(95, 100, 105)
+
+    def _trend_colour(self, delta):
+        if delta == 1:
+            return wx.Colour(20, 115, 55)
+        if delta == -1:
+            return wx.Colour(170, 35, 35)
+        return wx.Colour(95, 100, 105)
+
+    def _group_specs(self, show_unchanged):
+        specs = [
+            (recomputePreviewStatusAdd, recomputePreviewGroupAdd),
+            (recomputePreviewStatusUpdate, recomputePreviewGroupUpdate),
+            (recomputePreviewStatusRemove, recomputePreviewGroupRemove),
+        ]
+        if show_unchanged:
+            specs.append((recomputePreviewStatusSame, recomputePreviewGroupSame))
+        return specs
+
+    def _selected_count(self):
+        return sum(1 for row in self.rows if row["selected"])
+
+    def _update_apply_summary(self):
+        selected = self._selected_count()
+        self.applySelected.SetLabel(recomputePreviewApplySelectedCount % selected)
+        self.applySelected.Enable(selected > 0)
+        self.Layout()
+
+    def FillingDegreeValue(self):
+        try:
+            value = float(self.fillingDegree.GetValue().strip())
+        except ValueError:
+            raise ValueError(recomputePreviewInvalidFillingDegree)
+        if value < 0.0:
+            raise ValueError(recomputePreviewInvalidFillingDegree)
+        return value
+
+    def RefreshPreview(self):
+        try:
+            filling_degree = self.FillingDegreeValue()
+        except ValueError as exc:
+            self.status.SetLabel(str(exc))
+            return
+        self.rows = build_recompute_preview_rows(
+            self.page.virtual_dat, self.page.exemplar, self.category,
+            self.page.parent.parent.GID, filling_degree)
+        self.RefreshList()
+
+    def RefreshList(self):
+        self.list.Freeze()
+        try:
+            self.list.DeleteAllItems()
+            self._visible_row_indices = []
+            shown = 0
+            selected = 0
+            changes = 0
+            show_unchanged = self.showUnchanged.GetValue()
+            for row in self.rows:
+                if row["status"] != recomputePreviewStatusSame:
+                    changes += 1
+                if row["selected"]:
+                    selected += 1
+            for status, label in self._group_specs(show_unchanged):
+                group = [(idx, row) for idx, row in enumerate(self.rows) if row["status"] == status]
+                if not group:
+                    continue
+                header = self.list.InsertHeaderItem(self.list.GetItemCount(), "%s (%d)" % (label, len(group)))
+                self.list.SetRowTextColour(header, wx.Colour(78, 86, 94))
+                for idx, row in group:
+                    item = self.list.InsertItem(self.list.GetItemCount(), "")
+                    self._visible_row_indices.append((item, idx))
+                    self.list.SetItem(item, 1, self._status_tag(row["status"]))
+                    self.list.SetItem(item, 2, row["trend"])
+                    self.list.SetItem(item, 3, row["name"])
+                    self.list.SetItem(item, 4, row["current"])
+                    self.list.SetItem(item, 5, row["recomputed"])
+                    self.list.SetCellTextColour(item, 1, self._status_colour(row["status"]))
+                    if row["trend"]:
+                        self.list.SetCellTextColour(item, 2, self._trend_colour(row["delta"]))
+                    if row["delta"] == 1:
+                        self.list.SetCellTextColour(item, 5, wx.Colour(20, 115, 55))
+                    elif row["delta"] == -1:
+                        self.list.SetCellTextColour(item, 5, wx.Colour(170, 35, 35))
+                    self.list.CheckItem(item, bool(row["selected"]))
+                    shown += 1
+            if shown == 0:
+                item = self.list.InsertItem(0, "")
+                self.list.SetItem(item, 3, recomputePreviewNoChanges)
+            self.status.SetLabel(recomputePreviewCount % (changes, selected))
+            self._update_apply_summary()
+        finally:
+            self.list.Thaw()
+
+    def _sync_checks(self):
+        if not hasattr(self.list, "IsItemChecked"):
+            return
+        for item, idx in self._visible_row_indices:
+            if 0 <= idx < len(self.rows):
+                self.rows[idx]["selected"] = self.list.IsItemChecked(item)
+        self._update_apply_summary()
+
+    def SelectedRows(self):
+        self._sync_checks()
+        return [row for row in self.rows if row["selected"]]
+
+    def OnPreview(self, event):
+        if self._preview_timer.IsRunning():
+            self._preview_timer.Stop()
+        self.RefreshPreview()
+
+    def OnFillingDegreeChanged(self, event):
+        self._preview_timer.StartOnce(250)
+        event.Skip()
+
+    def OnPreviewTimer(self, event):
+        self.RefreshPreview()
+
+    def OnShowUnchanged(self, event):
+        self._sync_checks()
+        self.RefreshList()
+
+    def OnTableChecked(self, event):
+        self._sync_checks()
+        event.Skip()
+
+    def OnSelectAll(self, event):
+        for row in self.rows:
+            if row["status"] != recomputePreviewStatusSame:
+                row["selected"] = True
+        self.RefreshList()
+
+    def OnSelectNone(self, event):
+        for row in self.rows:
+            row["selected"] = False
+        self.RefreshList()
+
+    def OnApplySelected(self, event):
+        self._apply_all = False
+        self.EndModal(wx.ID_OK)
+
+    def OnApplyAll(self, event):
+        for row in self.rows:
+            if row["status"] != recomputePreviewStatusSame:
+                row["selected"] = True
+        self._apply_all = True
+        self.EndModal(wx.ID_OK)
 
 
 class MyTreeCtrl(wx.TreeCtrl):
@@ -1541,7 +2010,7 @@ class NoteBookPanel(wx.Panel):
     def OnActivated(self, event):
         allowedPropEdit = [
             32, 662775824, 2308635565, 2317746857, 2317746872, 1246398704, 1771767972, 2297284498, 3919251084,
-            2297284501, 2297284502, 662775920, 662775825, 2854081430]
+            2297284501, 2297284502, 662775920, 662775825, 2854081430, 0xAA1DD399]
         listItems = event.GetEventObject()
         idx = event.GetIndex()
         if idx < 3:
@@ -1580,6 +2049,9 @@ class NoteBookPanel(wx.Panel):
         if prop.id == 0xAA1DD396:
             self.OnEditOccupantGroups(event)
             return
+        if prop.id == 0xAA1DD399:
+            self.OnEditBuildingSubmenus(event)
+            return
         try:
             prop_def = self.virtual_dat.properties[prop.id]
             name = prop_def.Name
@@ -1589,8 +2061,11 @@ class NoteBookPanel(wx.Panel):
 
         value = prop.ToStr()
         if prop_def is not None:
+            from .SC4CurveEditor import edit_curve_property, is_curve_property
             from .SC4StructuredPropertyEditors import edit_structured_property, editor_kind
-            if editor_kind(prop, prop_def):
+            # The curve editor is a more specific view of paired-Float32 data
+            # (e.g. Population vs. Distance); let it win over the generic table.
+            if editor_kind(prop, prop_def) and not is_curve_property(prop, prop_def):
                 newValue = edit_structured_property(self, title, prop, prop_def)
                 if newValue is None:
                     return
@@ -1627,7 +2102,6 @@ class NoteBookPanel(wx.Panel):
                         self.parent.parent.FillItemsList(data)
                 return
 
-            from .SC4CurveEditor import edit_curve_property, is_curve_property
             if is_curve_property(prop, prop_def):
                 newValue = edit_curve_property(self, title, name, prop.values)
                 if newValue is None:
@@ -1816,6 +2290,7 @@ class NoteBookPanel(wx.Panel):
             self.popupID37 = wx.NewIdRef()
             self.popupID38 = wx.NewIdRef()  # Edit Transit Switches…
             self.popupID39 = wx.NewIdRef()  # Apply Transit Preset…
+            self.popupID40 = wx.NewIdRef()
             self.popupID1 = wx.NewIdRef()
             self.popupID2 = wx.NewIdRef()
             self.popupID3 = wx.NewIdRef()
@@ -1868,6 +2343,7 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnOpenLotWithProp, id=self.popupID36)
             self.Bind(wx.EVT_MENU, self.OnEditTransitSwitches, id=self.popupID38)
             self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
+            self.Bind(wx.EVT_MENU, self.OnEditBuildingSubmenus, id=self.popupID40)
         menu = wx.Menu()
         if bAdvancedUser:
             menu.Append(self.popupID1, popupPropertyMenuItem1)
@@ -2000,6 +2476,7 @@ class NoteBookPanel(wx.Panel):
                 bSep = True
                 menu.AppendSeparator()
             menu.Append(self.popupID17, popupPropertyMenuItem17)
+            menu.Append(self.popupID40, LEXBuildingSubmenuMenuItem)
             if IsFromCategory(self.virtual_dat.categories[749358634], self.exemplar) and self.exemplar.entry.tgi[
                 0] == 1697917002:
                 menu.Append(self.popupID28, popupPropertyMenuItem28)
@@ -2082,10 +2559,9 @@ class NoteBookPanel(wx.Panel):
         # eval-driven preset formula).
         if (self.exemplar.GetProp(16)[0] == 2
                 and self.exemplar.GetProp(662775824) is not None):
-            menu.AppendSeparator()
-            menu.Append(self.popupID38, LEXTransitSwitchEditor)
             from . import SC4TransitPresets as _tp
             if _tp.has_transit_presets(self.virtual_dat):
+                menu.AppendSeparator()
                 menu.Append(self.popupID39, LEXTransitPresetMenuItem)
         self.PopupMenu(menu)
         menu.Destroy()
@@ -2137,6 +2613,12 @@ class NoteBookPanel(wx.Panel):
         btns.Realize()
         sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 6)
         dlg.SetSizerAndFit(sizer)
+
+        def _on_ok(_evt):
+            if panel.validate():
+                dlg.EndModal(wx.ID_OK)
+
+        ok_btn.Bind(wx.EVT_BUTTON, _on_ok)
 
         try:
             if dlg.ShowModal() == wx.ID_OK:
@@ -2315,6 +2797,35 @@ class NoteBookPanel(wx.Panel):
         )
         if finalOgs is not None:
             self._write_occupant_groups(finalOgs)
+
+    def OnEditBuildingSubmenus(self, _event):
+        from .SC4BuildingSubmenuPicker import PROP_BUILDING_SUBMENUS, pick_building_submenus
+
+        finalSubmenus = pick_building_submenus(
+            self,
+            self.virtual_dat,
+            self.exemplar.GetProp(PROP_BUILDING_SUBMENUS) or [],
+            title=LEXBuildingSubmenuPickerTitle,
+            preserve_unlisted=True,
+        )
+        if finalSubmenus is not None:
+            self._write_building_submenus(finalSubmenus)
+
+    def _write_building_submenus(self, submenus):
+        prop_id = 0xAA1DD399
+        values = sorted(set(submenus))
+        if values:
+            prop = CreateAProp(self.virtual_dat.properties[prop_id], tuple(values))
+            self.exemplar.AddTextProp(prop)
+        else:
+            self.exemplar.RemoveProp(prop_id)
+            self.exemplar.modified = True
+        self.listProperties.DeleteAllItems()
+        self.FillTheList()
+        self.bSave.Enable(True)
+        self.descriptor.name = self.exemplar.GetProp(32)[0]
+        self.parent.SetPageText(self.parent.currentPage, self.descriptor.name)
+        self.parent.parent.listItems.Refresh()
 
     def _write_occupant_groups(self, ogs):
         prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(sorted(set(ogs))))
@@ -3019,58 +3530,40 @@ class NoteBookPanel(wx.Panel):
 
     def OnRebuildProperties(self, event):
         bCategorized, includedCats = GetCategories(self.virtual_dat.rootCategory, self.descriptor)
+        if not bCategorized or len(includedCats) == 0:
+            return
         category = self.virtual_dat.categories[includedCats[0][1]]
-        IID = self.exemplar.entry.tgi[2]
-        Height = height = self.exemplar.GetProp(662775824)[1]
-        Width = width = self.exemplar.GetProp(662775824)[0]
-        Depth = depth = self.exemplar.GetProp(662775824)[2]
-        exemplarName = self.exemplar.GetProp(32)[0]
         try:
             fillingDegree = self.exemplar.GetProp(662775825)[0]
         except Exception:
             fillingDegree = 0.5
 
-        LotSizeX = 1
-        LotSizeY = 1
-        if IsFromCategory(self.virtual_dat.categories[210746197], self.exemplar):
-            if IsFromCategory(self.virtual_dat.categories[3431971885], self.exemplar):
-                lotDesc = self.virtual_dat.FindLotFromBuilding(self.exemplar)
-                if lotDesc is not None:
-                    try:
-                        LotSizeX = lotDesc.exemplar.GetProp(2297284496)[0]
-                        LotSizeY = lotDesc.exemplar.GetProp(2297284496)[1]
-                    except Exception:
-                        pass
-
-            if event is not None:
-                dlg = wx.TextEntryDialog(self, fillingDegreeMsg, fillingDegreeTitleMsg, str(fillingDegree))
-                if dlg.ShowModal() == wx.ID_OK:
-                    newValue = dlg.GetValue()
-                    newPropStr = CreateAPropFromString(self.virtual_dat.properties[662775825], newValue)
-                    self.exemplar.AddTextProp(newPropStr)
-                    fillingDegree = self.exemplar.GetProp(662775825)[0]
-                    dlg.Destroy()
-                else:
-                    dlg.Destroy()
+        if event is not None:
+            dlg = RecomputePreviewDialog(self, category, fillingDegree)
+            try:
+                dlg.CentreOnParent()
+                if dlg.ShowModal() != wx.ID_OK:
                     return
-        Volume = volume = Height * Width * Depth * fillingDegree
-        scope = {
-            'Height': Height, 'height': height,
-            'Width': Width, 'width': width,
-            'Depth': Depth, 'depth': depth,
-            'Volume': Volume, 'volume': volume,
-            'LotSizeX': LotSizeX, 'LotSizeY': LotSizeY,
-            'fillingDegree': fillingDegree,
-            'IID': IID, 'GID': self.parent.parent.GID,
-            'exemplarName': exemplarName,
-        }
-        props = build_category_props_for_preset(
-            self.virtual_dat, self.exemplar, category, scope)
-
-        for prop in category.removeProperties.keys():
-            self.exemplar.RemoveProp(prop)
-        for prop in props:
-            self.exemplar.AddTextProp(prop)
+                rows = dlg.SelectedRows()
+            finally:
+                dlg.Destroy()
+            if not rows:
+                return
+            for row in rows:
+                if row["status"] == recomputePreviewStatusRemove:
+                    self.exemplar.RemoveProp(row["id"])
+                elif row["line"]:
+                    self.exemplar.AddTextProp(row["line"])
+        else:
+            scope = _recompute_scope(
+                self.virtual_dat, self.exemplar, category,
+                self.parent.parent.GID, fillingDegree)
+            props = build_category_props_for_preset(
+                self.virtual_dat, self.exemplar, category, scope)
+            for prop in category.removeProperties.keys():
+                self.exemplar.RemoveProp(prop)
+            for prop in props:
+                self.exemplar.AddTextProp(prop)
 
         self.listProperties.DeleteAllItems()
         self.FillTheList()
@@ -3140,13 +3633,13 @@ class NoteBookPanel(wx.Panel):
         buffer += newVal
         ltextEntry.content = buffer
         ltextEntry.Maj()
-        self.InternalSave(ltextEntry.fileName)
         self.virtual_dat.addEntries([ltextEntry], None, False, False)
         self.exemplar.RemoveProp(propid2remove)
         if propid2add:
             newPropStr = CreateAPropFromString(self.virtual_dat.properties[propid2add],
                                                '0x%08X,0x%08X,0x%08X' % (t, g, i))
             self.exemplar.AddTextProp(newPropStr)
+        self.InternalSave(ltextEntry.fileName)
         self.listProperties.DeleteAllItems()
         self.FillTheList()
         if propid2add:
@@ -3159,13 +3652,7 @@ class NoteBookPanel(wx.Panel):
     def OnAddLangUVNK(self, event):
         idMenu = event.GetId()
         txt = self.exemplar.GetPropObject(32).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         UVNK = self.exemplar.GetProp(2319542937)
         if UVNK:
@@ -3190,13 +3677,7 @@ class NoteBookPanel(wx.Panel):
         except Exception:
             txt = self.exemplar.GetPropObject(32).rawdata
 
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         if self.exemplar.GetProp(1788208387) and self.exemplar.GetProp(1788208387)[0]:
             newProp = CreateAProp(self.virtual_dat.properties[1788208387], (False,))
@@ -3206,13 +3687,7 @@ class NoteBookPanel(wx.Panel):
     def OnAddLangIDK(self, event):
         idMenu = event.GetId()
         txt = self.exemplar.GetPropObject(32).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         IDK = self.exemplar.GetProp(3393284789)
         if IDK:
@@ -3234,13 +3709,7 @@ class NoteBookPanel(wx.Panel):
 
     def OnConvertToIDK(self, event):
         txt = self.exemplar.GetPropObject(2317746857).rawdata
-        try:
-            utxt = str(txt)
-        except Exception:
-            try:
-                utxt = decode_sc4_text(txt)
-            except Exception:
-                utxt = txt.decode('utf-8', errors='replace')
+        utxt = decode_sc4_string_prop(txt)
 
         self.CreateLTEXTEntry(utxt, 539399691, self.exemplar.entry.tgi[1], self.exemplar.entry.tgi[2], 3393284789,
                               2317746857)

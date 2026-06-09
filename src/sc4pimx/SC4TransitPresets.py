@@ -351,7 +351,7 @@ class PresetWizardDialog(wx.Dialog):
 
         self.baseChoice = wx.Choice(self, -1, choices=self._base_labels())
         if self._base_ids:
-            self.baseChoice.SetSelection(0)
+            self.baseChoice.SetSelection(self._initial_base_index())
 
         self.placementRadio = wx.RadioBox(
             self,
@@ -452,6 +452,15 @@ class PresetWizardDialog(wx.Dialog):
         if not self._base_ids:
             return [LEXTransitPresetEmpty]
         return [tpr.label_for_base(base) for base in self._base_ids]
+
+    def _initial_base_index(self) -> int:
+        inferred = tpr.infer_base_from_occupant_groups(
+            self.exemplar.GetProp(0xAA1DD396) or (),
+            self._base_ids,
+        )
+        if inferred in self._base_ids:
+            return self._base_ids.index(inferred)
+        return 0
 
     def _selected_base(self) -> Optional[str]:
         if not self._base_ids:

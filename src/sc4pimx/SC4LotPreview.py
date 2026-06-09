@@ -457,6 +457,7 @@ class LotEditorWin(wx.Frame):
         self.lotOverTextures = []
         self.lotBaseTextures = []
         self.lotPropDescs = []
+        self.lotEffectDescs = []
         self.lotFamiliesPropID = []
         self.lotFloraDescs = []
         self.familyVariations = {}
@@ -749,6 +750,8 @@ class LotEditorWin(wx.Frame):
         if values[0] == 1:
             if self._family_members(values[12]):
                 return LEXAssetTypeFamily
+            if self._is_effect_ref(values[12]):
+                return LEXAssetTypeEffect
             return LEXAssetTypeProp
         if values[0] == 2:
             tex_id = values[12]
@@ -768,6 +771,15 @@ class LotEditorWin(wx.Frame):
             return LEXAssetTypeTransit
         return LEXInspectorSelection
 
+    def _is_effect_ref(self, prop_id):
+        effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+        if effect_category is None:
+            return False
+        for desc in effect_category.descriptors:
+            if desc.exemplar.entry.tgi[2] == prop_id and IsEffectDesc(desc):
+                return True
+        return False
+
     def _lot_summary_text(self):
         """Inspector text shown when nothing is selected: a lot overview."""
         if not hasattr(self, 'exemplar'):
@@ -778,8 +790,11 @@ class LotEditorWin(wx.Frame):
             lines.append('%s: %dx%d' % (LEXInspectorLotSize, size[0], size[1]))
         except Exception:
             pass
+        effect_count = len(getattr(self, 'effects', []))
+        prop_count = max(0, len(getattr(self, 'props', [])) - effect_count)
         lines.extend([
-            '%s: %d' % (LEXAssetTypeProp, len(getattr(self, 'props', []))),
+            '%s: %d' % (LEXAssetTypeProp, prop_count),
+            '%s: %d' % (LEXAssetTypeEffect, effect_count),
             '%s: %d' % (LEXAssetTypeFlora, len(getattr(self, 'floras', []))),
             '%s: %d' % (LEXAssetTypeBaseTexture, len(getattr(self, 'texBases', []))),
             '%s: %d' % (LEXAssetTypeOverlayTexture, len(getattr(self, 'texOverlays', []))),
@@ -1678,8 +1693,10 @@ class LotEditorWin(wx.Frame):
         self.currentBuilding = 0
         self.lotFamiliesPropID = []
         self.lotPropDescs = []
+        self.lotEffectDescs = []
         self.lotFloraDescs = []
         self.props = []
+        self.effects = []
         self.propViewers = []
         self.floras = []
         self.floraViewers = []
@@ -1751,6 +1768,10 @@ class LotEditorWin(wx.Frame):
                             if what[11] == id:
                                 del self.props[idx]
                                 del self.propViewers[idx]
+                                break
+                        for effect in list(self.effects):
+                            if effect[11] == id:
+                                self.effects.remove(effect)
                                 break
 
                     if values[0] == 4:
@@ -2363,6 +2384,7 @@ class LotEditorWin(wx.Frame):
     def RebuildVars(self):
         self.lotFamiliesPropID = []
         self.lotPropDescs = []
+        self.lotEffectDescs = []
         self.lotFloraDescs = []
         ids = [ tex[3] for tex in self.texBases ]
         for id in self.lotBaseTextures:
@@ -2403,10 +2425,21 @@ class LotEditorWin(wx.Frame):
                         selectedDesc = desc
                         name = selectedDesc.name
                         continue
+                if selectedDesc is None and values[0] == 1:
+                    effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+                    if effect_category is not None:
+                        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, effect_category.descriptors)
+                        for desc in possibles:
+                            selectedDesc = desc
+                            name = selectedDesc.name
+                            continue
 
                 if selectedDesc is None:
                     continue
-                if values[0] == 1:
+                if values[0] == 1 and IsEffectDesc(selectedDesc):
+                    if selectedDesc not in self.lotEffectDescs:
+                        self.lotEffectDescs.append(selectedDesc)
+                elif values[0] == 1:
                     if selectedDesc not in self.lotPropDescs:
                         self.lotPropDescs.append(selectedDesc)
                 elif selectedDesc not in self.lotFloraDescs:
@@ -2433,6 +2466,14 @@ class LotEditorWin(wx.Frame):
                 selectedDesc = desc
                 name = selectedDesc.name
                 break
+        if selectedDesc is None:
+            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+            if effect_category is not None:
+                possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, effect_category.descriptors)
+                for desc in possibles:
+                    selectedDesc = desc
+                    name = selectedDesc.name
+                    break
 
         if selectedDesc is None:
             return (None, 'not found')
@@ -2441,7 +2482,10 @@ class LotEditorWin(wx.Frame):
         rkt3 = selectedDesc.exemplar.GetProp(662775843)
         rkt4 = selectedDesc.exemplar.GetProp(662775844)
         rkt5 = selectedDesc.exemplar.GetProp(662775845)
-        if selectedDesc not in self.lotPropDescs:
+        if IsEffectDesc(selectedDesc):
+            if selectedDesc not in self.lotEffectDescs:
+                self.lotEffectDescs.append(selectedDesc)
+        elif selectedDesc not in self.lotPropDescs:
             self.lotPropDescs.append(selectedDesc)
         propViewer = None
         if rkt0:
@@ -2534,12 +2578,21 @@ class LotEditorWin(wx.Frame):
             self.building = values
             self.building.append(self.LoadBuildingModel(values[12]))
         if values[0] == 1:
+            is_effect = False
+            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+            if effect_category is not None:
+                for desc in effect_category.descriptors:
+                    if desc.exemplar.entry.tgi[2] == values[12] and IsEffectDesc(desc):
+                        is_effect = True
+                        break
             bOk = False
             for prop, viewer in zip(self.props, self.propViewers):
                 if prop[12] == values[12]:
                     values.append(prop[-1])
                     self.props.append(values)
                     self.propViewers.append(viewer)
+                    if is_effect:
+                        self.effects.append(values)
                     bOk = True
                     break
 
@@ -2548,6 +2601,8 @@ class LotEditorWin(wx.Frame):
                 values.append(name)
                 self.props.append(values)
                 self.propViewers.append(propView)
+                if is_effect:
+                    self.effects.append(values)
         if values[0] == 2:
             texID = values[12]
             bBase = True
@@ -2599,8 +2654,10 @@ class LotEditorWin(wx.Frame):
         self.buildingViewer = []
         self.lotFamiliesPropID = []
         self.lotPropDescs = []
+        self.lotEffectDescs = []
         self.lotFloraDescs = []
         self.props = []
+        self.effects = []
         self.propViewers = []
         self.floras = []
         self.floraViewers = []
