@@ -87,6 +87,17 @@ class MyCanvasBase(glcanvas.GLCanvas):
         # no-arg call sites keep working.
         super().SetCurrent(context if context is not None else self.context)
 
+    def GetPhysicalSize(self):
+        """GL framebuffer size in device pixels, accounting for Retina/HiDPI.
+
+        GetClientSize() returns logical pixels; on a 2x Retina display the
+        actual OpenGL framebuffer is twice as large in each dimension.
+        All glViewport and glReadPixels calls must use device pixels.
+        """
+        size = self.GetClientSize()
+        scale = self.GetContentScaleFactor()
+        return int(size[0] * scale), int(size[1] * scale)
+
     def text_2d(self, x, y, text, rot_2d, scaling):
         if not _glut_available():
             return
@@ -103,8 +114,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
         self.size = self.GetClientSize()
         if self.context:
             self.SetCurrent(self.context)
-            w = self.size[0]
-            h = self.size[1]
+            w, h = self.GetPhysicalSize()
             if w > h:
                 w = h
             if h > w:

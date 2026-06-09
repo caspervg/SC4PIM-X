@@ -162,9 +162,8 @@ class S3DViewer(object):
             minX = -diff / 2.0
             maxY = diff / 2.0
             minY = -diff / 2.0
-            size = self.size = self.openGLCanvas.GetClientSize()
-            w = self.size[0]
-            h = self.size[1]
+            self.size = self.openGLCanvas.GetClientSize()
+            w, h = self.openGLCanvas.GetPhysicalSize()
             if w > h:
                 w = h
             if h > w:
@@ -180,9 +179,8 @@ class S3DViewer(object):
                 angleX = 35
             else:
                 angleX = 30
-            size = self.size = self.openGLCanvas.GetClientSize()
-            w = self.size[0]
-            h = self.size[1]
+            self.size = self.openGLCanvas.GetClientSize()
+            w, h = self.openGLCanvas.GetPhysicalSize()
             valW = w * 20.0 / 400.0
             valH = h * 20.0 / 400.0
             glViewport(0, 0, w, h)
@@ -257,9 +255,9 @@ class S3DViewer(object):
         return
 
     def draw_background(self):
-        size = self.openGLCanvas.GetClientSize()
-        w = max(size[0], 1)
-        h = max(size[1], 1)
+        w, h = self.openGLCanvas.GetPhysicalSize()
+        w = max(w, 1)
+        h = max(h, 1)
         glViewport(0, 0, w, h)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()

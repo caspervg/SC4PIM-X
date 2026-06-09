@@ -201,8 +201,7 @@ class LEDropTarget(wx.PyDropTarget):
     def OnDragOver(self, x, y, d):
         self.glCanvas2D.SetCurrent()
         self.frame.SetMatForUnproj()
-        h = self.frame.size[1]
-        px, py, pz = gluUnProject(x, h - y, 0)
+        px, py, pz = self.frame.UnProject(x, y)
         maxx = self.frame.exemplar.GetProp(2297284496)[0] * 8
         maxy = self.frame.exemplar.GetProp(2297284496)[1] * 8
         minx = -maxx
@@ -216,8 +215,7 @@ class LEDropTarget(wx.PyDropTarget):
             data = self.data.getObject()
             self.glCanvas2D.SetCurrent()
             self.frame.SetMatForUnproj()
-            h = self.frame.size[1]
-            posX, posY, pz = gluUnProject(x, h - y, 0)
+            posX, posY, pz = self.frame.UnProject(x, y)
             posX /= 16.0
             posY /= 16.0
             posX += self.frame.exemplar.GetProp(2297284496)[0] / 2.0
@@ -2775,6 +2773,11 @@ class LotEditorWin(wx.Frame):
             canvas.SetCurrent()
         except RuntimeError:
             return
+        if os.environ.get('SC4PIM_GL_DEBUG') and getattr(self, '_gl_dbg_panel', None) != self.panel:
+            self._gl_dbg_panel = self.panel
+            logger.debug('lot on_draw: panel=%s ClientSize=%s ContentScaleFactor=%s',
+                         self.panel, tuple(canvas.GetClientSize()),
+                         canvas.GetContentScaleFactor())
         if self.modeEdit == MODE_EDIT_PAN:
             if self.panel == 3:
                 if self.glCanvas2D.click_x > self.glCanvas2D.GetClientSize()[0] // 2:
@@ -2948,6 +2951,7 @@ class LotEditorWin(wx.Frame):
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         size = self.size = self.glCanvas2D.GetClientSize()
+        scale = self.glCanvas2D.GetContentScaleFactor()
         if self.panel == 3:
             w = self.size[0] // 2
             s = w
@@ -2959,7 +2963,7 @@ class LotEditorWin(wx.Frame):
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(int(s), 0, int(w), int(h))
+        glViewport(int(s * scale), 0, int(w * scale), int(h * scale))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -2969,7 +2973,7 @@ class LotEditorWin(wx.Frame):
         rot2D = -self.rotation * 90.0
         glTranslate(-self.posx, -self.posy, -self.posz)
         glRotatef(rot2D, 0, 0, 1)
-        px, py, pz = gluUnProject(self.glCanvas2D.mouseX, h - self.glCanvas2D.mouseY, 0)
+        px, py, pz = self.UnProject(self.glCanvas2D.mouseX, self.glCanvas2D.mouseY)
         lx = self.lotSizeXOffset
         ly = self.lotSizeYOffset
         px += lx
@@ -3363,6 +3367,8 @@ class LotEditorWin(wx.Frame):
         else:
             angleX = 30
         size = self.size = self.glCanvas2D.GetClientSize()
+        scale = self.glCanvas2D.GetContentScaleFactor()
+        full_w = self.size[0]
         if self.panel == 3:
             w = self.size[0] // 2
         elif self.panel == 1:
@@ -3370,10 +3376,26 @@ class LotEditorWin(wx.Frame):
         else:
             return
         h = self.size[1]
-        valW = w * 2.0 / 60.0
-        valH = h * 2.0 / 60.0
-        glViewport(0, 0, int(w), int(h))
+        # Frame the 3D view by the FULL canvas width so a split panel shows the
+        # same world span as the single-pane view -- it's just rendered into
+        # half the pixels. Without this the half-width panel keeps the single-
+        # pane zoom but only shows ~half the tiles, so tall iso-projected models
+        # (which spread their height sideways) overflow the narrow strip. valH
+        # is derived from the viewport aspect so pixels stay square. In single-
+        # pane view full_w == w, so this is identical to the old formula.
+        valW = full_w * 2.0 / 60.0
+        valH = valW * h / w
+        glViewport(0, 0, int(w * scale), int(h * scale))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
+        if os.environ.get('SC4PIM_GL_DEBUG') and getattr(self, '_gl_dbg_3d', None) != self.panel:
+            self._gl_dbg_3d = self.panel
+            from OpenGL.GL import GL_VIEWPORT, glGetIntegerv
+            vp = tuple(glGetIntegerv(GL_VIEWPORT))
+            logger.debug('Draw3D: panel=%s w=%s h=%s scale=%s valW=%.3f valH=%.3f '
+                         'GL_VIEWPORT=%s px/unit_x=%.3f px/unit_y=%.3f',
+                         self.panel, w, h, scale, valW, valH, vp,
+                         vp[2] / (2 * valW) if valW else 0,
+                         vp[3] / (2 * valH) if valH else 0)
         self.Draw3DBackdrop(valW, valH)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -3518,10 +3540,10 @@ class LotEditorWin(wx.Frame):
         return
 
     def Save(self):
-        size = self.glCanvas2D.GetClientSize()
+        pw, ph = self.glCanvas2D.GetPhysicalSize()
         glReadBuffer(GL_FRONT)
-        w = (size[0] // 2) & 4294967280
-        h = size[1] & 4294967280
+        w = (pw // 2) & 0xFFFFFFF0
+        h = ph & 0xFFFFFFF0
         data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
         decal = len(data) - w * h * 3
         if decal == h * 2:
@@ -3537,6 +3559,7 @@ class LotEditorWin(wx.Frame):
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         size = self.size = self.glCanvas2D.GetClientSize()
+        scale = self.glCanvas2D.GetContentScaleFactor()
         if self.panel == 3:
             w = self.size[0] // 2
             s = w
@@ -3548,7 +3571,7 @@ class LotEditorWin(wx.Frame):
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(int(s), 0, int(w), int(h))
+        glViewport(int(s * scale), 0, int(w * scale), int(h * scale))
         glOrtho(-valW, valW, -valH, valH, 40000, -40000)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -3559,6 +3582,19 @@ class LotEditorWin(wx.Frame):
         glTranslate(-self.posx, -self.posy, -self.posz)
         glRotatef(rot2D, 0, 0, 1)
         return None
+
+    def UnProject(self, x, y):
+        """World coords under a logical (top-left origin) window point.
+
+        gluUnProject works in the GL_VIEWPORT's coordinate space, which is in
+        *device* pixels (the framebuffer is 2x logical on a Retina display).
+        Mouse and drop events arrive in *logical* pixels, so scale them up and
+        flip Y against the device-pixel framebuffer height before unprojecting.
+        The caller must have set the matrices (Draw2D / SetMatForUnproj) first.
+        """
+        scale = self.glCanvas2D.GetContentScaleFactor()
+        h = self.size[1]
+        return gluUnProject(x * scale, (h - y) * scale, 0)
 
     def OnKeyMove(self, evt):
         if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING]:
@@ -3875,11 +3911,10 @@ class LotEditorWin(wx.Frame):
             if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING, MODE_EDIT_TRANSIT]:
                 return
             self.SetMatForUnproj()
-            h = self.size[1]
             lx, ly = self.glCanvas2D.last_x, self.glCanvas2D.last_y
             cx, cy = self.glCanvas2D.x, self.glCanvas2D.y
-            lx, ly, dz = gluUnProject(lx, h - ly, 0)
-            cx, cy, dz = gluUnProject(cx, h - cy, 0)
+            lx, ly, dz = self.UnProject(lx, ly)
+            cx, cy, dz = self.UnProject(cx, cy)
             dx = cx - lx
             dy = cy - ly
             if self.dragSelect:
@@ -3914,8 +3949,7 @@ class LotEditorWin(wx.Frame):
         self._drag_undo_pending = False
         Xclic, Yclick = self.glCanvas2D.mouseX, self.glCanvas2D.mouseY
         self.SetMatForUnproj()
-        h = self.size[1]
-        px, py, pz = gluUnProject(Xclic, h - Yclick, 0)
+        px, py, pz = self.UnProject(Xclic, Yclick)
         px += self.lotSizeXOffset
         py += self.lotSizeYOffset
         if self.modeEdit == MODE_EDIT_TRANSIT and self.highlighted == []:
@@ -4287,10 +4321,10 @@ class ImageDBBuilder(wx.Frame):
         self.viewer.drawAxis = False
         sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
         wx.Yield()
-        size = self.viewer.openGLCanvas.GetClientSize()
+        w, h = self.viewer.openGLCanvas.GetPhysicalSize()
         glReadBuffer(GL_FRONT)
-        data = glReadPixels(0, 0, size[0], size[1], GL_RGB, GL_UNSIGNED_BYTE)
-        image = Image.frombytes('RGB', (size[0], size[1]), data)
+        data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
+        image = Image.frombytes('RGB', (w, h), data)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image.resize((128, 128)).save(os.path.join(os.path.split(sc4data[0])[0] + 'Large', os.path.split(sc4data[0])[1]))
         image = image.resize((64, 64))
