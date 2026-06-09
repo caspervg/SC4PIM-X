@@ -16,7 +16,7 @@ SCCSPrivate    = 1000
 SCCSCollege    = 1000
 SCCSLibrary    = 10000
 SCCSMuseum     = 300
-SCCSOpera      = 1200
+SCCSOpera      = 25000
 
 # --- Health capacities (HCCS) ---
 HCCSClinic   = 500

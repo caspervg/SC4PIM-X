@@ -23,10 +23,36 @@ jobs:
             exit 1
           fi
 
+  test:
+    name: Test
+    runs-on: windows-latest
+    needs: validate-tag
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Sync environment
+        run: uv sync --python 3.12 --group dev
+
+      - name: Test
+        run: uv run --python 3.12 pytest
+
   package:
     name: Package ${{ matrix.platform.name }}
     runs-on: ${{ matrix.platform.os }}
-    needs: validate-tag
+    needs:
+      - validate-tag
+      - test
     continue-on-error: ${{ matrix.platform.experimental }}
     strategy:
       fail-fast: false

@@ -40,6 +40,13 @@ BASE_IDS = (
     "rail_elevated_rail_station",
     "monorail_elevated_rail_station",
     "hrw_elevated_rail_station",
+    "u_rail_station",
+    "el_rail_glr_dual_network_station",
+    "multipurpose_proximity_station",
+    "multipurpose_proximity_hub",
+    "multipurpose_on_top_proximity_rail_station",
+    "multipurpose_on_top_proximity_el_rail_station",
+    "multipurpose_on_top_proximity_monorail_station",
     "garage",
     "toll_booth",
 )
@@ -70,6 +77,13 @@ BASE_LABELS = {
     "rail_elevated_rail_station": LEXTransitPresetBaseRailElevatedRailStation,
     "monorail_elevated_rail_station": LEXTransitPresetBaseMonorailElevatedRailStation,
     "hrw_elevated_rail_station": LEXTransitPresetBaseHRWElevatedRailStation,
+    "u_rail_station": LEXTransitPresetBaseURailStation,
+    "el_rail_glr_dual_network_station": LEXTransitPresetBaseElRailGLRDualNetworkStation,
+    "multipurpose_proximity_station": LEXTransitPresetBaseMultipurposeProximityStation,
+    "multipurpose_proximity_hub": LEXTransitPresetBaseMultipurposeProximityHub,
+    "multipurpose_on_top_proximity_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityRailStation,
+    "multipurpose_on_top_proximity_el_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityElRailStation,
+    "multipurpose_on_top_proximity_monorail_station": LEXTransitPresetBaseMultipurposeOnTopProximityMonorailStation,
     "garage": LEXTransitPresetBaseGarage,
     "toll_booth": LEXTransitPresetBaseTollBooth,
 }
@@ -354,3 +368,62 @@ def bases_with_presets() -> tuple[str, ...]:
     registry = load_registry()
     base_ids = {base.id for base in registry.bases}
     return tuple(base for base in BASE_IDS if base in base_ids)
+
+
+def infer_base_from_occupant_groups(
+    occupant_groups: Iterable[int],
+    allowed_bases: Optional[Iterable[str]] = None,
+) -> Optional[str]:
+    """Infer the closest transit-preset base from an exemplar's OccupantGroups.
+
+    The mapping follows the transportation OccupantGroups declared in
+    ``new_properties.xml``. More specific multimodal combinations win before
+    their individual component modes.
+    """
+    groups = {int(group) & 0xFFFFFFFF for group in occupant_groups or ()}
+    if allowed_bases is None:
+        allowed = set(BASE_IDS)
+    else:
+        allowed = {str(base) for base in allowed_bases}
+    if not groups or not allowed:
+        return None
+
+    has_rail = bool(groups & {0x1300, 0x1305, 0xB5C00DF3})
+    has_freight = bool(groups & {0x1306, 0xB5C00DF4})
+    has_el = bool(groups & {0x1303, 0xB5C00DF6, 0xB5C00DF9})
+    has_glr = 0xB5C00DF9 in groups
+    has_mono = bool(groups & {0x1307, 0xB5C00DF7})
+    has_hrw = 0xB5C00DFA in groups
+    has_subway = bool(groups & {0x1302, 0xB5C00DF5})
+    has_bus = bool(groups & {0x1301, 0x1926, 0xB5C00DF2})
+    has_garage = bool(groups & {0x130A, 0xB5C00DF1})
+    has_multipurpose = (
+        has_el
+        and has_mono
+        and has_rail
+        and has_hrw
+        and has_subway
+        and (has_bus or has_garage)
+    )
+
+    candidates = (
+        ("multipurpose_proximity_station", has_multipurpose),
+        ("el_rail_glr_dual_network_station", has_el and has_glr),
+        ("hrw_elevated_rail_station", has_hrw and has_el),
+        ("monorail_elevated_rail_station", has_mono and has_el),
+        ("rail_elevated_rail_station", has_rail and has_el),
+        ("passenger_freight_station", has_rail and has_freight),
+        ("hrw_station", has_hrw),
+        ("monorail_station", has_mono),
+        ("elevated_rail_station", has_el),
+        ("passenger_train_station", has_rail),
+        ("freight_train_station", has_freight),
+        ("subway_station", has_subway),
+        ("bus_stop", has_bus),
+        ("toll_booth", 0x130B in groups),
+        ("garage", has_garage),
+    )
+    for base, matches in candidates:
+        if matches and base in allowed:
+            return base
+    return None

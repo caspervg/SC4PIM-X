@@ -78,20 +78,24 @@ def InfoEx():
     pass
 
 
-def hex2str(v, size=32):
+def hex2str(v, size=32, upper=False):
+    # ``upper`` capitalises the hex digits (not the ``0x`` prefix) for display;
+    # it is opt-in so the default lower-case form used in saved/round-tripped
+    # values is unchanged.
+    x = 'X' if upper else 'x'
     if v >= 0:
         if size == 8:
-            return '0x%02x' % int(v)
+            return ('0x%02' + x) % int(v)
         elif size == 32:
-            return '0x%08x' % int(v)
+            return ('0x%08' + x) % int(v)
         else:
-            return '0x%016x' % int(v)
+            return ('0x%016' + x) % int(v)
     elif size == 32:
-        return '0x%08x' % (int(v) & 0xFFFFFFFF)
+        return ('0x%08' + x) % (int(v) & 0xFFFFFFFF)
     elif size == 8:
-        return '0x%02x' % (int(v) & 0xFF)
+        return ('0x%02' + x) % (int(v) & 0xFF)
     else:
-        return '0x%016x' % (int(v) & 0xFFFFFFFFFFFFFFFF)
+        return ('0x%016' + x) % (int(v) & 0xFFFFFFFFFFFFFFFF)
 
 
 class Prop():

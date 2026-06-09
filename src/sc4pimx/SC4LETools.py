@@ -254,6 +254,8 @@ def BitmapFromPIL(pilz):
 
 _S3D_TID = 1523640343  # 0x5ad0e817
 _ATC_TID = 698733036   # 0x29a5d1ec
+EFFECT_CATEGORY_ID = 0x0c8fbc00
+VISUAL_EFFECT_NAME_PROP = 0xc98204b8
 
 
 def _is_model_tid(tid):
@@ -588,6 +590,15 @@ def FillListForProps(self, entries, fnPrint, catID=None):
                 self.SetPyData(index, PropProxy(desc))
 
 
+def IsEffectDesc(desc):
+    try:
+        return (desc.exemplar.entry.tgi[0] == 1697917002 and
+                desc.exemplar.GetProp(16)[0] == 30 and
+                desc.exemplar.GetProp(VISUAL_EFFECT_NAME_PROP) is not None)
+    except Exception:
+        return False
+
+
 def DisplayNameForIcon(entry):
     return '%s' % hex2str(entry.tgi[2])[2:]
 
@@ -664,6 +675,7 @@ class LEAssetItem(object):
             'base texture': LEXAssetTypeBaseTexture,
             'overlay texture': LEXAssetTypeOverlayTexture,
             'prop': LEXAssetTypeProp,
+            'effect': LEXAssetTypeEffect,
             'flora': LEXAssetTypeFlora,
             'family': LEXAssetTypeFamily,
             'icon': LEXAssetTypeIcon,
@@ -676,7 +688,7 @@ class LEAssetItem(object):
         try:
             if self.kind in ('base texture', 'overlay texture'):
                 return '%s:%d' % (self.kind, self.source.tgi[2])
-            if self.kind in ('prop', 'flora'):
+            if self.kind in ('prop', 'effect', 'flora'):
                 t = self.source.exemplar.entry.tgi
                 return '%s:%d-%d-%d' % (self.kind, t[0], t[1], t[2])
             if self.kind == 'family':
@@ -688,7 +700,7 @@ class LEAssetItem(object):
     @property
     def occupant_size(self):
         """(width, height, depth) tuple in metres for prop/flora, else None."""
-        if self.kind not in ('prop', 'flora'):
+        if self.kind not in ('prop', 'effect', 'flora'):
             return None
         try:
             size = self.source.exemplar.GetProp(0x27812810)  # Occupant Size
@@ -888,7 +900,7 @@ class LEAssetThumbnailProvider(object):
         return self.state_strips[key]
 
     def StateCount(self, item):
-        if item.kind not in ('prop', 'flora', 'family') or item.source is None:
+        if item.kind not in ('prop', 'effect', 'flora', 'family') or item.source is None:
             return 1
         key = self._cache_key(item)
         if key not in self.state_counts:
@@ -931,6 +943,8 @@ class LEAssetThumbnailProvider(object):
             bmp = self._texture_bitmap(item.source, True)
         elif item.kind in ('prop', 'flora'):
             bmp = self._prop_bitmap(item.source)
+        elif item.kind == 'effect':
+            bmp = self._build_placeholder('FX')
         elif item.kind == 'family':
             bmp = self._family_bitmap(item)
         elif item.kind == 'icon':
@@ -1474,7 +1488,7 @@ class LEAssetBrowserPanel(wx.Panel):
         if self.scope not in ('lot', 'library', 'favorites'):
             self.scope = 'lot'
         self.kind_filter = str(settings.get('AssetFilter', 'all'))
-        if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families'):
+        if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'):
             self.kind_filter = 'all'
         self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
@@ -1511,10 +1525,11 @@ class LEAssetBrowserPanel(wx.Panel):
             LETreeBaseTextures,
             LETreeOverlayTextures,
             LEXAssetBrowserProps,
+            LEXAssetBrowserEffects,
             LETreeFlora,
             LEXAssetBrowserFamilies,
         ])
-        self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families'].index(self.kind_filter))
+        self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'].index(self.kind_filter))
         filters.Add(self.filter_choice, 1, wx.EXPAND)
         self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
@@ -1591,7 +1606,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self._debounce = wx.CallLater(120, self.ApplyFilters)
 
     def OnFilter(self, event):
-        labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'flora', 'families']
+        labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families']
         self.kind_filter = labels[self.filter_choice.GetSelection()]
         self.ApplyFilters()
 
@@ -1620,14 +1635,14 @@ class LEAssetBrowserPanel(wx.Panel):
                            OverlayProxy(entry) if overlay else BaseProxy(entry), entry, badge,
                            hex_id=hex_id)
 
-    def _prop_item(self, desc, flora=False):
+    def _prop_item(self, desc, flora=False, effect=False):
         name = desc.exemplar.GetProp(32)
         hex_id = hex2str(desc.exemplar.entry.tgi[2])[2:]
         label = name[0] if name else hex_id
         file_name = desc.exemplar.entry.fileName
         sublabel = os.path.split(file_name)[1] if file_name else ''
-        kind = 'flora' if flora else 'prop'
-        badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserPropBadge
+        kind = 'flora' if flora else 'effect' if effect else 'prop'
+        badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserEffectBadge if effect else LEXAssetBrowserPropBadge
         return LEAssetItem(kind, label, sublabel, PropProxy(desc), desc, badge, hex_id=hex_id)
 
     def _family_member_names(self, cat_id):
@@ -1675,6 +1690,8 @@ class LEAssetBrowserPanel(wx.Panel):
                     items.append(self._texture_item(entry, True))
             for desc in getattr(self.editor, 'lotPropDescs', []):
                 items.append(self._prop_item(desc, False))
+            for desc in getattr(self.editor, 'lotEffectDescs', []):
+                items.append(self._prop_item(desc, effect=True))
             for desc in getattr(self.editor, 'lotFloraDescs', []):
                 items.append(self._prop_item(desc, True))
             for cat_id in getattr(self.editor, 'lotFamiliesPropID', []):
@@ -1695,6 +1712,11 @@ class LEAssetBrowserPanel(wx.Panel):
                     items.append(self._prop_item(desc, False))
             except Exception:
                 pass
+        effect_category = VirtualDat.this.categories.get(EFFECT_CATEGORY_ID)
+        effect_descs = effect_category.descriptors if effect_category is not None else []
+        for desc in effect_descs:
+            if IsEffectDesc(desc):
+                items.append(self._prop_item(desc, effect=True))
         flora_category = VirtualDat.this.categories.get(1830116951)
         if flora_category is not None:
             flora_descs = flora_category.descriptors
@@ -1740,6 +1762,8 @@ class LEAssetBrowserPanel(wx.Panel):
                 continue
             if self.kind_filter == 'props' and item.kind != 'prop':
                 continue
+            if self.kind_filter == 'effects' and item.kind != 'effect':
+                continue
             if self.kind_filter == 'flora' and item.kind != 'flora':
                 continue
             if self.kind_filter == 'families' and item.kind != 'family':
@@ -1764,6 +1788,7 @@ class LETreeCtrl(wx.TreeCtrl):
         self.propsItem = self.AppendItem(self.root, LETreeProps)
         self.singlePropsItemTGI = self.AppendItem(self.propsItem, LETreePropsByTGI)
         self.singlePropsItemName = self.AppendItem(self.propsItem, LETreePropsByName)
+        self.effectsItem = self.AppendItem(self.propsItem, LEXAssetBrowserEffects)
         self.familiesPropsItem = self.AppendItem(self.propsItem, LETreePropsFamily)
         self.floraItem = self.AppendItem(self.root, LETreeFlora)
         self.lotItem = self.AppendItem(self.root, LETreeLot)
@@ -2012,6 +2037,9 @@ class TextureDlg(wx.Frame):
         elif item == tree.singlePropsItemName:
             VirtualDat.this.categories[210746660].descriptors.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[210746660].descriptors, FillListForProps, DisplayNameForPropsName)
+        elif item == tree.effectsItem:
+            VirtualDat.this.categories[EFFECT_CATEGORY_ID].descriptors.sort(key=lambda n: n.name.upper())
+            self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[EFFECT_CATEGORY_ID].descriptors, FillListForProps, DisplayNameForPropsName)
         elif item == tree.floraItem:
             VirtualDat.this.categories[1830116951].descriptors.sort(key=lambda n: n.name.upper())
             self.propList.Reset(VirtualDat.this.ilStandardModels, VirtualDat.this.categories[1830116951].descriptors, FillListForProps, DisplayNameForPropsName)
