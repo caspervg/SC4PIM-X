@@ -1,17 +1,26 @@
 """Shader support for SC4-style S3D preview lighting."""
 import math
 
+import numpy
+
 from OpenGL.GL import (
+    GL_FALSE,
     GL_FRAGMENT_SHADER,
     GL_LINK_STATUS,
+    GL_MODELVIEW_MATRIX,
+    GL_PROJECTION_MATRIX,
     GL_TRUE,
     GL_VERTEX_SHADER,
+    glGetAttribLocation,
+    glGetFloatv,
     glGetProgramInfoLog,
     glGetProgramiv,
     glGetUniformLocation,
     glUniform1f,
     glUniform1i,
     glUniform3f,
+    glUniformMatrix3fv,
+    glUniformMatrix4fv,
     glUseProgram,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader
@@ -53,14 +62,28 @@ NIGHT_PRESET = {
 VERTEX_SHADER = """
 #version 120
 
+// Generic vertex attributes (fed from VBOs via glVertexAttribPointer) and
+// explicit matrix uniforms instead of the deprecated fixed-function built-ins
+// (gl_Vertex / gl_Normal / ftransform / gl_NormalMatrix). macOS' legacy GL
+// drops shaders that touch those built-ins to software vertex processing, and
+// that SW path then ignores a partial glViewport -- which is what skewed the
+// split-screen preview models. Staying on generic attributes keeps the model
+// draw on the hardware path so it honours whatever viewport we set.
+attribute vec3 a_position;
+attribute vec3 a_normal;
+attribute vec2 a_texcoord;
+
+uniform mat4 u_mvp;
+uniform mat3 u_normal_matrix;
+
 varying vec2 v_texcoord;
 varying vec3 v_normal;
 
 void main(void)
 {
-    v_texcoord = gl_MultiTexCoord0.st;
-    v_normal = normalize(gl_NormalMatrix * gl_Normal);
-    gl_Position = ftransform();
+    v_texcoord = a_texcoord;
+    v_normal = normalize(u_normal_matrix * a_normal);
+    gl_Position = u_mvp * vec4(a_position, 1.0);
 }
 """
 
@@ -129,6 +152,14 @@ class SC4LightingProgram:
             'terrain_normal': glGetUniformLocation(self.program, 'u_terrain_normal'),
             'terrain_shadow_amount': glGetUniformLocation(self.program, 'u_terrain_shadow_amount'),
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
+            'mvp': glGetUniformLocation(self.program, 'u_mvp'),
+            'normal_matrix': glGetUniformLocation(self.program, 'u_normal_matrix'),
+        }
+        # Generic attribute slots, read by S3D.draw() to wire up the VBOs.
+        self.attribs = {
+            'position': int(glGetAttribLocation(self.program, 'a_position')),
+            'normal': int(glGetAttribLocation(self.program, 'a_normal')),
+            'texcoord': int(glGetAttribLocation(self.program, 'a_texcoord')),
         }
 
     def bind(self, lighting_state):
@@ -146,6 +177,33 @@ class SC4LightingProgram:
             float(lighting_state['terrain_shadow_amount']),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
+        self._upload_matrices()
+
+    def _upload_matrices(self):
+        """Snapshot the current fixed-function MVP and push it as a uniform.
+
+        Callers still set the camera and per-model placement with the legacy
+        glMatrixMode/glOrtho/glScalef/glTranslate/glRotate calls; we read that
+        state here (bind() runs after it is fully set up) so the shader sees
+        exactly the same transform the fixed-function texture quads use.
+
+        PyOpenGL returns GL matrices as 4x4 arrays whose C-order memory is the
+        column-major GL data, i.e. the transpose of the maths matrix. So the
+        upload value for u_mvp (= P*MV applied as U*v) is mv @ proj, and the
+        normal matrix value (inverse-transpose of the modelview 3x3, to stay
+        correct under the preview's non-uniform/negative scale) is inv(mv3).T.
+        """
+        mv = numpy.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=numpy.float64).reshape(4, 4)
+        proj = numpy.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=numpy.float64).reshape(4, 4)
+        mvp = numpy.ascontiguousarray(mv @ proj, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_FALSE, mvp)
+        mv3 = mv[0:3, 0:3]
+        try:
+            normal_value = numpy.linalg.inv(mv3).T
+        except numpy.linalg.LinAlgError:
+            normal_value = mv3
+        normal_value = numpy.ascontiguousarray(normal_value, dtype=numpy.float32)
+        glUniformMatrix3fv(self._uniforms['normal_matrix'], 1, GL_FALSE, normal_value)
 
     def unbind(self):
         glUseProgram(0)
