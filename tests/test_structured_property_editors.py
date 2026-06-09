@@ -1,3 +1,6 @@
+import xml.dom.minidom
+
+from sc4pimx.SC4DataFunctions import readPropertyDef
 from sc4pimx.SC4StructuredPropertyEditors import (
     demand_pairs,
     demand_pairs_to_text,
@@ -45,3 +48,24 @@ def test_option_label_prefers_property_option_names():
 
     assert option_label(prop_def, 0x00002010) == "Jobs $"
     assert option_label(prop_def, 0x00002020) == "0x00002020"
+
+
+def test_property_option_groups_follow_submenu_help_markers():
+    doc = xml.dom.minidom.parseString(
+        """
+        <PROPERTY Name="Building Submenus" ID="0xaa1dd399" Type="Uint32" Count="-1" ShowAsHex="Y">
+          <HELP>For use with Submenus DLL</HELP>
+          <HELP>SubMenuROOTRail</HELP>
+          <OPTION Value="0x35380C75" Name="Passenger Rail Stations" />
+          <HELP>SubMenuROOTMiscTransit</HELP>
+          <OPTION Value="0x26B51B28" Name="GLR Stations" />
+        </PROPERTY>
+        """
+    )
+
+    prop_def = readPropertyDef(doc.documentElement)
+
+    assert prop_def.Options[0x35380C75] == "Passenger Rail Stations"
+    assert prop_def.Options[0x26B51B28] == "GLR Stations"
+    assert prop_def.OptionGroups[0x35380C75] == "SubMenuROOTRail"
+    assert prop_def.OptionGroups[0x26B51B28] == "SubMenuROOTMiscTransit"
