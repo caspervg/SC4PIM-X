@@ -3,7 +3,7 @@
 import os
 from importlib import metadata
 
-VERSION = "2026.5b"
+VERSION = "2026.5c"
 
 
 def get_version() -> str:
