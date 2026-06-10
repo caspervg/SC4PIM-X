@@ -28,78 +28,10 @@ PLACEMENT_ON_TOP_NS = "on_top_ns"
 
 PLACEMENT_IDS = (PLACEMENT_PROXIMITY, PLACEMENT_ON_TOP_WE, PLACEMENT_ON_TOP_NS)
 
-BASE_IDS = (
-    "bus_stop",
-    "subway_station",
-    "elevated_rail_station",
-    "passenger_train_station",
-    "freight_train_station",
-    "passenger_freight_station",
-    "monorail_station",
-    "hrw_station",
-    "rail_elevated_rail_station",
-    "monorail_elevated_rail_station",
-    "hrw_elevated_rail_station",
-    "u_rail_station",
-    "el_rail_glr_dual_network_station",
-    "multipurpose_proximity_station",
-    "multipurpose_proximity_hub",
-    "multipurpose_on_top_proximity_rail_station",
-    "multipurpose_on_top_proximity_el_rail_station",
-    "multipurpose_on_top_proximity_monorail_station",
-    "garage",
-    "toll_booth",
-)
-
-OPTION_GARAGE = "garage"
-OPTION_BUS_STOP = "bus_stop"
-OPTION_SUBWAY_STATION = "subway_station"
-OPTION_FREIGHT_TRAIN_PASS_THROUGH = "freight_train_pass_through"
-OPTION_PASSENGER_TRAIN_PASS_THROUGH = "passenger_train_pass_through"
-
-OPTION_IDS = (
-    OPTION_GARAGE,
-    OPTION_BUS_STOP,
-    OPTION_SUBWAY_STATION,
-    OPTION_FREIGHT_TRAIN_PASS_THROUGH,
-    OPTION_PASSENGER_TRAIN_PASS_THROUGH,
-)
-
-BASE_LABELS = {
-    "bus_stop": LEXTransitPresetBaseBusStop,
-    "subway_station": LEXTransitPresetBaseSubwayStation,
-    "elevated_rail_station": LEXTransitPresetBaseElevatedRailStation,
-    "passenger_train_station": LEXTransitPresetBasePassengerTrainStation,
-    "freight_train_station": LEXTransitPresetBaseFreightTrainStation,
-    "passenger_freight_station": LEXTransitPresetBasePassengerFreightStation,
-    "monorail_station": LEXTransitPresetBaseMonorailStation,
-    "hrw_station": LEXTransitPresetBaseHRWStation,
-    "rail_elevated_rail_station": LEXTransitPresetBaseRailElevatedRailStation,
-    "monorail_elevated_rail_station": LEXTransitPresetBaseMonorailElevatedRailStation,
-    "hrw_elevated_rail_station": LEXTransitPresetBaseHRWElevatedRailStation,
-    "u_rail_station": LEXTransitPresetBaseURailStation,
-    "el_rail_glr_dual_network_station": LEXTransitPresetBaseElRailGLRDualNetworkStation,
-    "multipurpose_proximity_station": LEXTransitPresetBaseMultipurposeProximityStation,
-    "multipurpose_proximity_hub": LEXTransitPresetBaseMultipurposeProximityHub,
-    "multipurpose_on_top_proximity_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityRailStation,
-    "multipurpose_on_top_proximity_el_rail_station": LEXTransitPresetBaseMultipurposeOnTopProximityElRailStation,
-    "multipurpose_on_top_proximity_monorail_station": LEXTransitPresetBaseMultipurposeOnTopProximityMonorailStation,
-    "garage": LEXTransitPresetBaseGarage,
-    "toll_booth": LEXTransitPresetBaseTollBooth,
-}
-
 PLACEMENT_LABELS = {
     PLACEMENT_PROXIMITY: LEXTransitPresetOrientationProximity,
     PLACEMENT_ON_TOP_WE: LEXTransitPresetOrientationOnTopWE,
     PLACEMENT_ON_TOP_NS: LEXTransitPresetOrientationOnTopNS,
-}
-
-OPTION_LABELS = {
-    OPTION_GARAGE: LEXTransitPresetOptionGarage,
-    OPTION_BUS_STOP: LEXTransitPresetOptionBusStop,
-    OPTION_SUBWAY_STATION: LEXTransitPresetOptionSubwayStation,
-    OPTION_FREIGHT_TRAIN_PASS_THROUGH: LEXTransitPresetOptionFreightTrainPassThrough,
-    OPTION_PASSENGER_TRAIN_PASS_THROUGH: LEXTransitPresetOptionPassengerTrainPassThrough,
 }
 
 ART_IDS = {
@@ -142,6 +74,7 @@ class RegistryPreset:
     options: tuple[str, ...]
     category_id: int
     switches: tuple[int, ...]
+    note: str = ""
 
     @property
     def key(self) -> tuple[str, str, tuple[str, ...]]:
@@ -151,8 +84,22 @@ class RegistryPreset:
 @dataclass(frozen=True)
 class RegistryBase:
     id: str
+    label: str
     placements: tuple[str, ...]
     options: tuple[str, ...]
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class RegistryOption:
+    id: str
+    label: str
+
+
+@dataclass(frozen=True)
+class RegistryInference:
+    base: str
+    requires: tuple[frozenset[int], ...]
 
 
 @dataclass(frozen=True)
@@ -164,12 +111,18 @@ class RegistryRowset:
 @dataclass(frozen=True)
 class Registry:
     bases: tuple[RegistryBase, ...]
+    options: tuple[RegistryOption, ...]
+    inference: tuple[RegistryInference, ...]
     rowsets: tuple[RegistryRowset, ...]
     presets: tuple[RegistryPreset, ...]
 
     @property
     def bases_by_id(self) -> dict[str, RegistryBase]:
         return {base.id: base for base in self.bases}
+
+    @property
+    def options_by_id(self) -> dict[str, RegistryOption]:
+        return {option.id: option for option in self.options}
 
     @property
     def rowsets_by_id(self) -> dict[str, RegistryRowset]:
@@ -185,7 +138,8 @@ def normalize_options(options: Iterable[str]) -> tuple[str, ...]:
 
 
 def label_for_base(base: str) -> str:
-    return BASE_LABELS.get(base, base)
+    base_def = load_registry().bases_by_id.get(base)
+    return base if base_def is None or not base_def.label else base_def.label
 
 
 def label_for_placement(placement: str) -> str:
@@ -193,12 +147,22 @@ def label_for_placement(placement: str) -> str:
 
 
 def label_for_option(option: str) -> str:
-    return OPTION_LABELS.get(option, option)
+    option_def = load_registry().options_by_id.get(option)
+    return option if option_def is None or not option_def.label else option_def.label
+
+
+def option_ids() -> tuple[str, ...]:
+    return tuple(option.id for option in load_registry().options)
 
 
 def allowed_options_for_base(base: str) -> tuple[str, ...]:
     base_def = load_registry().bases_by_id.get(base)
     return () if base_def is None else base_def.options
+
+
+def note_for_base(base: str) -> str:
+    base_def = load_registry().bases_by_id.get(base)
+    return "" if base_def is None else base_def.note
 
 
 def allowed_placements_for_base(base: str) -> tuple[str, ...]:
@@ -285,28 +249,51 @@ def _load_raw() -> dict:
 @lru_cache(maxsize=1)
 def load_registry() -> Registry:
     raw = _load_raw()
+    options: list[RegistryOption] = []
+    seen_options: set[str] = set()
+    for item in raw.get("option", []):
+        option = RegistryOption(id=str(item["id"]), label=str(item.get("label", "")).strip())
+        if not option.id:
+            raise ValueError("transit preset option without an id")
+        if option.id in seen_options:
+            raise ValueError("duplicate transit preset option %r" % option.id)
+        seen_options.add(option.id)
+        options.append(option)
+
     bases: list[RegistryBase] = []
     seen_bases: set[str] = set()
     for item in raw.get("base", []):
         base = RegistryBase(
             id=str(item["id"]),
+            label=str(item.get("label", "")).strip(),
             placements=tuple(str(v) for v in item.get("placements", [])),
             options=normalize_options(item.get("options", [])),
+            note=str(item.get("note", "")).strip(),
         )
-        if base.id not in BASE_IDS:
-            raise ValueError("unknown transit preset base %r" % base.id)
         if base.id in seen_bases:
             raise ValueError("duplicate transit preset base %r" % base.id)
         unknown_placements = [placement for placement in base.placements if placement not in PLACEMENT_IDS]
         if unknown_placements:
             raise ValueError("unknown placement(s) %r for %s" % (unknown_placements, base.id))
-        unknown_options = [option for option in base.options if option not in OPTION_IDS]
+        unknown_options = [option for option in base.options if option not in seen_options]
         if unknown_options:
             raise ValueError("unknown option(s) %r for %s" % (unknown_options, base.id))
         seen_bases.add(base.id)
         bases.append(base)
 
     bases_by_id = {base.id: base for base in bases}
+
+    inference: list[RegistryInference] = []
+    for item in raw.get("inference", []):
+        rule = RegistryInference(
+            base=str(item["base"]),
+            requires=tuple(frozenset(_parse_int(v) & 0xFFFFFFFF for v in req) for req in item.get("requires", [])),
+        )
+        if rule.base not in bases_by_id:
+            raise ValueError("inference rule references unknown base %r" % rule.base)
+        if not rule.requires or any(not req for req in rule.requires):
+            raise ValueError("inference rule for %s needs non-empty requires lists" % rule.base)
+        inference.append(rule)
 
     rowsets: list[RegistryRowset] = []
     seen_rowsets: set[str] = set()
@@ -333,14 +320,13 @@ def load_registry() -> Registry:
             options=normalize_options(item.get("options", [])),
             category_id=_parse_int(item["category_id"]),
             switches=_compile_preset_switches(item, rowsets_by_id),
+            note=str(item.get("note", "")).strip(),
         )
-        if preset.base not in BASE_IDS:
-            raise ValueError("unknown transit preset base %r in %s" % (preset.base, preset.id))
         if preset.base not in bases_by_id:
             raise ValueError("preset %s references base %s without a [[base]] definition" % (preset.id, preset.base))
         if preset.placement not in PLACEMENT_IDS:
             raise ValueError("unknown transit preset placement %r in %s" % (preset.placement, preset.id))
-        unknown_options = [option for option in preset.options if option not in OPTION_IDS]
+        unknown_options = [option for option in preset.options if option not in seen_options]
         if unknown_options:
             raise ValueError("unknown transit preset option(s) %r in %s" % (unknown_options, preset.id))
         base_def = bases_by_id[preset.base]
@@ -353,7 +339,7 @@ def load_registry() -> Registry:
             raise ValueError("duplicate transit preset key %r" % (preset.key,))
         seen.add(preset.key)
         presets.append(preset)
-    return Registry(tuple(bases), tuple(rowsets), tuple(presets))
+    return Registry(tuple(bases), tuple(options), tuple(inference), tuple(rowsets), tuple(presets))
 
 
 def registry_by_key() -> dict[tuple[str, str, tuple[str, ...]], RegistryPreset]:
@@ -365,9 +351,7 @@ def find_preset(base: str, placement: str, options: Iterable[str]) -> Optional[R
 
 
 def bases_with_presets() -> tuple[str, ...]:
-    registry = load_registry()
-    base_ids = {base.id for base in registry.bases}
-    return tuple(base for base in BASE_IDS if base in base_ids)
+    return tuple(base.id for base in load_registry().bases)
 
 
 def infer_base_from_occupant_groups(
@@ -376,54 +360,18 @@ def infer_base_from_occupant_groups(
 ) -> Optional[str]:
     """Infer the closest transit-preset base from an exemplar's OccupantGroups.
 
-    The mapping follows the transportation OccupantGroups declared in
-    ``new_properties.xml``. More specific multimodal combinations win before
-    their individual component modes.
+    Walks the ``[[inference]]`` rules in declaration order; a rule matches when
+    every ``requires`` list intersects the exemplar's groups. First match wins.
     """
     groups = {int(group) & 0xFFFFFFFF for group in occupant_groups or ()}
+    registry = load_registry()
     if allowed_bases is None:
-        allowed = set(BASE_IDS)
+        allowed = set(registry.bases_by_id)
     else:
         allowed = {str(base) for base in allowed_bases}
     if not groups or not allowed:
         return None
-
-    has_rail = bool(groups & {0x1300, 0x1305, 0xB5C00DF3})
-    has_freight = bool(groups & {0x1306, 0xB5C00DF4})
-    has_el = bool(groups & {0x1303, 0xB5C00DF6, 0xB5C00DF9})
-    has_glr = 0xB5C00DF9 in groups
-    has_mono = bool(groups & {0x1307, 0xB5C00DF7})
-    has_hrw = 0xB5C00DFA in groups
-    has_subway = bool(groups & {0x1302, 0xB5C00DF5})
-    has_bus = bool(groups & {0x1301, 0x1926, 0xB5C00DF2})
-    has_garage = bool(groups & {0x130A, 0xB5C00DF1})
-    has_multipurpose = (
-        has_el
-        and has_mono
-        and has_rail
-        and has_hrw
-        and has_subway
-        and (has_bus or has_garage)
-    )
-
-    candidates = (
-        ("multipurpose_proximity_station", has_multipurpose),
-        ("el_rail_glr_dual_network_station", has_el and has_glr),
-        ("hrw_elevated_rail_station", has_hrw and has_el),
-        ("monorail_elevated_rail_station", has_mono and has_el),
-        ("rail_elevated_rail_station", has_rail and has_el),
-        ("passenger_freight_station", has_rail and has_freight),
-        ("hrw_station", has_hrw),
-        ("monorail_station", has_mono),
-        ("elevated_rail_station", has_el),
-        ("passenger_train_station", has_rail),
-        ("freight_train_station", has_freight),
-        ("subway_station", has_subway),
-        ("bus_stop", has_bus),
-        ("toll_booth", 0x130B in groups),
-        ("garage", has_garage),
-    )
-    for base, matches in candidates:
-        if matches and base in allowed:
-            return base
+    for rule in registry.inference:
+        if rule.base in allowed and all(groups & req for req in rule.requires):
+            return rule.base
     return None
