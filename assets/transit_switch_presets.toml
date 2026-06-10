@@ -8,11 +8,20 @@
 # Editor guide
 # ============
 #
+# [[option]]
+#   Declares one optional-function checkbox in the wizard, in display order.
+#   id: stable machine ID used by base/preset `options` lists.
+#   label: checkbox text shown in the UI.
+#
 # [[base]]
 #   Declares one selectable "Transportation" value in the wizard.
+#   Declaration order is the dropdown order.
 #
 #   id:
 #     Stable machine ID. Prefer names from new_properties.xml categories.
+#
+#   label:
+#     Display name shown in the wizard dropdown.
 #
 #   placements:
 #     Which lot-orientation choices are enabled for this base.
@@ -25,6 +34,15 @@
 #     Which optional checkbox functions are enabled for this base in the UI.
 #     This is only the availability rule. It does NOT automatically add rows.
 #     Every selected option combination still needs its own explicit [[preset]].
+#
+#   note:
+#     Optional help/disclaimer text shown in the wizard whenever this base is
+#     selected, above any [[preset]] note.
+#
+# [[inference]]
+#   Auto-detect rules mapping an exemplar's OccupantGroups to a default base.
+#   Checked in declaration order (most specific first); a rule matches when
+#   every `requires` list shares at least one ID with the exemplar's groups.
 #
 #     Allowed values:
 #       "garage"                         - Garage / car parking function
@@ -89,106 +107,226 @@
 #   switches:
 #     Optional fallback: a complete 0xE90E25A1 byte string such as
 #     "0x81,0xF0,0x00,0x00". Use for expert cases that are clearer as raw data than rowsets.
+#
+#   note:
+#     Optional help/disclaimer text shown when this exact combination is
+#     selected (e.g. travel types covered, manual TSEC edits still required).
+
+[[option]]
+id = "garage"
+label = "Garage"
+
+[[option]]
+id = "bus_stop"
+label = "Bus Stop"
+
+[[option]]
+id = "subway_station"
+label = "Subway Station"
+
+[[option]]
+id = "freight_train_pass_through"
+label = "Freight Train pass-through"
+
+[[option]]
+id = "passenger_train_pass_through"
+label = "Passenger Train pass-through"
 
 [[base]]
 id = "bus_stop"
+label = "Bus Stop"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage"]
 
 [[base]]
 id = "subway_station"
+label = "Subway Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop"]
 
 [[base]]
 id = "elevated_rail_station"
+label = "Elevated Rail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "passenger_train_station"
+label = "Passenger Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
 
 [[base]]
 id = "freight_train_station"
+label = "Freight Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["passenger_train_pass_through"]
 
 [[base]]
 id = "passenger_freight_station"
+label = "Passenger + Freight Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "monorail_station"
+label = "Monorail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "hrw_station"
+label = "Hybrid Railway (HRW) Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "freight_train_pass_through"]
 
 [[base]]
 id = "rail_elevated_rail_station"
+label = "Rail + Elevated Rail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "freight_train_pass_through"]
 
 [[base]]
 id = "monorail_elevated_rail_station"
+label = "Monorail + Elevated Rail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage"]
 
 [[base]]
 id = "hrw_elevated_rail_station"
+label = "HRW + Elevated Rail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "freight_train_pass_through"]
 
 [[base]]
 id = "u_rail_station"
+label = "U-Rail Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "el_rail_glr_dual_network_station"
+label = "El-Rail/GLR Dual Network Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "multipurpose_proximity_station"
+label = "Multipurpose Proximity Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "multipurpose_proximity_hub"
+label = "Multipurpose Proximity Hub"
 placements = ["proximity"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "multipurpose_on_top_proximity_rail_station"
+label = "Multipurpose On-Top Proximity Station - Rail"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
 
 [[base]]
 id = "multipurpose_on_top_proximity_el_rail_station"
+label = "Multipurpose On-Top Proximity Station - El-Rail"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
 id = "multipurpose_on_top_proximity_monorail_station"
+label = "Multipurpose On-Top Proximity Station - Monorail"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
 
 [[base]]
+id = "multipurpose_on_top_proximity_hrw_station"
+label = "Multipurpose On-Top Proximity Station - HRW"
+placements = ["on_top_we", "on_top_ns"]
+options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
+note = "Switch data for this station type has not been authored yet; pick a combination to see whether a preset exists."
+
+[[base]]
 id = "garage"
+label = "Garage"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = []
 
 [[base]]
 id = "toll_booth"
+label = "Toll Booth"
 placements = ["on_top_ns", "on_top_we"]
 options = []
+
+# OccupantGroup auto-detect rules, most specific first.
+
+[[inference]]
+base = "multipurpose_proximity_station"
+requires = [
+  [0x1303, 0xB5C00DF6, 0xB5C00DF9],
+  [0x1307, 0xB5C00DF7],
+  [0x1300, 0x1305, 0xB5C00DF3],
+  [0xB5C00DFA],
+  [0x1302, 0xB5C00DF5],
+  [0x1301, 0x1926, 0xB5C00DF2, 0x130A, 0xB5C00DF1],
+]
+
+[[inference]]
+base = "el_rail_glr_dual_network_station"
+requires = [[0x1303, 0xB5C00DF6, 0xB5C00DF9], [0xB5C00DF9]]
+
+[[inference]]
+base = "hrw_elevated_rail_station"
+requires = [[0xB5C00DFA], [0x1303, 0xB5C00DF6, 0xB5C00DF9]]
+
+[[inference]]
+base = "monorail_elevated_rail_station"
+requires = [[0x1307, 0xB5C00DF7], [0x1303, 0xB5C00DF6, 0xB5C00DF9]]
+
+[[inference]]
+base = "rail_elevated_rail_station"
+requires = [[0x1300, 0x1305, 0xB5C00DF3], [0x1303, 0xB5C00DF6, 0xB5C00DF9]]
+
+[[inference]]
+base = "passenger_freight_station"
+requires = [[0x1300, 0x1305, 0xB5C00DF3], [0x1306, 0xB5C00DF4]]
+
+[[inference]]
+base = "hrw_station"
+requires = [[0xB5C00DFA]]
+
+[[inference]]
+base = "monorail_station"
+requires = [[0x1307, 0xB5C00DF7]]
+
+[[inference]]
+base = "elevated_rail_station"
+requires = [[0x1303, 0xB5C00DF6, 0xB5C00DF9]]
+
+[[inference]]
+base = "passenger_train_station"
+requires = [[0x1300, 0x1305, 0xB5C00DF3]]
+
+[[inference]]
+base = "freight_train_station"
+requires = [[0x1306, 0xB5C00DF4]]
+
+[[inference]]
+base = "subway_station"
+requires = [[0x1302, 0xB5C00DF5]]
+
+[[inference]]
+base = "bus_stop"
+requires = [[0x1301, 0x1926, 0xB5C00DF2]]
+
+[[inference]]
+base = "toll_booth"
+requires = [[0x130B]]
+
+[[inference]]
+base = "garage"
+requires = [[0x130A, 0xB5C00DF1]]
 
 # Shared readable switch rowsets.
 

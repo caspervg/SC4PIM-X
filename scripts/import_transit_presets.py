@@ -38,6 +38,7 @@ CATEGORY_IDS = {
     "multipurpose_on_top_proximity_rail_station": "0x0c8fbd07",
     "multipurpose_on_top_proximity_el_rail_station": "0x4cb2392f",
     "multipurpose_on_top_proximity_monorail_station": "0x0cb23934",
+    "multipurpose_on_top_proximity_hrw_station": "0x0c8fbd07",
     "garage": "0xacbb8bb5",
 }
 
@@ -59,6 +60,7 @@ BASES_WITH_GARAGE_OPTION = {
     "multipurpose_on_top_proximity_rail_station",
     "multipurpose_on_top_proximity_el_rail_station",
     "multipurpose_on_top_proximity_monorail_station",
+    "multipurpose_on_top_proximity_hrw_station",
 }
 
 GARAGE_SWITCH = "0x81,0xF0,0x01,0x00"
@@ -107,15 +109,19 @@ BASE_PATTERNS = (
     ("multipurpose on-top proximity station - rail", "multipurpose_on_top_proximity_rail_station"),
     ("multipurpose on-top proximity station - el-rail", "multipurpose_on_top_proximity_el_rail_station"),
     ("multipurpose on-top proximity station - monorail", "multipurpose_on_top_proximity_monorail_station"),
+    ("multipurpose on-top proximity station - hrw", "multipurpose_on_top_proximity_hrw_station"),
     ("multipurpose on-top proximity station rail", "multipurpose_on_top_proximity_rail_station"),
     ("multipurpose on-top proximity station el-rail", "multipurpose_on_top_proximity_el_rail_station"),
     ("multipurpose on-top proximity station monorail", "multipurpose_on_top_proximity_monorail_station"),
+    ("multipurpose on-top proximity station hrw", "multipurpose_on_top_proximity_hrw_station"),
     ("multipurpose on top proximity station - rail", "multipurpose_on_top_proximity_rail_station"),
     ("multipurpose on top proximity station - el-rail", "multipurpose_on_top_proximity_el_rail_station"),
     ("multipurpose on top proximity station - monorail", "multipurpose_on_top_proximity_monorail_station"),
+    ("multipurpose on top proximity station - hrw", "multipurpose_on_top_proximity_hrw_station"),
     ("multipurpose on top proximity station rail", "multipurpose_on_top_proximity_rail_station"),
     ("multipurpose on top proximity station el-rail", "multipurpose_on_top_proximity_el_rail_station"),
     ("multipurpose on top proximity station monorail", "multipurpose_on_top_proximity_monorail_station"),
+    ("multipurpose on top proximity station hrw", "multipurpose_on_top_proximity_hrw_station"),
     ("multipurpose proximity hub", "multipurpose_proximity_hub"),
     ("multipurpose proximity", "multipurpose_proximity_station"),
     ("monorail/btm/hsr", "monorail_station"),

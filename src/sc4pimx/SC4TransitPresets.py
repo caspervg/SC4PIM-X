@@ -362,7 +362,7 @@ class PresetWizardDialog(wx.Dialog):
             style=wx.RA_SPECIFY_COLS,
         )
         self.optionsBox = wx.StaticBox(self, -1, LEXTransitPresetOptions)
-        for option in tpr.OPTION_IDS:
+        for option in tpr.option_ids():
             self._option_checks[option] = wx.CheckBox(self.optionsBox, -1, tpr.label_for_option(option))
 
         # Cost & capacity: always-editable text fields prefilled with the
@@ -390,6 +390,10 @@ class PresetWizardDialog(wx.Dialog):
         # Footer: just OccupantGroups, labeled with its catalogue name.
         self.occupantGroupsText = wx.StaticText(self, -1, "")
 
+        # Authored base/preset notes from transit_switch_presets.toml.
+        self.noteText = wx.StaticText(self, -1, "")
+        self._note_label = ""
+
         self.statusText = wx.StaticText(self, -1, "")
         self.statusText.SetForegroundColour(wx.Colour(160, 0, 0))
 
@@ -408,7 +412,7 @@ class PresetWizardDialog(wx.Dialog):
 
         optionsSizer = wx.StaticBoxSizer(self.optionsBox, wx.VERTICAL)
         optionsGrid = wx.GridSizer(0, 2, 4, 8)
-        for option in tpr.OPTION_IDS:
+        for option in self._option_checks:
             optionsGrid.Add(self._option_checks[option], 0, wx.EXPAND)
         optionsSizer.Add(optionsGrid, 0, wx.EXPAND | wx.ALL, 6)
         sizer.Add(optionsSizer, 0, wx.EXPAND | wx.ALL, 8)
@@ -424,6 +428,7 @@ class PresetWizardDialog(wx.Dialog):
         sizer.Add(wx.StaticText(self, -1, switches_label), 0, wx.LEFT | wx.TOP, 8)
         sizer.Add(self.previewList, 1, wx.EXPAND | wx.ALL, 8)
         sizer.Add(self.occupantGroupsText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        sizer.Add(self.noteText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         sizer.Add(self.statusText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
         btns = wx.StdDialogButtonSizer()
@@ -554,7 +559,27 @@ class PresetWizardDialog(wx.Dialog):
             self._field_float(self.capacityText),
         )
 
+    def _refresh_note(self) -> None:
+        parts = []
+        base = self._selected_base()
+        if base:
+            base_note = tpr.note_for_base(base)
+            if base_note:
+                parts.append(base_note)
+        preset = self._selected_registry_preset()
+        if preset is not None and preset.note:
+            parts.append(preset.note)
+        label = "\n".join(parts)
+        if label == self._note_label:
+            return
+        self._note_label = label
+        self.noteText.SetLabel(label)
+        if label:
+            self.noteText.Wrap(max(420, self.GetClientSize().width - 24))
+        self.Layout()
+
     def _refresh_preview(self) -> None:
+        self._refresh_note()
         if not self._base_ids:
             self.previewList.DeleteAllItems()
             self.occupantGroupsText.SetLabel(LEXTransitPresetEmpty)
