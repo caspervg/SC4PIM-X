@@ -47,7 +47,7 @@ def test_registry_ids_have_labels():
         assert registry.label_for_base(base.id) != base.id
     for placement in registry.PLACEMENT_IDS:
         assert registry.label_for_placement(placement) != placement
-    for option in registry.OPTION_IDS:
+    for option in registry.option_ids():
         assert registry.label_for_option(option) != option
 
 
@@ -60,14 +60,23 @@ def test_new_tyberius_station_types_are_selectable_without_switches_yet():
         "multipurpose_on_top_proximity_rail_station",
         "multipurpose_on_top_proximity_el_rail_station",
         "multipurpose_on_top_proximity_monorail_station",
+        "multipurpose_on_top_proximity_hrw_station",
     }
     loaded = registry.load_registry()
 
-    assert expected.issubset(set(registry.BASE_IDS))
     assert expected.issubset(set(loaded.bases_by_id))
     for base in expected:
         assert registry.label_for_base(base) != base
         assert registry.allowed_placements_for_base(base)
+
+
+def test_base_and_preset_notes_load_from_toml():
+    loaded = registry.load_registry()
+
+    assert registry.note_for_base("multipurpose_on_top_proximity_hrw_station")
+    assert registry.note_for_base("unknown_base") == ""
+    for preset in loaded.presets:
+        assert isinstance(preset.note, str)
 
 
 def test_rowset_presets_compile_to_switch_bytes():
@@ -186,6 +195,10 @@ def test_tyberius_importer_recognises_new_station_type_labels():
     assert (
         tyberius_importer._base_from_label("Multipurpose On-Top Proximity Station - MonoRail")
         == "multipurpose_on_top_proximity_monorail_station"
+    )
+    assert (
+        tyberius_importer._base_from_label("Multipurpose On-Top Proximity Station - HRW")
+        == "multipurpose_on_top_proximity_hrw_station"
     )
 
 
