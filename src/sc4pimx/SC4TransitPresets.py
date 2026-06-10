@@ -16,6 +16,8 @@ a user-applicable preset. The user can optionally:
 
 The preview pane re-runs the pipeline against the current exemplar each
 time the user toggles an override, so "what you see is what gets written".
+Apply only writes the transit properties in ``APPLY_PROP_IDS``; the rest of
+the category-generated set is discarded so hand-edited values survive.
 
 WizardType="TransitPreset" is one slot in a deliberately extensible
 attribute: future wizard kinds (e.g. lot templates, family seeds) can mark
@@ -37,6 +39,21 @@ from .translation import *  # noqa: F401,F403
 logger = logging.getLogger(__name__)
 
 PRESET_TYPE_TRANSIT = "Transit"
+
+PROP_OCCUPANT_GROUPS = 0xAA1DD396
+
+# The only properties the wizard writes back. The category pipeline still has
+# to run in full (TSEC/cost/capacity overrides rewrite its generated lines),
+# but everything outside this set is dropped on Apply so hand-tuned exemplar
+# values (plop/bulldoze/monthly cost, wealth, pollution, ...) survive.
+APPLY_PROP_IDS = frozenset(
+    {
+        tsw.PROP_TRANSIT_SWITCH_POINT,
+        tsw.PROP_TRANSIT_SWITCH_ENTRY_COST,
+        tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY,
+        PROP_OCCUPANT_GROUPS,
+    }
+)
 
 
 # --- Public helpers --------------------------------------------------------
@@ -550,7 +567,7 @@ class PresetWizardDialog(wx.Dialog):
             return None
         rows = tsw.decode_switch_array(registry_preset.switches)
         lines = _replace_tsec_lines(self.virtual_dat, base_lines, rows)
-        return apply_overrides(
+        lines = apply_overrides(
             self.virtual_dat,
             lines,
             None,
@@ -558,6 +575,7 @@ class PresetWizardDialog(wx.Dialog):
             self._field_float(self.costText),
             self._field_float(self.capacityText),
         )
+        return [line for line in lines if (parsed := _parse_prop_line(line)) and parsed[0] in APPLY_PROP_IDS]
 
     def _refresh_note(self) -> None:
         parts = []
@@ -618,7 +636,7 @@ class PresetWizardDialog(wx.Dialog):
             values_str = values_str.strip()
             if prop_id == tsw.PROP_TRANSIT_SWITCH_POINT:
                 rows = tsw.decode_switch_array(_bytes_from_values_str(values_str))
-            elif prop_id == 0xAA1DD396:
+            elif prop_id == PROP_OCCUPANT_GROUPS:
                 occupant_groups_str = values_str
 
         self.previewList.DeleteAllItems()
@@ -633,7 +651,7 @@ class PresetWizardDialog(wx.Dialog):
 
         if occupant_groups_str:
             self.occupantGroupsText.SetLabel(
-                LEXTransitPresetPropLine % (self._prop_name(0xAA1DD396), occupant_groups_str)
+                LEXTransitPresetPropLine % (self._prop_name(PROP_OCCUPANT_GROUPS), occupant_groups_str)
             )
         else:
             self.occupantGroupsText.SetLabel("")
@@ -711,16 +729,6 @@ class PresetWizardDialog(wx.Dialog):
         lines = self._generate_lines()
         if registry_preset is None or category is None or lines is None:
             return
-        # Honour removeProperties from the category chain (walk up so a
-        # parent-category removal applies too).
-        seen: set = set()
-        walker = category
-        while walker is not None:
-            for prop_id in walker.removeProperties.keys():
-                if prop_id not in seen:
-                    seen.add(prop_id)
-                    self.exemplar.RemoveProp(prop_id)
-            walker = getattr(walker, "parent", None)
         written = 0
         for line in lines:
             if self.exemplar.AddTextProp(line):
