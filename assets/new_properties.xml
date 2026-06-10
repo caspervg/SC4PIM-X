@@ -1395,19 +1395,311 @@
       </HELP>
     </PROPERTY>
     <PROPERTY Name="Field Lots" ID="0x29b55f73" Type="Uint32" Count="-1" Default="0x00000000" ShowAsHex="Y">
-      <OPTION Value="0x00024100" Name="Furrows with Sprinkler">
+      <OPTION Value="0x00024100" Name="Maxis: Furrows with Sprinkler">
       </OPTION>
-      <OPTION Value="0x2a6e4309" Name="Furrows with Sprinkler">
+      <OPTION Value="0x2a6e4309" Name="Maxis: Furrows with Sprinkler">
       </OPTION>
-      <OPTION Value="0x2a6e431d" Name="Dirt with Sprinkler">
+      <OPTION Value="0x2a6e431d" Name="Maxis: Dirt with Sprinkler">
       </OPTION>
-      <OPTION Value="0xaa6e4328" Name="Orange Tree Orchards">
+      <OPTION Value="0xaa6e4328" Name="Maxis: Orange Tree Orchards">
       </OPTION>
-      <OPTION Value="0x6a6e4332" Name="Apple Tree Orchards">
+      <OPTION Value="0x6a6e4332" Name="Maxis: Apple Tree Orchards">
       </OPTION>
-      <OPTION Value="0xea6e4721" Name="Dirt Patch">
+      <OPTION Value="0xea6e4721" Name="Maxis: Dirt Patch">
       </OPTION>
-      <OPTION Value="0xea6e4722" Name="Green Patch">
+      <OPTION Value="0xea6e4722" Name="Maxis: Green Patch">
+      </OPTION>
+      <OPTION Value="0x0f10173b" Name="CSX: Wheat">
+      </OPTION>
+      <OPTION Value="0x2f1246ad" Name="CSX: Oranges">
+      </OPTION>
+      <OPTION Value="0x4e17c963" Name="CSX: Sammy's Bananas">
+      </OPTION>
+      <OPTION Value="0x8e17cc08" Name="CSX: Raji's Bananas">
+      </OPTION>
+      <OPTION Value="0xaf12466c" Name="CSX: Apples">
+      </OPTION>
+      <OPTION Value="0xcd3b9faf" Name="CSX: Pink Bradford Pear Tree">
+      </OPTION>
+      <OPTION Value="0xeefc70ec" Name="CSX: Coconuts">
+      </OPTION>
+      <OPTION Value="0xef124096" Name="CSX: Cherries">
+      </OPTION>
+      <OPTION Value="0x0efc6f42" Name="CSX: Maple">
+      </OPTION>
+      <OPTION Value="0x2efc6ebd" Name="CSX: Oak">
+      </OPTION>
+      <OPTION Value="0x8efc6e3e" Name="CSX: Noble Fir">
+      </OPTION>
+      <OPTION Value="0x0efc6b26" Name="CSX: GM Tomatoes">
+      </OPTION>
+      <OPTION Value="0xae17cf51" Name="CSX: GM Victoria's Bananas">
+      </OPTION>
+      <OPTION Value="0xeefc19e5" Name="CSX: GM Mushroom Tunnel">
+      </OPTION>
+      <OPTION Value="0xcf1017ea" Name="CSX: Strawberries">
+      </OPTION>
+      <OPTION Value="0x2efc6b96" Name="CSX: Melons">
+      </OPTION>
+      <OPTION Value="0x2f101885" Name="CSX: Potatoes">
+      </OPTION>
+      <OPTION Value="0x4efc6c08" Name="CSX: Tomatoes">
+      </OPTION>
+      <OPTION Value="0xaefc6c56" Name="CSX: Cabbage">
+      </OPTION>
+      <OPTION Value="0x6d3a3621" Name="CSX: CSX GA Nursery Shrub">
+      </OPTION>
+      <OPTION Value="0x6d3a457e" Name="CSX GA Nursery Pampas">
+      </OPTION>
+      <OPTION Value="0x8d3aa2a9" Name="CSX GA Nursery Flowers - Red">
+      </OPTION>
+      <OPTION Value="0xae17d42b" Name="CSX Farm Field - Christa's Pride">
+      </OPTION>
+      <OPTION Value="0xce17d266" Name="CSX Farm Field - Vera's Pride">
+      </OPTION>
+      <OPTION Value="0x0f02b60c" Name="CSX Vineyard - Late Harvest">
+      </OPTION>
+      <OPTION Value="0x4f02b5c0" Name="CSX Vineyard - Pinotage">
+      </OPTION>
+      <OPTION Value="0x4f02b658" Name="CSX Vineyard - Grand Cru">
+      </OPTION>
+      <OPTION Value="0xef02b702" Name="CSX Vineyard - Mont Blanc">
+      </OPTION>
+      <OPTION Value="0xcf07d4ad" Name="CSX Farm Field - Pinewood">
+      </OPTION>
+      <OPTION Value="0xef07aaf3" Name="CSX Farm Field - Woodland">
+      </OPTION>
+      <OPTION Value="0xef07d372" Name="CSX Farm Field - Brushland">
+      </OPTION>
+      <OPTION Value="0x4f1c9a2a" Name="CSX Farm Field - Wetland">
+      </OPTION>
+      <OPTION Value="0xef2e7351" Name="CSX Farm Field - Fynbos">
+      </OPTION>
+      <OPTION Value="0x2f3761d4" Name="CSX Farm Field - Poppies">
+      </OPTION>
+      <OPTION Value="0x2f376176" Name="CSX Farm Field - Lavender">
+      </OPTION>
+      <OPTION Value="0x10f2118f" Name="CSX Forestry Field - Brushland">
+      </OPTION>
+      <OPTION Value="0xf0f20ee0" Name="CSX Forestry Field - Fynbos">
+      </OPTION>
+      <OPTION Value="0xd0f21780" Name="CSX Forestry Field - Lavender">
+      </OPTION>
+      <OPTION Value="0x50F20BF1" Name="CSX Forestry Field - Poppies">
+      </OPTION>
+      <OPTION Value="0x70f20e39" Name="CSX Forestry Field - Potatoes">
+      </OPTION>
+      <OPTION Value="0x50f20e6d" Name="CSX Forestry Field - Tomatoes">
+      </OPTION>
+      <OPTION Value="0x30f217f5" Name="CSX Forestry Field - Woodland">
+      </OPTION>
+      <OPTION Value="0x30F165E3" Name="CSX Plantation Field - Cottonwood">
+      </OPTION>
+      <OPTION Value="0xB0F164E8" Name="CSX Plantation Field - Douglas Fir">
+      </OPTION>
+      <OPTION Value="0xD0F16398" Name="CSX Plantation Field - Gumtrees">
+      </OPTION>
+      <OPTION Value="0x30F167CA" Name="CSX Plantation Field - Lodgepole Pine">
+      </OPTION>
+      <OPTION Value="0xB0F1688B" Name="CSX Plantation Field - Oak">
+      </OPTION>
+      <OPTION Value="0xB0F16919" Name="CSX Plantation Field - Ponderosa Pine">
+      </OPTION>
+      <OPTION Value="0x5106E3BE" Name="CSX Plantation Field - Spruce Pine">
+      </OPTION>
+      <OPTION Value="0xAD79C821" Name="BLS GA Farm Field - Lime Trees01">
+      </OPTION>
+      <OPTION Value="0x6f057b94" Name="BLS GA Farm Field - Lime Trees02">
+      </OPTION>
+      <OPTION Value="0xAD79E66F" Name="BLS GA Farm Field - Lemon Trees01">
+      </OPTION>
+      <OPTION Value="0x4EFCFB16" Name="BLS GA Farm Field - Lemon Trees02">
+      </OPTION>
+      <OPTION Value="0x8F924D9D" Name="BLS GA Farm Field - Aniseed">
+      </OPTION>
+      <OPTION Value="0xAE196879" Name="BLS GA Farm Field - Bananas">
+      </OPTION>
+      <OPTION Value="0x6E1BD45D" Name="BLS GA Farm Field - Barley">
+      </OPTION>
+      <OPTION Value="0x8DCE3765" Name="BLS GA Farm Field - Cabbages">
+      </OPTION>
+      <OPTION Value="0x8DCE7E3D" Name="BLS GA Farm Field - Chili Peppers">
+      </OPTION>
+      <OPTION Value="0x4DF87DAF" Name="BLS GA Farm Field - Corn">
+      </OPTION>
+      <OPTION Value="0x4E61B2E0" Name="BLS GA Farm Field - Grapes Seasonal">
+      </OPTION>
+      <OPTION Value="0x8DCE4EBD" Name="BLS GA Farm Field - Grapes">
+      </OPTION>
+      <OPTION Value="0xEE587EC0" Name="BLS GA Farm Field - Hay">
+      </OPTION>
+      <OPTION Value="0xAD79E66F" Name="BLS GA Farm Field - Hops">
+      </OPTION>
+      <OPTION Value="0x8DEE18EC" Name="BLS GA Farm Field - Lettuce">
+      </OPTION>
+      <OPTION Value="0x0DC3B733" Name="BLS GA Farm Field - Lavender">
+      </OPTION>
+      <OPTION Value="0x8F924DF0" Name="BLS GA Farm Field - Liquorice">
+      </OPTION>
+      <OPTION Value="0xEDD7F461" Name="BLS GA Farm Field - Pasture">
+      </OPTION>
+      <OPTION Value="0xEF869C6E" Name="BLS GA Farm Field - D66 Day Lilies Lavender">
+      </OPTION>
+      <OPTION Value="0x4EBE953C" Name="BLS GA Farm Field - Pine Trees">
+      </OPTION>
+      <OPTION Value="0x8DCE4577" Name="BLS GA Farm Field - Pineapples">
+      </OPTION>
+      <OPTION Value="0x6E17F4BD" Name="BLS GA Farm Field - Pumpkins">
+      </OPTION>
+      <OPTION Value="0x6DCE3305" Name="BLS GA Farm Field - Soybeans">
+      </OPTION>
+      <OPTION Value="0xCF263C04" Name="BLS GA Farm Field - Chili Peppers">
+      </OPTION>
+      <OPTION Value="0xCF6FB746" Name="BLS GA Farm Field - D66 Wildflower Meadow">
+      </OPTION>
+      <OPTION Value="0xADE2EACF" Name="BLS GA Farm Field - HoneyFlowers01">
+      </OPTION>
+      <OPTION Value="0x8DC73040" Name="BLS GA Farm Field - HoneyFlowers02">
+      </OPTION>
+      <OPTION Value="0xEE2A0390" Name="BLS GA Farm Field - Wheat Seasonal">
+      </OPTION>
+      <OPTION Value="0xAE1CA1A7" Name="BLS GA Farm Field - Sunflowers">
+      </OPTION>
+      <OPTION Value="0xAF1E2C5A" Name="BLS GA Farm Field - Carnations">
+      </OPTION>
+      <OPTION Value="0xEF88174F" Name="BLS GA Farm Field - Lily Mystery">
+      </OPTION>
+      <OPTION Value="0xEF881884" Name="BLS GA Farm Field - Merry Marigolds">
+      </OPTION>
+      <OPTION Value="0x8F869D50" Name="BLS GA Farm Field - D66 Day Lilies Orange">
+      </OPTION>
+      <OPTION Value="0xAF869CE9" Name="BLS GA Farm Field - D66 Day Lilies Firey">
+      </OPTION>
+      <OPTION Value="0x8F869F6F" Name="BLS GA Farm Field - D66 Day Lilies Pink">
+      </OPTION>
+      <OPTION Value="0xAF86A039" Name="BLS GA Farm Field - D66 Day Lilies Purple">
+      </OPTION>
+      <OPTION Value="0x4F869FCD" Name="BLS GA Farm Field - D66 Day Lilies Purple Mixed">
+      </OPTION>
+      <OPTION Value="0x2F86A06A" Name="BLS GA Farm Field - D66 Day Lilies Red">
+      </OPTION>
+      <OPTION Value="0x0F1B7CDC" Name="BLS GA Farm Field - Red Roses">
+      </OPTION>
+      <OPTION Value="0x8F866A8A" Name="BLS GA Farm Field - D66 Day Lilies StarGazer">
+      </OPTION>
+      <OPTION Value="0xEF86A0CB" Name="BLS GA Farm Field - D66 Day Lilies Yellow">
+      </OPTION>
+      <OPTION Value="0x2F86A115" Name="BLS GA Farm Field - D66 Yellow Marigolds">
+      </OPTION>
+      <OPTION Value="0x6F1B7D21" Name="BLS GA Farm Field - Yellow Roses">
+      </OPTION>
+      <OPTION Value="0xAF86A095" Name="BLS GA Farm Field - D66 Day Lilies Yellow Pink Mixed">
+      </OPTION>
+      <OPTION Value="0x0FF57698" Name="BLS GA Farm Field - RPT Agave">
+      </OPTION>
+      <OPTION Value="0xB1F1E3C1" Name="BLS Farm Field - BMD Kiwi Vines">
+      </OPTION>
+      <OPTION Value="0x91EDC1DE" Name="BLS Farm Field - BMD Lavender">
+      </OPTION>
+      <OPTION Value="0xF1F1E4DE" Name="BLS Farm Field - BMD Melons">
+      </OPTION>
+      <OPTION Value="0xD1F1E472" Name="BLS Farm Field - BMD Oranges">
+      </OPTION>
+      <OPTION Value="0xB1F21DD1" Name="BLS Farm Field - BMD Peppers">
+      </OPTION>
+      <OPTION Value="0x31F21E17" Name="BLS Farm Field - BMD Tomatoes">
+      </OPTION>
+      <OPTION Value="0xB1E63427" Name="BLS Farm Field - BMD Olives01">
+      </OPTION>
+      <OPTION Value="0x51EC72A5" Name="BLS Farm Field - BMD Olives02">
+      </OPTION>
+      <OPTION Value="0xD1EC731D" Name="BLS Farm Field - BMD Olives03">
+      </OPTION>
+      <OPTION Value="0xB2914DE4" Name="BLS Farm Field - CAL Hay Baled">
+      </OPTION>
+      <OPTION Value="0x32935D92" Name="BLS Farm Field - CAL Round Hay Bales">
+      </OPTION>
+      <OPTION Value="0x536603BE" Name="BLS Farm Field - Sand with Palm Trees">
+      </OPTION>
+      <OPTION Value="0x3361CB5F" Name="BLS Farm Field - D66 Wildflower Meadow">
+      </OPTION>
+      <OPTION Value="0x1361A878" Name="BLS Farm Field - Forest01">
+      </OPTION>
+      <OPTION Value="0xF361A8B5" Name="BLS Farm Field - Forest02">
+      </OPTION>
+      <OPTION Value="0xB361A913" Name="BLS Farm Field - Forest03">
+      </OPTION>
+      <OPTION Value="0x4f043e6e" Name="SG Farm Field - Seasonal Beans">
+      </OPTION>
+      <OPTION Value="0x4f043e28" Name="SG Farm Field - Seasonal Corn">
+      </OPTION>
+      <OPTION Value="0x0f07d36c" Name="SG Farm Field - Seasonal Flowers">
+      </OPTION>
+      <OPTION Value="0x0f043eb2" Name="SG Farm Field - Seasonal Peanuts">
+      </OPTION>
+      <OPTION Value="0x2f0c2ab5" Name="SG Farm Field - Seasonal Rice">
+      </OPTION>
+      <OPTION Value="0xef07a216" Name="SG Farm Field - Seasonal Tulips">
+      </OPTION>
+      <OPTION Value="0x0f043df9" Name="SG Farm Field - Seasonal Wheat">
+      </OPTION>
+      <OPTION Value="0x0f33bd8b" Name="SG Farm Field - Seasonal Aniseed">
+      </OPTION>
+      <OPTION Value="0x4f33af03" Name="SG Farm Field - Seasonal Cantaloupe">
+      </OPTION>
+      <OPTION Value="0x4f33bf5d" Name="SG Farm Field - Seasonal Cotton">
+      </OPTION>
+      <OPTION Value="0x4f33bd45" Name="SG Farm Field - Seasonal Hop Vines">
+      </OPTION>
+      <OPTION Value="0xef33bdfa" Name="SG Farm Field - Seasonal Liquorice">
+      </OPTION>
+      <OPTION Value="0xcf33afe0" Name="SG Farm Field - Peppers Green">
+      </OPTION>
+      <OPTION Value="0x4f33bbb1" Name="SG Farm Field - Peppers Mixed">
+      </OPTION>
+      <OPTION Value="0x4f33afc6" Name="SG Farm Field - Peppers Red">
+      </OPTION>
+      <OPTION Value="0xcf33bbbe" Name="SG Farm Field - Peppers Yellow">
+      </OPTION>
+      <OPTION Value="0xcf33be20" Name="SG Farm Field - Seasonal Potatoes">
+      </OPTION>
+      <OPTION Value="0xcf33beaf" Name="SG Farm Field - Seasonal Pumpkins">
+      </OPTION>
+      <OPTION Value="0xef33be4b" Name="SG Farm Field - Seasonal Soy Beans">
+      </OPTION>
+      <OPTION Value="0x8f33bf18" Name="SG Farm Field - Seasonal Sugar Cane">
+      </OPTION>
+      <OPTION Value="0x8f33bfaf" Name="SG Farm Field - Seasonal Tobacco">
+      </OPTION>
+      <OPTION Value="0xef33bfce" Name="SG Farm Field - Seasonal Tomatoes">
+      </OPTION>
+      <OPTION Value="0x8f33bfee" Name="SG Farm Field - Wax Beans">
+      </OPTION>
+      <OPTION Value="0xF26D7F6E" Name="SG Farm Field - Fukitol">
+      </OPTION>
+      <OPTION Value="0xF92BBFE9" Name="BLS Farm Field - Pigpen">
+      </OPTION>
+      <OPTION Value="0x50E78750" Name="JFM Farm Field - Green Meadows Crop Random Hay Bales">
+      </OPTION>
+      <OPTION Value="0xD146FB3E" Name="JFM Farm Field - JFM Bananas">
+      </OPTION>
+      <OPTION Value="0x1267C337" Name="JFM Farm Field - JFM Christmas Trees">
+      </OPTION>
+      <OPTION Value="0xFC78ADA4" Name="vrtxt Farm Fields - Pasture Field 1">
+      </OPTION>
+      <OPTION Value="0xFC78ADA9" Name="vrtxt Farm Fields - Pasture Field 2">
+      </OPTION>
+      <OPTION Value="0xFC78ADAE" Name="vrtxt Farm Fields - Pasture Field 3">
+      </OPTION>
+      <OPTION Value="0xFC78ADB4" Name="vrtxt Farm Fields - Pasture Field 4">
+      </OPTION>
+      <OPTION Value="0xFC78ADB9" Name="vrtxt Farm Fields - Pasture Field 5">
+      </OPTION>
+      <OPTION Value="0xFC78ADBE" Name="vrtxt Farm Fields - Pasture Field 6">
+      </OPTION>
+      <OPTION Value="0xFC78ADC4" Name="vrtxt Farm Fields - Pasture Field 7">
+      </OPTION>
+      <OPTION Value="0xFC78ADC9" Name="vrtxt Farm Fields - Pasture Field 8">
       </OPTION>
       <HELP>
         A list of IDs of 1x1 lots that describe a field tile associated with this building (will choose 1 randomly)
@@ -7492,11 +7784,11 @@
       </OPTION>
       <OPTION Value="0xB5C00C27" Name="CAM: Farm Stage 7">
       </OPTION>
-      <OPTION Value="0xb5c00c28" Name="CAM: Farm Stage 8">
+      <OPTION Value="0xB5C00C28" Name="CAM: Farm Stage 8">
       </OPTION>
-      <OPTION Value="0xb5c00c29" Name="CAM: Farm Stage 9">
+      <OPTION Value="0xB5C00C29" Name="CAM: Farm Stage 9">
       </OPTION>
-      <OPTION Value="0xb5c00c2a" Name="CAM: Farm Stage 10">
+      <OPTION Value="0xB5C00C2A" Name="CAM: Farm Stage 10">
       </OPTION>
       <OPTION Value="0xB5C00C30" Name="BTE: Farm - Meat">
       </OPTION>
@@ -7794,59 +8086,61 @@
       </OPTION>
       <OPTION Value="0xB5C32500" Name="BTE: BSC-Mattb325">
       </OPTION>
-      <OPTION Value="0x1946409F" Name="AMPS: Coal">
+      <OPTION Value="0x1946409F" Name="NEON: Coal">
       </OPTION>
-      <OPTION Value="0xD6B169D9" Name="AMPS: Oil">
+      <OPTION Value="0xD6B169D9" Name="NEON: Oil">
       </OPTION>
-      <OPTION Value="0x36CA5093" Name="AMPS: Biomass">
+      <OPTION Value="0x36CA5093" Name="NEON: Biomass">
       </OPTION>
-      <OPTION Value="0x5512235E" Name="AMPS: Natural Gas">
+      <OPTION Value="0x5512235E" Name="NEON: Natural Gas">
       </OPTION>
-      <OPTION Value="0xA945A10D" Name="AMPS: Nuclear Fission">
+      <OPTION Value="0xA945A10D" Name="NEON: Nuclear Fission">
       </OPTION>
-      <OPTION Value="0xB680D7E0" Name="AMPS: Nuclear Fusion">
+      <OPTION Value="0xB680D7E0" Name="NEON: Nuclear Fusion">
       </OPTION>
-      <OPTION Value="0x1F221780" Name="AMPS: Geothermal">
+      <OPTION Value="0x1F221780" Name="NEON: Geothermal">
       </OPTION>
-      <OPTION Value="0x7134683C" Name="AMPS: Solar">
+      <OPTION Value="0x7134683C" Name="NEON: Solar">
       </OPTION>
-      <OPTION Value="0x0CED62DC" Name="AMPS: Microwave">
+      <OPTION Value="0x0CED62DC" Name="NEON: Microwave">
       </OPTION>
-      <OPTION Value="0xF0D606AC" Name="AMPS: Tidal and Wave">
+      <OPTION Value="0xF0D606AC" Name="NEON: Tidal and Wave">
       </OPTION>
-      <OPTION Value="0xEC9175AA" Name="AMPS: Waste To Energy">
+      <OPTION Value="0xEC9175AA" Name="NEON: Waste To Energy">
       </OPTION>
-      <OPTION Value="0x8765D979" Name="AMPS: Hydroelectric">
+      <OPTION Value="0x8765D979" Name="NEON: Hydroelectric">
       </OPTION>
-      <OPTION Value="0xC78E0054" Name="AMPS: Wind">
+      <OPTION Value="0xC78E0054" Name="NEON: Wind">
       </OPTION>
-      <OPTION Value="0xB075C142" Name="AMPS: Generators">
+      <OPTION Value="0xB075C142" Name="NEON: Generators">
       </OPTION>
-      <OPTION Value="0x7AB34F1B" Name="AMPS: Auxiliary">
+      <OPTION Value="0x7AB34F1B" Name="NEON: Auxiliary">
       </OPTION>
-      <OPTION Value="0x861A7248" Name="AMPS: Power Storage">
+      <OPTION Value="0x861A7248" Name="NEON: Power Storage">
       </OPTION>
-      <OPTION Value="0xED378A8E" Name="AMPS: Transmission Station">
+      <OPTION Value="0xED378A8E" Name="NEON: High Voltage Transformers">
       </OPTION>
-      <OPTION Value="0x215395E9" Name="AMPS: Distribution Substation">
+      <OPTION Value="0x215395E9" Name="NEON: Low Voltage Transformers">
       </OPTION>
-      <OPTION Value="0xD45142D1" Name="AMPS: High Voltage Power Line ">
+      <OPTION Value="0x1b823f5a" Name="NEON: Medium Voltage Transformers">
       </OPTION>
-      <OPTION Value="0x4E1F2B7B" Name="AMPS: Medium Voltage Power Line ">
+      <OPTION Value="0xD45142D1" Name="NEON: High Voltage Power Line ">
       </OPTION>
-      <OPTION Value="0x38730189" Name="AMPS: Low Voltage Power Line ">
+      <OPTION Value="0x4E1F2B7B" Name="NEON: Medium Voltage Power Line ">
       </OPTION>
-      <OPTION Value="0x7292f7FA" Name="AMPS: Power Line">
+      <OPTION Value="0x38730189" Name="NEON: Low Voltage Power Line ">
       </OPTION>
-      <OPTION Value="0x0ABF5A84" Name="AMPS: Transformer">
+      <OPTION Value="0x7292f7FA" Name="NEON: Power Line">
       </OPTION>
-      <OPTION Value="0x0badb9ac" Name="AMPS: Intermediate Plants">
+      <OPTION Value="0x0ABF5A84" Name="NEON: Transformer">
       </OPTION>
-      <OPTION Value="0x18e64ea5" Name="AMPS: Base Load Plants">
+      <OPTION Value="0x0badb9ac" Name="NEON: Intermediate Plants">
       </OPTION>
-      <OPTION Value="0x7283dcd7" Name="AMPS: Peak Plants">
+      <OPTION Value="0x18e64ea5" Name="NEON: Base Load Plants">
       </OPTION>
-      <OPTION Value="0xB2718077" Name="AMPS: Power Eye-Candy">
+      <OPTION Value="0x7283dcd7" Name="NEON: Peak Plants">
+      </OPTION>
+      <OPTION Value="0xB2718077" Name="NEON: Power Eye-Candy">
       </OPTION>
       <OPTION Value="0x0C56201B" Name="AGM: Landfill">
       </OPTION>
@@ -8071,7 +8365,9 @@
       </OPTION>
       <OPTION Value="0xf008cfac" Name="Power Storage">
       </OPTION>
-      <OPTION Value="0x535f049c" Name="High-Medium Voltage Transformers">
+      <OPTION Value="0x535f049c" Name="High Voltage Transformers">
+      </OPTION>
+      <OPTION Value="0xEF2C3770" Name="Medium Voltage Transformers">
       </OPTION>
       <OPTION Value="0x867fcec4" Name="Low Voltage Transformers">
       </OPTION>
@@ -12027,7 +12323,7 @@
         <PROPERTY ID="0x68EE9764" Eval="3.00000000,4.00000000,0.00000000,0.00000000"/><!--Pollution radii-->
         <PROPERTY ID="0xCA19D7CA" Set="0x4A4C42D4"/><!--SFX:Ambience Good Sound-->
         <PROPERTY ID="0xEA1CF220" Eval="0.00083333"/><!--Age degradation rate-->
-        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xB680D7E0,0x7283dcd7"/><!--OccupantGroups-->
+        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xB680D7E0,0x18e64ea5"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA1DD399" Eval="0x67B10537"/><!--OccupantGroups for SubMenu-->
         <PROPERTY ID="0x713c8912" Eval="0xf5daf839"/><!--Extended Power Type-->
       </PROPERTIES>
@@ -12065,39 +12361,6 @@
         <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0x5512235E,0x7283dcd7"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA1DD399" Eval="0xD2430E09"/><!--OccupantGroups for SubMenu-->
         <PROPERTY ID="0x713c8912" Eval="0x5d4ce371"/><!--Extended Power Type-->
-      </PROPERTIES>
-    </CATEGORY>
-
-    <CATEGORY Name="Electric Generator" ID="0x0a11419c" ParentID="0x4cb23866">
-      <FILTERS>
-        <NEEDED ID="0xAA1DD396" Value="0xB075C142"/>
-      </FILTERS>
-      <PROPERTIES>
-        <eval name="PowerOutput" value="50*int(1+0.030*Volume)"/>
-        <eval name="PCost" value="(500*int(3.00*PowerOutput/500.))/4"/>
-        <eval name="MCost" value="(50*int(0.130*PowerOutput/50.))/4"/>
-        <eval name="BCost" value="(10*int(0.140*PowerOutput/10.))/2"/>
-        <eval name="CivicJobs" value="int(PowerOutput/60.)"/>
-        <eval name="Jobs1" value="1+int(CivicJobs*28/48.)"/>
-        <eval name="Jobs2" value="0+int(CivicJobs*15/48.)"/>
-        <eval name="Jobs3" value="0+int(CivicJobs*5/48.)"/>
-        <eval name="AirPollutionFactor" value="1/50."/>
-        <eval name="WaterPollutionFactor" value="1/45."/>
-        <eval name="GarbagePollutionFactor" value="1/150."/>
-        <eval name="WaterConsumedFactor" value="1/150."/>
-        <PROPERTY ID="0x09a44ac9" Eval="PowerOutput"/>
-        <PROPERTY ID="0x0A4C13CB" Set="0x6A890D99"/><!--SFX:Ambience Decayed Sound-->
-        <PROPERTY ID="0x27812853" Eval="0x00000003"/><!--Power Plant Type-->
-        <PROPERTY ID="0x29244DB5" Eval="0x64"/><!--Flammability-->
-        <PROPERTY ID="0x6A19F6B5" Eval="4.000000"/><!--Health effect radius-->
-        <PROPERTY ID="0xAA19F6EA" Eval="-1.000000"/><!--Health effect strength-->
-        <PROPERTY ID="0x4A4C132E" Set="0x5F860F09"/><!--SFX:Activate Sound-->
-        <PROPERTY ID="0x68EE9764" Eval="12.00000000,12.00000000,0.00000000,0.00000000"/><!--Pollution radii-->
-        <PROPERTY ID="0xCA19D7CA" Set="0x6A4C467C"/><!--SFX:Ambience Good Sound-->
-        <PROPERTY ID="0xEA1CF220" Eval="0.00055556"/><!--Age degradation rate-->
-        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xB075C142"/><!--OccupantGroups-->
-        <PROPERTY ID="0xAA1DD399" Eval="0x14D53C20"/><!--OccupantGroups for SubMenu-->
-        <PROPERTY ID="0x713c8912" Eval="0xea9f7384"/><!--Extended Power Type-->
       </PROPERTIES>
     </CATEGORY>
     <CATEGORY Name="Electric Generator" ID="0x0a11419c" ParentID="0x4cb23866">
@@ -12160,7 +12423,7 @@
         <PROPERTY ID="0x6A19F6B5" Eval="12.000000"/><!--Health effect radius-->
         <PROPERTY ID="0x6A43150F" Eval="0x00000004"/><!--Hard Failure Type-->
         <PROPERTY ID="0xAA19F6EA" Eval="-50.000000"/><!--Health effect strength-->
-        <PROPERTY ID="0xAA1DD396" Eval="0x00001004,0x00001400,0x00001403,0x00001928,0xA945A10D,0x7283dcd7"/><!--OccupantGroups-->
+        <PROPERTY ID="0xAA1DD396" Eval="0x00001004,0x00001400,0x00001403,0x00001928,0xA945A10D,0x18e64ea5"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA5C04C5" Eval="3200.000000"/><!--Radiation Spew Intensity-->
         <PROPERTY ID="0xAA5C04C8" Eval="15.000000"/><!--Radiation Spew Radius-->
         <PROPERTY ID="0xCA19D7CA" Set="0xCA4C440F"/><!--SFX:Ambience Good Sound-->
@@ -12470,7 +12733,7 @@
         <PROPERTY ID="0xEA1CF220" Eval="0.00055500"/><!--Age degradation rate-->
         <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0x861A7248"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA1DD399" Eval="0x64365d13"/><!--OccupantGroups for SubMenu-->
-        <PROPERTY ID="0x713c8912" Eval="0xb13b19a0"/><!--Extended Power Type-->
+        <PROPERTY ID="0x713c8912" Eval="0xf008cfac"/><!--Extended Power Type-->
       </PROPERTIES>
     </CATEGORY>
 
@@ -12515,9 +12778,9 @@
         <PROPERTY ID="0x713c8912" Eval="0xc291e217"/><!--Extended Power Type-->
       </PROPERTIES>
     </CATEGORY>
-    <CATEGORY Name="Transmission Station" ID="0xb98a80c4" ParentID="0x4cb23866">
+    <CATEGORY Name="High Voltage Transformers" ID="0xb98a80c4" ParentID="0x4cb23866">
       <FILTERS>
-        <NEEDED ID="0xAA1DD396" Value="0xB2718077"/>
+        <NEEDED ID="0xAA1DD396" Value="0xED378A8E"/>
       </FILTERS>
       <PROPERTIES>
         <eval name="PowerOutput" value="0"/>
@@ -12547,12 +12810,51 @@
         <PROPERTY ID="0xEA1CF222" Remove="EA1CF222"/><!--Hard failure threshold-->
         <PROPERTY ID="0xEA54D285" Eval="0xAA59670C"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xEA54D286" Eval="max(MCost,1)"/><!--Budget Item: Cost-->
-        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xB2718077"/><!--OccupantGroups-->
+        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xED378A8E"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA1DD399" Eval="0x04986B76"/><!--OccupantGroups for SubMenu-->
+        <PROPERTY ID="0x713c8912" Eval="0x535f049c"/><!--Extended Power Type-->
       </PROPERTIES>
     </CATEGORY>
 
-    <CATEGORY Name="Distribution Substation" ID="0x4a07c445" ParentID="0x4cb23866">
+    <CATEGORY Name="Medium Voltage Transformers" ID="0x227dcbff" ParentID="0x4cb23866">
+      <FILTERS>
+        <NEEDED ID="0xAA1DD396" Value="0x1b823f5a"/>
+      </FILTERS>
+      <PROPERTIES>
+        <eval name="PowerOutput" value="0"/>
+        <eval name="PCost" value="10*int(Volume/200.)"/>
+        <eval name="MCost" value="1*int(Volume/2000.)"/>
+        <eval name="BCost" value="5*int(Volume/500.)"/>
+        <eval name="CivicJobs" value="0"/>
+        <eval name="Jobs1" value="0"/>
+        <eval name="Jobs2" value="0"/>
+        <eval name="Jobs3" value="0"/>
+        <PROPERTY ID="0x0911E2E7" Remove="0911E2E7"/><!--Age to maintenance cost multiplier response curve-->
+        <PROPERTY ID="0xe652e51f" Eval="1*int(Volume/2)"/><!--KVA Rating-->
+        <PROPERTY ID="0x27812832" Set="0x00"/><!--Wealth-->
+        <PROPERTY ID="0x27812841" Remove="27812841"/><!--Demand Created-->
+        <PROPERTY ID="0x27812851" Eval="0,0,0,0"/><!--pollution at center-->
+        <PROPERTY ID="0x27812852" Remove="27812852"/><!--Power Generated-->
+        <PROPERTY ID="0x29244DB5" Eval="0x00"/><!--Flammability-->
+        <PROPERTY ID="0x2A499F85" Eval="QueryForPowerEyeCandy"/><!--Query exemplar GUID-->
+        <PROPERTY ID="0x49CAC341" Eval="max(PCost,10)"/><!--Plop Cost-->
+        <PROPERTY ID="0x6A43150F" Remove="6A43150F"/><!--Hard Failure Type-->
+        <PROPERTY ID="0x8A1E07EE" Remove="8A1E07EE"/><!--Age to output level response curve-->
+        <PROPERTY ID="0x8A2602B9" Eval="ItemOrderForPowerEyeCandy"/><!-- Item Order -->
+        <PROPERTY ID="0xC8ED2D84" Value="0"/><!--Water Consumed-->
+        <PROPERTY ID="0xCA19D7CA" Remove="CA19D7CA"/><!--SFX:Ambience Good Sound-->
+        <PROPERTY ID="0xEA1CF220" Remove="EA1CF220"/><!--Age degradation rate-->
+        <PROPERTY ID="0xEA1CF221" Remove="EA1CF221"/><!--Soft failure threshold-->
+        <PROPERTY ID="0xEA1CF222" Remove="EA1CF222"/><!--Hard failure threshold-->
+        <PROPERTY ID="0xEA54D285" Eval="0xAA59670C"/><!--Budget Item: Purpose-->
+        <PROPERTY ID="0xEA54D286" Eval="max(MCost,1)"/><!--Budget Item: Cost-->
+        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0x1b823f5a"/><!--OccupantGroups-->
+        <PROPERTY ID="0xAA1DD399" Eval="0x04986B76"/><!--OccupantGroups for SubMenu-->
+        <PROPERTY ID="0x713c8912" Eval="0xEF2C3770"/><!--Extended Power Type-->
+      </PROPERTIES>
+    </CATEGORY>
+
+    <CATEGORY Name="Low Voltage Transformers" ID="0x4a07c445" ParentID="0x4cb23866">
       <FILTERS>
         <NEEDED ID="0xAA1DD396" Value="0x215395E9"/>
       </FILTERS>
@@ -12584,8 +12886,9 @@
         <PROPERTY ID="0xEA1CF222" Remove="EA1CF222"/><!--Hard failure threshold-->
         <PROPERTY ID="0xEA54D285" Eval="0xAA59670C"/><!--Budget Item: Purpose-->
         <PROPERTY ID="0xEA54D286" Eval="max(MCost,1)"/><!--Budget Item: Cost-->
-        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0xB2718077,0x215395E9"/><!--OccupantGroups-->
+        <PROPERTY ID="0xAA1DD396" Set="0x00001004,0x00001400,0x215395E9"/><!--OccupantGroups-->
         <PROPERTY ID="0xAA1DD399" Eval="0xD86B3B3B"/><!--OccupantGroups for SubMenu-->
+        <PROPERTY ID="0x713c8912" Eval="0x867fcec4"/><!--Extended Power Type-->
       </PROPERTIES>
     </CATEGORY>
     <CATEGORY Name="Auxiliary" ID="0x4cb9387A" ParentID="0x4cb23866">
