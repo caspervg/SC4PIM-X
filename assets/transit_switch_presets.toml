@@ -108,6 +108,12 @@
 #     Optional fallback: a complete 0xE90E25A1 byte string such as
 #     "0x81,0xF0,0x00,0x00". Use for expert cases that are clearer as raw data than rowsets.
 #
+#   blank_props:
+#     Optional list of properties that should not be seeded from the category.
+#     If left blank in the wizard they are not written. Editable cost/capacity
+#     fields still write a property when the user manually enters a value.
+#     Use numeric property IDs, e.g. ["0xE90E25A2", "0xE90E25A3"].
+#
 #   note:
 #     Optional help/disclaimer text shown when this exact combination is
 #     selected (e.g. travel types covered, manual TSEC edits still required).
