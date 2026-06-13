@@ -1,6 +1,6 @@
 [project]
 name = "sc4pim-x"
-version = "2026.5c"
+version = "2026.5.4"
 description = "SimCity 4 Plugin Manager Extended - Decompiled and Modernized"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
