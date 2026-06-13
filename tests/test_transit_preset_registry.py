@@ -79,6 +79,19 @@ def test_base_and_preset_notes_load_from_toml():
         assert isinstance(preset.note, str)
 
 
+def test_preset_blank_props_accepts_numeric_property_ids():
+    assert registry.parse_prop_ids(["0xE90E25A2", "3910018467", 0xAA1DD396]) == (
+        0xE90E25A2,
+        0xE90E25A3,
+        0xAA1DD396,
+    )
+
+
+def test_preset_blank_props_rejects_aliases():
+    with pytest.raises(ValueError):
+        registry.parse_prop_ids(["entry_cost"])
+
+
 def test_rowset_presets_compile_to_switch_bytes():
     preset = registry.find_preset(
         "elevated_rail_station",

@@ -58,7 +58,7 @@ def _exit_after(stage):
         sys.exit(0)
 
 
-def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
+def build_category_props_for_preset(virtual_dat, exemplar, category, scope, emit_prop_ids=None):
     """Apply a category's eval/program/set/factor properties to an exemplar.
 
     Walks the category up to the root collecting ``<eval>`` variables, then
@@ -67,6 +67,10 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
     filtered for UVNK/IDK presence, with ``category.removeProperties``
     excluded. Caller is responsible for calling ``exemplar.AddTextProp``
     on each line and for running ``category.removeProperties`` removals.
+
+    If ``emit_prop_ids`` is supplied, only those property IDs are generated.
+    This is used by focused tools such as the Transit Preset wizard so
+    category formulas for unrelated properties cannot block a partial apply.
 
     ``scope`` is the locals dict the expressions evaluate against; the helper
     needs at minimum ``Volume``/``volume``/``IID``/``GID``/``exemplarName`` and
@@ -94,6 +98,7 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
 
     props = []
     propCreated = []
+    emit_prop_ids = None if emit_prop_ids is None else {int(prop_id) for prop_id in emit_prop_ids}
     walker = category
     volume = scope.get('volume', scope.get('Volume', 0))
     IID = scope.get('IID')
@@ -103,6 +108,8 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
     while 1:
         for prop2CreatID in walker.evalProperties.keys():
             if prop2CreatID == 662775825:
+                pass
+            elif emit_prop_ids is not None and prop2CreatID not in emit_prop_ids:
                 pass
             elif prop2CreatID in propCreated:
                 pass
@@ -143,7 +150,9 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
                     CreateAPropFromString(virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
 
         for prop2CreatID in walker.programProperties.keys():
-            if prop2CreatID in propCreated:
+            if emit_prop_ids is not None and prop2CreatID not in emit_prop_ids:
+                pass
+            elif prop2CreatID in propCreated:
                 pass
             elif exemplar.GetProp(prop2CreatID) is not None:
                 pass
@@ -156,7 +165,9 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
                         'GID', '0x%08X' % GID).replace('exemplarName', exemplarName))))
 
         for prop2CreatID in walker.setProperties.keys():
-            if prop2CreatID in propCreated:
+            if emit_prop_ids is not None and prop2CreatID not in emit_prop_ids:
+                pass
+            elif prop2CreatID in propCreated:
                 pass
             elif prop2CreatID == 2317746857 and exemplar.GetProp(2319542937):
                 pass
@@ -169,7 +180,9 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
                     virtual_dat.properties[prop2CreatID], str(prop2CreatValue)))
 
         for prop2CreatID in walker.factorProperties.keys():
-            if prop2CreatID in propCreated:
+            if emit_prop_ids is not None and prop2CreatID not in emit_prop_ids:
+                pass
+            elif prop2CreatID in propCreated:
                 pass
             else:
                 propCreated.append(prop2CreatID)
@@ -191,7 +204,9 @@ def build_category_props_for_preset(virtual_dat, exemplar, category, scope):
                     virtual_dat.properties[prop2CreatID], ','.join(prop2CreatValue)))
 
         for prop2CreatID in walker.pairedFactorProperties.keys():
-            if prop2CreatID in propCreated:
+            if emit_prop_ids is not None and prop2CreatID not in emit_prop_ids:
+                pass
+            elif prop2CreatID in propCreated:
                 pass
             else:
                 propCreated.append(prop2CreatID)

@@ -65,7 +65,6 @@ TRAVEL_IDS = {
     "monorail": tsw.TRAVEL_MONORAIL,
 }
 
-
 @dataclass(frozen=True)
 class RegistryPreset:
     id: str
@@ -74,6 +73,7 @@ class RegistryPreset:
     options: tuple[str, ...]
     category_id: int
     switches: tuple[int, ...]
+    blank_prop_ids: tuple[int, ...] = ()
     note: str = ""
 
     @property
@@ -237,6 +237,23 @@ def _parse_int(value) -> int:
     return int(str(value), 0)
 
 
+def _parse_prop_id(value) -> int:
+    if isinstance(value, int):
+        return value & 0xFFFFFFFF
+    return int(str(value).strip(), 0) & 0xFFFFFFFF
+
+
+def parse_prop_ids(values: Iterable) -> tuple[int, ...]:
+    out: list[int] = []
+    seen: set[int] = set()
+    for value in values or ():
+        prop_id = _parse_prop_id(value)
+        if prop_id not in seen:
+            seen.add(prop_id)
+            out.append(prop_id)
+    return tuple(out)
+
+
 def _load_raw() -> dict:
     path = data_file_path(REGISTRY_FILENAME)
     if not path.exists():
@@ -320,6 +337,7 @@ def load_registry() -> Registry:
             options=normalize_options(item.get("options", [])),
             category_id=_parse_int(item["category_id"]),
             switches=_compile_preset_switches(item, rowsets_by_id),
+            blank_prop_ids=parse_prop_ids(item.get("blank_props", [])),
             note=str(item.get("note", "")).strip(),
         )
         if preset.base not in bases_by_id:
