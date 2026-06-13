@@ -18,8 +18,8 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]{4}\.[0-9]+[a-z]*$ ]]; then
-            echo "Release tags must match vYYYY.Nsuffix, for example v2026.1a. Got: $TAG_NAME"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]{4}\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must match vYYYY.MAJOR.PATCH, for example v2026.5.4. Got: $TAG_NAME"
             exit 1
           fi
 
@@ -86,7 +86,7 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          uv run --python 3.12 python -c "import re, pathlib; p = pathlib.Path('src/sc4pimx/version.py'); p.write_text(re.sub(r'VERSION = \"[^\"]+\"', 'VERSION = \"$version\"', p.read_text(encoding='utf-8')), encoding='utf-8')"
+          uv run --python 3.12 python -c "import re, pathlib; p = pathlib.Path('src/sc4pimx/version.py'); p.write_text(re.sub(r'VERSION = \"[^\"]+\"', 'VERSION = \"$version\"', p.read_text(encoding='utf-8')), encoding='utf-8'); p = pathlib.Path('pyproject.toml'); p.write_text(re.sub(r'^version = \"[^\"]+\"', 'version = \"$version\"', p.read_text(encoding='utf-8'), flags=re.M), encoding='utf-8')"
 
       - name: Sync build environment
         run: uv sync --python 3.12 --group build
