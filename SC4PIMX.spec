@@ -2,8 +2,12 @@
 import os as _os, re as _re, sys as _sys
 
 _ver = _re.search(r'VERSION = "([^"]+)"', open('src/sc4pimx/version.py').read()).group(1)
-_ver_m = _re.match(r'(\d+)\.(\d+)', _ver)
-_ver_tuple = (int(_ver_m.group(1)), int(_ver_m.group(2)), 0, 0) if _ver_m else (0, 0, 0, 0)
+_ver_m = _re.match(r'(\d+)\.(\d+)\.(\d+)', _ver)
+_ver_tuple = (
+    (int(_ver_m.group(1)), int(_ver_m.group(2)), int(_ver_m.group(3)), 0)
+    if _ver_m
+    else (0, 0, 0, 0)
+)
 
 _win_ver_file = None
 if _sys.platform == 'win32':

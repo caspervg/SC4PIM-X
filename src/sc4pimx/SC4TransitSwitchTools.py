@@ -32,6 +32,7 @@ edge-mask values are also the OPTION values listed under
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
@@ -164,6 +165,34 @@ def encode_switch_array(rows: Iterable[SwitchRow]) -> list[int]:
     out: list[int] = []
     for row in rows:
         out.extend(row.as_bytes())
+    return out
+
+
+def format_switch_bytes(values: Iterable[int]) -> str:
+    """Return Reader-style comma-separated byte hex for copy/paste editing."""
+    return ",".join("0x%02X" % (int(value) & 0xFF) for value in values)
+
+
+def parse_switch_bytes_text(text: str) -> list[int]:
+    """Parse Reader-style raw TSEC byte text.
+
+    Accepts commas, whitespace, or semicolons as separators, and accepts both
+    prefixed and unprefixed hex bytes. Unknown switch-row byte combinations are
+    allowed here; the table will show them as expert rows.
+    """
+    out: list[int] = []
+    for token in re.split(r"[\s,;]+", str(text).strip()):
+        if not token:
+            continue
+        try:
+            value = int(token, 16) if not token.lower().startswith("0x") else int(token, 0)
+        except ValueError as exc:
+            raise ValueError(LEXTransitSwitchRawHexInvalidToken % token) from exc
+        if value < 0 or value > 0xFF:
+            raise ValueError(LEXTransitSwitchRawHexByteRange % token)
+        out.append(value)
+    if len(out) % SWITCH_ROW_SIZE:
+        raise ValueError(LEXTransitSwitchRawHexCountError % SWITCH_ROW_SIZE)
     return out
 
 
@@ -442,6 +471,11 @@ class TSECTablePanel(wx.Panel):
 
         self.costText = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.capacityText = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
+        self.rawCheck = wx.CheckBox(self, -1, LEXTransitSwitchRawHexEnable)
+        self.rawText = wx.TextCtrl(self, -1, "", style=wx.TE_MULTILINE)
+        self.rawText.SetMinSize((680, 70))
+        self.rawErrorText = wx.StaticText(self, -1, "")
+        self.rawErrorText.SetForegroundColour(wx.Colour(160, 0, 0))
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
@@ -454,6 +488,10 @@ class TSECTablePanel(wx.Panel):
         btnRow.AddStretchSpacer(1)
         btnRow.Add(self.presetBtn, 0)
         sizer.Add(btnRow, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        sizer.Add(self.rawCheck, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        sizer.Add(self.rawText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        sizer.Add(self.rawErrorText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
 
         numericGrid = wx.FlexGridSizer(0, 2, 4, 8)
         numericGrid.AddGrowableCol(1, 1)
@@ -471,10 +509,14 @@ class TSECTablePanel(wx.Panel):
         self.dupBtn.Bind(wx.EVT_BUTTON, self._on_duplicate)
         self.delBtn.Bind(wx.EVT_BUTTON, self._on_delete)
         self.presetBtn.Bind(wx.EVT_BUTTON, self._on_preset)
+        self.rawCheck.Bind(wx.EVT_CHECKBOX, self._on_raw_toggle)
+        self.rawText.Bind(wx.EVT_TEXT, self._on_raw_text)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, lambda evt: self._on_edit(evt))
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_selection_changed)
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_selection_changed)
 
+        self._sync_raw_text()
+        self._refresh_raw_controls()
         self._refresh_buttons()
 
     # --- public API --------------------------------------------------------
@@ -489,13 +531,24 @@ class TSECTablePanel(wx.Panel):
         self.costText.SetValue("" if cost is None else _format_float(cost))
         self.capacityText.SetValue("" if capacity is None else _format_float(capacity))
         self._fill_list()
+        self._sync_raw_text()
+        self._refresh_raw_controls()
         self._refresh_buttons()
 
     def get_state(self) -> tuple[list[SwitchRow], Optional[float], Optional[float]]:
+        if not self.validate():
+            raise ValueError(self.rawErrorText.GetLabel())
         return (list(self._rows), _parse_float(self.costText.GetValue()), _parse_float(self.capacityText.GetValue()))
 
     def get_switch_bytes(self) -> list[int]:
+        if self.rawCheck.GetValue():
+            self._apply_raw_text()
         return encode_switch_array(self._rows)
+
+    def validate(self) -> bool:
+        if self.rawCheck.GetValue():
+            return self._apply_raw_text(show_message=True)
+        return True
 
     # --- internals ---------------------------------------------------------
 
@@ -519,14 +572,64 @@ class TSECTablePanel(wx.Panel):
     def _refresh_buttons(self) -> None:
         idx = self._selected_index()
         has = idx >= 0
+        raw_mode = self.rawCheck.GetValue()
         editable = has and not self._rows[idx].expert
-        self.editBtn.Enable(editable)
-        self.dupBtn.Enable(has)
-        self.delBtn.Enable(has)
+        self.addBtn.Enable(not raw_mode)
+        self.editBtn.Enable(not raw_mode and editable)
+        self.dupBtn.Enable(not raw_mode and has)
+        self.delBtn.Enable(not raw_mode and has)
         self.presetBtn.Enable(self._on_apply_preset is not None)
+        self.list.Enable(not raw_mode)
+
+    def _sync_raw_text(self) -> None:
+        self.rawText.ChangeValue(format_switch_bytes(encode_switch_array(self._rows)))
+        self.rawErrorText.SetLabel("")
+
+    def _refresh_raw_controls(self) -> None:
+        raw_mode = self.rawCheck.GetValue()
+        self.rawText.Enable(raw_mode)
+        self.rawErrorText.Show(raw_mode and bool(self.rawErrorText.GetLabel()))
+        self.Layout()
+
+    def _apply_raw_text(self, show_message: bool = False) -> bool:
+        try:
+            parsed = parse_switch_bytes_text(self.rawText.GetValue())
+        except ValueError as exc:
+            message = str(exc)
+            self.rawErrorText.SetLabel(message)
+            self.rawErrorText.Show(True)
+            self.Layout()
+            if show_message:
+                wx.MessageBox(message, LEXTransitSwitchRawHexInvalidTitle, wx.OK | wx.ICON_ERROR, self)
+            return False
+        self.rawErrorText.SetLabel("")
+        self.rawErrorText.Show(False)
+        self._rows = decode_switch_array(parsed)
+        self._fill_list()
+        self._refresh_buttons()
+        self.Layout()
+        return True
 
     def _on_selection_changed(self, event: wx.Event) -> None:
         self._refresh_buttons()
+        event.Skip()
+
+    def _on_raw_toggle(self, event: wx.Event) -> None:
+        if self.rawCheck.GetValue():
+            self._sync_raw_text()
+        elif not self._apply_raw_text(show_message=True):
+            self.rawCheck.SetValue(True)
+        else:
+            self._sync_raw_text()
+        self._refresh_raw_controls()
+        self._refresh_buttons()
+        event.Skip()
+
+    def _on_raw_text(self, event: wx.Event) -> None:
+        if self.rawCheck.GetValue():
+            self.rawErrorText.SetLabel("")
+            self.rawErrorText.Show(False)
+            self.Layout()
         event.Skip()
 
     def _on_add(self, _event: wx.Event) -> None:
@@ -535,6 +638,7 @@ class TSECTablePanel(wx.Panel):
             if dlg.ShowModal() == wx.ID_OK:
                 self._rows.append(dlg.GetRow())
                 self._fill_list()
+                self._sync_raw_text()
                 self._select(len(self._rows) - 1)
         finally:
             dlg.Destroy()
@@ -552,6 +656,7 @@ class TSECTablePanel(wx.Panel):
             if dlg.ShowModal() == wx.ID_OK:
                 self._rows[idx] = dlg.GetRow()
                 self._fill_list()
+                self._sync_raw_text()
                 self._select(idx)
         finally:
             dlg.Destroy()
@@ -563,6 +668,7 @@ class TSECTablePanel(wx.Panel):
         clone = SwitchRow(**vars(self._rows[idx]))
         self._rows.insert(idx + 1, clone)
         self._fill_list()
+        self._sync_raw_text()
         self._select(idx + 1)
 
     def _on_delete(self, _event: wx.Event) -> None:
@@ -571,6 +677,7 @@ class TSECTablePanel(wx.Panel):
             return
         del self._rows[idx]
         self._fill_list()
+        self._sync_raw_text()
         self._select(min(idx, len(self._rows) - 1))
 
     def _on_preset(self, _event: wx.Event) -> None:
