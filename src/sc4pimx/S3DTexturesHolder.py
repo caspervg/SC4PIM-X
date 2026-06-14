@@ -1,12 +1,19 @@
 """S3D textures holder for OpenGL rendering."""
+import logging
+import os
+import weakref
+
 import numpy as np
 from OpenGL.GL import (
+    GL_ARRAY_BUFFER,
     GL_CLAMP_TO_EDGE,
+    GL_ELEMENT_ARRAY_BUFFER,
     GL_LINEAR,
     GL_MIRRORED_REPEAT,
     GL_NEAREST,
     GL_REPEAT,
     GL_RGBA,
+    GL_STATIC_DRAW,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
     GL_TEXTURE_MIN_FILTER,
@@ -14,19 +21,76 @@ from OpenGL.GL import (
     GL_TEXTURE_WRAP_T,
     GL_UNPACK_ALIGNMENT,
     GL_UNSIGNED_BYTE,
+    GL_VIEWPORT,
+    glBindBuffer,
     glBindTexture,
+    glBufferData,
     glColor3f,
+    glDeleteBuffers,
     glDeleteTextures,
     glDisable,
     glEnable,
+    glGenBuffers,
     glGenTextures,
+    glGetIntegerv,
     glPixelStorei,
     glTexParameterf,
     glTexImage2D,
+    glViewport,
 )
 from PIL import Image
 
 from . import FSHConverter
+
+logger = logging.getLogger(__name__)
+
+
+class _MeshGLBuffers(object):
+    """Lazily-created VBO/IBO set for one S3D mesh in one GL context.
+
+    Buffer names are valid only in the context that created them, so each
+    per-canvas holder owns its own set (see S3DTexturesHolder). Geometry is
+    immutable once read, so buffers are uploaded once (GL_STATIC_DRAW) and
+    keyed by the S3D block index they came from.
+    """
+
+    def __init__(self):
+        self._arrays = {}   # key -> array buffer name
+        self._indices = {}  # key -> element buffer name
+        self._ids = []
+
+    def _make(self, target, data):
+        size = len(data) if isinstance(data, (bytes, bytearray)) else data.nbytes
+        name = int(glGenBuffers(1))
+        glBindBuffer(target, name)
+        glBufferData(target, size, data, GL_STATIC_DRAW)
+        glBindBuffer(target, 0)
+        self._ids.append(name)
+        return name
+
+    def array_vbo(self, key, data):
+        vbo = self._arrays.get(key)
+        if vbo is None:
+            vbo = self._make(GL_ARRAY_BUFFER, data)
+            self._arrays[key] = vbo
+        return vbo
+
+    def index_ibo(self, key, data):
+        ibo = self._indices.get(key)
+        if ibo is None:
+            ibo = self._make(GL_ELEMENT_ARRAY_BUFFER, data)
+            self._indices[key] = ibo
+        return ibo
+
+    def delete(self):
+        if self._ids:
+            try:
+                glDeleteBuffers(len(self._ids), self._ids)
+            except Exception:
+                pass
+        self._ids = []
+        self._arrays.clear()
+        self._indices.clear()
 
 
 def _texture_name(value):
@@ -103,6 +167,73 @@ class S3DTexturesHolder(object):
         self.textures = {}
         self.glCanvas = glCanvas
         self.night_mode = False
+        # Per-mesh VBO/IBO sets, keyed by id(mesh). A weakref guards against
+        # id() reuse after a mesh is garbage-collected (a recycled id maps to a
+        # different object, so we rebuild instead of handing back stale buffers).
+        self._mesh_buffers = {}
+        self._vp_logged = False
+
+    def _set_current_preserving_viewport(self):
+        """SetCurrent() without losing the active glViewport.
+
+        On macOS, wx's GLCanvas.SetCurrent() (via NSOpenGLContext) resets the
+        GL viewport to the full drawable. The split-screen preview sets a
+        half-pane viewport once per frame and then draws both textures and
+        models into it -- but models reach this holder mid-frame (texture bind
+        / VBO upload), so a naked SetCurrent here silently reverts the viewport
+        and the models render into the whole canvas (stretched + recentered)
+        while the textures, which never call SetCurrent, stay correct. Saving
+        and restoring the viewport around the call keeps the pane intact and is
+        a harmless no-op on platforms that don't reset it.
+        """
+        try:
+            saved = glGetIntegerv(GL_VIEWPORT)
+        except Exception:
+            saved = None
+        self.glCanvas.SetCurrent()
+        if saved is None:
+            return
+        if os.environ.get('SC4PIM_GL_DEBUG') and not self._vp_logged:
+            self._vp_logged = True
+            try:
+                after = tuple(int(v) for v in glGetIntegerv(GL_VIEWPORT))
+            except Exception:
+                after = None
+            logger.debug('S3DTexturesHolder SetCurrent viewport before=%s after=%s',
+                         tuple(int(v) for v in saved), after)
+        if int(saved[2]) > 0 and int(saved[3]) > 0:
+            glViewport(int(saved[0]), int(saved[1]), int(saved[2]), int(saved[3]))
+
+    def get_mesh_buffers(self, mesh):
+        """Return this context's _MeshGLBuffers for mesh, creating it lazily."""
+        self._set_current_preserving_viewport()
+        key = id(mesh)
+        entry = self._mesh_buffers.get(key)
+        if entry is not None:
+            ref, buffers = entry
+            if ref is None or ref() is mesh:
+                return buffers
+            # id was reused by a different object -- drop the stale buffers.
+            buffers.delete()
+        buffers = _MeshGLBuffers()
+        try:
+            ref = weakref.ref(mesh)
+        except TypeError:
+            ref = None
+        self._mesh_buffers[key] = (ref, buffers)
+        return buffers
+
+    def drop_mesh_buffers(self, mesh):
+        """Free the buffers held for a single mesh (called when it unloads)."""
+        entry = self._mesh_buffers.pop(id(mesh), None)
+        if entry is not None:
+            self.glCanvas.SetCurrent()
+            entry[1].delete()
+
+    def _free_mesh_buffers(self):
+        for _ref, buffers in self._mesh_buffers.values():
+            buffers.delete()
+        self._mesh_buffers.clear()
 
     def SetNightMode(self, enabled):
         """Toggle night-lighting composition. Invalidates uploaded textures so
@@ -131,6 +262,7 @@ class S3DTexturesHolder(object):
         self.glCanvas.SetCurrent()
         for cached in self.textures.values():
             self._free_gl_layers(cached)
+        self._free_mesh_buffers()
 
     def PrecacheTex(self, textureID, entry, night_entry=None):
         """Register a texture under textureID.
@@ -199,7 +331,7 @@ class S3DTexturesHolder(object):
         if cached is None:
             glDisable(GL_TEXTURE_2D)
             return
-        self.glCanvas.SetCurrent()
+        self._set_current_preserving_viewport()
         if cached.get('day') is None and cached.get('night') is None:
             glColor3f(1, 0, 0)
             glDisable(GL_TEXTURE_2D)

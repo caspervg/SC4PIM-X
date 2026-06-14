@@ -1,4 +1,5 @@
 """S3D (SimCity 4 3D model) file reader."""
+import ctypes
 import logging
 import struct
 import time
@@ -420,18 +421,40 @@ class S3D(object):
             else:
                 glDisable(GL_BLEND)
             normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
-            glEnableClientState(GL_VERTEX_ARRAY)
-            glEnableClientState(GL_NORMAL_ARRAY)
-            glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-            glVertexPointer(3, GL_FLOAT, 0, vertexBuffer['positions'])
-            glNormalPointer(GL_FLOAT, 0, normals)
-            glTexCoordPointer(2, GL_FLOAT, 0, vertexBuffer['uvs'])
+            idx_bytes = indexBuffer[0]
+            idx_count = indexBuffer[1]
+            # Upload (once) and bind this frame's geometry as VBOs. Generic
+            # attribute arrays + VBOs keep macOS on the hardware vertex path,
+            # which honours a partial glViewport (the SW fallback the old
+            # client-array path triggered did not -- it skewed split preview).
+            buffers = s3DTexturesHolder.get_mesh_buffers(self)
+            vert_block = frameInfo['vertBlock']
+            norm_key = (vert_block, frameInfo['indexBlock'], frameInfo['primBlock'])
+            pos_vbo = buffers.array_vbo(('pos', vert_block), vertexBuffer['positions'])
+            uv_vbo = buffers.array_vbo(('uv', vert_block), vertexBuffer['uvs'])
+            norm_vbo = buffers.array_vbo(('norm', norm_key), normals)
+            ibo = buffers.index_ibo(frameInfo['indexBlock'], idx_bytes)
+            loc_pos = shader_program.attribs.get('position', -1)
+            loc_norm = shader_program.attribs.get('normal', -1)
+            loc_uv = shader_program.attribs.get('texcoord', -1)
+            if loc_pos >= 0:
+                glBindBuffer(GL_ARRAY_BUFFER, pos_vbo)
+                glEnableVertexAttribArray(loc_pos)
+                glVertexAttribPointer(loc_pos, 3, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
+            if loc_norm >= 0:
+                glBindBuffer(GL_ARRAY_BUFFER, norm_vbo)
+                glEnableVertexAttribArray(loc_norm)
+                glVertexAttribPointer(loc_norm, 3, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
+            if loc_uv >= 0:
+                glBindBuffer(GL_ARRAY_BUFFER, uv_vbo)
+                glEnableVertexAttribArray(loc_uv)
+                glVertexAttribPointer(loc_uv, 2, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)
             # Per the S3D Prim wiki each PRIM sub-entry has a first-index
             # offset and a triangle-index count; the parent INDX block may
             # back several sub-prims or carry padding past them. Draw each
-            # sub-prim explicitly rather than blasting the whole INDX.
-            idx_bytes = indexBuffer[0]
-            idx_count = indexBuffer[1]
+            # sub-prim explicitly rather than blasting the whole INDX. With an
+            # element buffer bound, the final arg is a byte offset into it.
             for typePrim, first, length in primBlock:
                 if length == 0 or first + length > idx_count:
                     continue
@@ -442,10 +465,15 @@ class S3D(object):
                                  typePrim, first, length, getattr(self, 'tgi', None))
                     continue
                 glDrawElements(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
-                               idx_bytes[first * 2:])
-            glDisableClientState(GL_VERTEX_ARRAY)
-            glDisableClientState(GL_NORMAL_ARRAY)
-            glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+                               ctypes.c_void_p(first * 2))
+            if loc_pos >= 0:
+                glDisableVertexAttribArray(loc_pos)
+            if loc_norm >= 0:
+                glDisableVertexAttribArray(loc_norm)
+            if loc_uv >= 0:
+                glDisableVertexAttribArray(loc_uv)
+            glBindBuffer(GL_ARRAY_BUFFER, 0)
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 
         if sample_alpha_to_coverage is not None:
             glDisable(sample_alpha_to_coverage)
@@ -485,6 +513,7 @@ class S3D(object):
         return normals
 
     def FreeAll(self, s3DTexturesHolder):
+        s3DTexturesHolder.drop_mesh_buffers(self)
         s3DTexturesHolder.Free()
         self.vertexBuffers = None
         self.matBlocks = None
@@ -499,6 +528,7 @@ class S3D(object):
         return
 
     def free_3d(self, s3DTexturesHolder):
+        s3DTexturesHolder.drop_mesh_buffers(self)
         s3DTexturesHolder.Free()
 
     def initialize(self, virtualDAT, viewer):

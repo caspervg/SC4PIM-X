@@ -16,6 +16,8 @@ a user-applicable preset. The user can optionally:
 
 The preview pane re-runs the pipeline against the current exemplar each
 time the user toggles an override, so "what you see is what gets written".
+Apply only writes the transit properties in ``APPLY_PROP_IDS``; the rest of
+the category-generated set is discarded so hand-edited values survive.
 
 WizardType="TransitPreset" is one slot in a deliberately extensible
 attribute: future wizard kinds (e.g. lot templates, family seeds) can mark
@@ -37,6 +39,21 @@ from .translation import *  # noqa: F401,F403
 logger = logging.getLogger(__name__)
 
 PRESET_TYPE_TRANSIT = "Transit"
+
+PROP_OCCUPANT_GROUPS = 0xAA1DD396
+
+# The only properties the wizard writes back. The category pipeline still has
+# to run in full (TSEC/cost/capacity overrides rewrite its generated lines),
+# but everything outside this set is dropped on Apply so hand-tuned exemplar
+# values (plop/bulldoze/monthly cost, wealth, pollution, ...) survive.
+APPLY_PROP_IDS = frozenset(
+    {
+        tsw.PROP_TRANSIT_SWITCH_POINT,
+        tsw.PROP_TRANSIT_SWITCH_ENTRY_COST,
+        tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY,
+        PROP_OCCUPANT_GROUPS,
+    }
+)
 
 
 # --- Public helpers --------------------------------------------------------
@@ -237,6 +254,15 @@ def _rewrite_float_line(virtual_dat, prop_id: int, value: float) -> str:
     return CreateAPropFromString(virtual_dat.properties[prop_id], str(float(value)))
 
 
+def _emit_prop_ids_for_preset(registry_preset: tpr.RegistryPreset) -> frozenset[int]:
+    """Properties to seed from the category for this registry preset.
+
+    ``blank_props`` in TOML suppresses the category default, but the editable
+    cost/capacity fields can still add a value later if the user types one.
+    """
+    return APPLY_PROP_IDS.difference(registry_preset.blank_prop_ids)
+
+
 def _replace_tsec_lines(
     virtual_dat,
     prop_lines: Iterable[str],
@@ -269,12 +295,18 @@ def apply_overrides(
     overrides. Returns a new list of prop strings ready for AddTextProp.
     """
     output: list[str] = []
+    saw_cost = False
+    saw_capacity = False
     for line in prop_lines:
         parsed = _parse_prop_line(line)
         if parsed is None:
             output.append(line)
             continue
         prop_id, _name, _type, _count, values_str = parsed
+        if prop_id == tsw.PROP_TRANSIT_SWITCH_ENTRY_COST:
+            saw_cost = True
+        elif prop_id == tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY:
+            saw_capacity = True
         if prop_id == tsw.PROP_TRANSIT_SWITCH_POINT and (orientation_mask is not None or add_subway_walk):
             bytes_list = _bytes_from_values_str(values_str)
             rows = tsw.decode_switch_array(bytes_list)
@@ -289,6 +321,10 @@ def apply_overrides(
             output.append(_rewrite_float_line(virtual_dat, prop_id, override_capacity))
         else:
             output.append(line)
+    if override_cost is not None and not saw_cost:
+        output.append(_rewrite_float_line(virtual_dat, tsw.PROP_TRANSIT_SWITCH_ENTRY_COST, override_cost))
+    if override_capacity is not None and not saw_capacity:
+        output.append(_rewrite_float_line(virtual_dat, tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY, override_capacity))
     return output
 
 
@@ -351,7 +387,7 @@ class PresetWizardDialog(wx.Dialog):
 
         self.baseChoice = wx.Choice(self, -1, choices=self._base_labels())
         if self._base_ids:
-            self.baseChoice.SetSelection(0)
+            self.baseChoice.SetSelection(self._initial_base_index())
 
         self.placementRadio = wx.RadioBox(
             self,
@@ -362,7 +398,7 @@ class PresetWizardDialog(wx.Dialog):
             style=wx.RA_SPECIFY_COLS,
         )
         self.optionsBox = wx.StaticBox(self, -1, LEXTransitPresetOptions)
-        for option in tpr.OPTION_IDS:
+        for option in tpr.option_ids():
             self._option_checks[option] = wx.CheckBox(self.optionsBox, -1, tpr.label_for_option(option))
 
         # Cost & capacity: always-editable text fields prefilled with the
@@ -390,6 +426,10 @@ class PresetWizardDialog(wx.Dialog):
         # Footer: just OccupantGroups, labeled with its catalogue name.
         self.occupantGroupsText = wx.StaticText(self, -1, "")
 
+        # Authored base/preset notes from transit_switch_presets.toml.
+        self.noteText = wx.StaticText(self, -1, "")
+        self._note_label = ""
+
         self.statusText = wx.StaticText(self, -1, "")
         self.statusText.SetForegroundColour(wx.Colour(160, 0, 0))
 
@@ -408,7 +448,7 @@ class PresetWizardDialog(wx.Dialog):
 
         optionsSizer = wx.StaticBoxSizer(self.optionsBox, wx.VERTICAL)
         optionsGrid = wx.GridSizer(0, 2, 4, 8)
-        for option in tpr.OPTION_IDS:
+        for option in self._option_checks:
             optionsGrid.Add(self._option_checks[option], 0, wx.EXPAND)
         optionsSizer.Add(optionsGrid, 0, wx.EXPAND | wx.ALL, 6)
         sizer.Add(optionsSizer, 0, wx.EXPAND | wx.ALL, 8)
@@ -424,6 +464,7 @@ class PresetWizardDialog(wx.Dialog):
         sizer.Add(wx.StaticText(self, -1, switches_label), 0, wx.LEFT | wx.TOP, 8)
         sizer.Add(self.previewList, 1, wx.EXPAND | wx.ALL, 8)
         sizer.Add(self.occupantGroupsText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        sizer.Add(self.noteText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         sizer.Add(self.statusText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
         btns = wx.StdDialogButtonSizer()
@@ -452,6 +493,15 @@ class PresetWizardDialog(wx.Dialog):
         if not self._base_ids:
             return [LEXTransitPresetEmpty]
         return [tpr.label_for_base(base) for base in self._base_ids]
+
+    def _initial_base_index(self) -> int:
+        inferred = tpr.infer_base_from_occupant_groups(
+            self.exemplar.GetProp(0xAA1DD396) or (),
+            self._base_ids,
+        )
+        if inferred in self._base_ids:
+            return self._base_ids.index(inferred)
+        return 0
 
     def _selected_base(self) -> Optional[str]:
         if not self._base_ids:
@@ -529,23 +579,64 @@ class PresetWizardDialog(wx.Dialog):
             # SC4PIMApp itself owns ``build_category_props_for_preset``.
             from .SC4PIMApp import build_category_props_for_preset
 
-            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, category, self._scope)
+            base_lines = build_category_props_for_preset(
+                self.virtual_dat,
+                self.exemplar,
+                category,
+                self._scope,
+                emit_prop_ids=_emit_prop_ids_for_preset(registry_preset),
+            )
         except Exception as e:
             logger.exception("Preset eval failed for %s", registry_preset.id)
             self.statusText.SetLabel(LEXTransitPresetEvalError % e)
             return None
         rows = tsw.decode_switch_array(registry_preset.switches)
         lines = _replace_tsec_lines(self.virtual_dat, base_lines, rows)
-        return apply_overrides(
+        override_cost = self._field_float(self.costText)
+        override_capacity = self._field_float(self.capacityText)
+        lines = apply_overrides(
             self.virtual_dat,
             lines,
             None,
             False,
-            self._field_float(self.costText),
-            self._field_float(self.capacityText),
+            override_cost,
+            override_capacity,
         )
+        manual_prop_ids = set()
+        if override_cost is not None:
+            manual_prop_ids.add(tsw.PROP_TRANSIT_SWITCH_ENTRY_COST)
+        if override_capacity is not None:
+            manual_prop_ids.add(tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY)
+        blank_prop_ids = set(registry_preset.blank_prop_ids)
+        return [
+            line
+            for line in lines
+            if (parsed := _parse_prop_line(line))
+            and parsed[0] in APPLY_PROP_IDS
+            and (parsed[0] not in blank_prop_ids or parsed[0] in manual_prop_ids)
+        ]
+
+    def _refresh_note(self) -> None:
+        parts = []
+        base = self._selected_base()
+        if base:
+            base_note = tpr.note_for_base(base)
+            if base_note:
+                parts.append(base_note)
+        preset = self._selected_registry_preset()
+        if preset is not None and preset.note:
+            parts.append(preset.note)
+        label = "\n".join(parts)
+        if label == self._note_label:
+            return
+        self._note_label = label
+        self.noteText.SetLabel(label)
+        if label:
+            self.noteText.Wrap(max(420, self.GetClientSize().width - 24))
+        self.Layout()
 
     def _refresh_preview(self) -> None:
+        self._refresh_note()
         if not self._base_ids:
             self.previewList.DeleteAllItems()
             self.occupantGroupsText.SetLabel(LEXTransitPresetEmpty)
@@ -584,7 +675,7 @@ class PresetWizardDialog(wx.Dialog):
             values_str = values_str.strip()
             if prop_id == tsw.PROP_TRANSIT_SWITCH_POINT:
                 rows = tsw.decode_switch_array(_bytes_from_values_str(values_str))
-            elif prop_id == 0xAA1DD396:
+            elif prop_id == PROP_OCCUPANT_GROUPS:
                 occupant_groups_str = values_str
 
         self.previewList.DeleteAllItems()
@@ -599,7 +690,7 @@ class PresetWizardDialog(wx.Dialog):
 
         if occupant_groups_str:
             self.occupantGroupsText.SetLabel(
-                LEXTransitPresetPropLine % (self._prop_name(0xAA1DD396), occupant_groups_str)
+                LEXTransitPresetPropLine % (self._prop_name(PROP_OCCUPANT_GROUPS), occupant_groups_str)
             )
         else:
             self.occupantGroupsText.SetLabel("")
@@ -630,15 +721,22 @@ class PresetWizardDialog(wx.Dialog):
 
     def _refresh_preset_dependent(self) -> None:
         """Re-seed the cost/capacity text fields from the selected category."""
+        registry_preset = self._selected_registry_preset()
         category = self._selected_category()
-        if category is None or self._scope is None:
+        if registry_preset is None or category is None or self._scope is None:
             self.costText.SetValue("")
             self.capacityText.SetValue("")
             return
         try:
             from .SC4PIMApp import build_category_props_for_preset
 
-            base_lines = build_category_props_for_preset(self.virtual_dat, self.exemplar, category, self._scope)
+            base_lines = build_category_props_for_preset(
+                self.virtual_dat,
+                self.exemplar,
+                category,
+                self._scope,
+                emit_prop_ids=_emit_prop_ids_for_preset(registry_preset),
+            )
         except Exception:
             base_lines = []
 
@@ -677,16 +775,6 @@ class PresetWizardDialog(wx.Dialog):
         lines = self._generate_lines()
         if registry_preset is None or category is None or lines is None:
             return
-        # Honour removeProperties from the category chain (walk up so a
-        # parent-category removal applies too).
-        seen: set = set()
-        walker = category
-        while walker is not None:
-            for prop_id in walker.removeProperties.keys():
-                if prop_id not in seen:
-                    seen.add(prop_id)
-                    self.exemplar.RemoveProp(prop_id)
-            walker = getattr(walker, "parent", None)
         written = 0
         for line in lines:
             if self.exemplar.AddTextProp(line):

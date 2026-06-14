@@ -78,20 +78,24 @@ def InfoEx():
     pass
 
 
-def hex2str(v, size=32):
+def hex2str(v, size=32, upper=False):
+    # ``upper`` capitalises the hex digits (not the ``0x`` prefix) for display;
+    # it is opt-in so the default lower-case form used in saved/round-tripped
+    # values is unchanged.
+    x = 'X' if upper else 'x'
     if v >= 0:
         if size == 8:
-            return '0x%02x' % int(v)
+            return ('0x%02' + x) % int(v)
         elif size == 32:
-            return '0x%08x' % int(v)
+            return ('0x%08' + x) % int(v)
         else:
-            return '0x%016x' % int(v)
+            return ('0x%016' + x) % int(v)
     elif size == 32:
-        return '0x%08x' % (int(v) & 0xFFFFFFFF)
+        return ('0x%08' + x) % (int(v) & 0xFFFFFFFF)
     elif size == 8:
-        return '0x%02x' % (int(v) & 0xFF)
+        return ('0x%02' + x) % (int(v) & 0xFF)
     else:
-        return '0x%016x' % (int(v) & 0xFFFFFFFFFFFFFFFF)
+        return ('0x%016' + x) % (int(v) & 0xFFFFFFFFFFFFFFFF)
 
 
 class Prop():
@@ -702,7 +706,7 @@ class SC4Entry():
 
     def __init__(self, buffer, idx, fileName):
         try:
-            t, g, i, self.fileLocation, self.filesize = struct.unpack('LLLLL', buffer)
+            t, g, i, self.fileLocation, self.filesize = struct.unpack('<IIIII', buffer)
             self.compressed = False
             self.fileName = fileName
             self.buffer = buffer
@@ -762,7 +766,7 @@ class SC4Entry():
         self.rawContent = content
         self.lenContent = len(content)
         self.filesize = self.lenContent
-        self.buffer = struct.pack('LLLLL', self.tgi[0], self.tgi[1], self.tgi[2], 0, self.filesize)
+        self.buffer = struct.pack('<IIIII', self.tgi[0], self.tgi[1], self.tgi[2], 0, self.filesize)
 
     def IsItThisTGI(self, tgi):
         return tgi[0] == self.TGI['t'] and tgi[1] == self.TGI['g'] and tgi[2] == self.TGI['i']
@@ -803,19 +807,19 @@ class DatFile():
         header = io.BytesIO(self.header)
         header.read(4)
         try:
-            self.fileVersionMajor = struct.unpack('l', header.read(4))[0]
-            self.fileVersionMinor = struct.unpack('l', header.read(4))[0]
+            self.fileVersionMajor = struct.unpack('<i', header.read(4))[0]
+            self.fileVersionMinor = struct.unpack('<i', header.read(4))[0]
             header.read(12)
-            self.dateCreated = struct.unpack('I', header.read(4))[0]
-            self.dateUpdated = struct.unpack('I', header.read(4))[0]
-            self.indexRecordType = struct.unpack('l', header.read(4))[0]
+            self.dateCreated = struct.unpack('<I', header.read(4))[0]
+            self.dateUpdated = struct.unpack('<I', header.read(4))[0]
+            self.indexRecordType = struct.unpack('<i', header.read(4))[0]
             self.dateLastAccess = os.stat(self.fileName)[-2]
-            self.indexRecordEntryCount = struct.unpack('l', header.read(4))[0]
-            self.indexRecordPosition = struct.unpack('l', header.read(4))[0]
-            self.indexRecordLength = struct.unpack('l', header.read(4))[0]
-            self.holeRecordEntryCount = struct.unpack('l', header.read(4))[0]
-            self.holeRecordPosition = struct.unpack('l', header.read(4))[0]
-            self.holeRecordLength = struct.unpack('l', header.read(4))[0]
+            self.indexRecordEntryCount = struct.unpack('<i', header.read(4))[0]
+            self.indexRecordPosition = struct.unpack('<i', header.read(4))[0]
+            self.indexRecordLength = struct.unpack('<i', header.read(4))[0]
+            self.holeRecordEntryCount = struct.unpack('<i', header.read(4))[0]
+            self.holeRecordPosition = struct.unpack('<i', header.read(4))[0]
+            self.holeRecordLength = struct.unpack('<i', header.read(4))[0]
         except struct.error:
             if dlg:
                 dlg.LogError('Undecodable file : %s' % self.fileName)
@@ -859,7 +863,7 @@ class DatFile():
             nbrCompressedEntries = dirEntry.filesize // 16
             for idx in range(nbrCompressedEntries):
                 subBuf = dirEntry.rawContent[idx * 16:idx * 16 + 16]
-                t, g, i, lenUncompressed = struct.unpack('LLLL', subBuf[0:0 + 16])
+                t, g, i, lenUncompressed = struct.unpack('<IIII', subBuf[0:0 + 16])
                 try:
                     dictEntries[t, g, i].lenContent = lenUncompressed
                     dictEntries[t, g, i].compressed = True
@@ -925,7 +929,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
             if bRecompress and not entry.compressed and len(entry.rawContent) > 600:
                 compression = QFS.encode(entry.rawContent)
                 if compression and len(compression) < len(entry.rawContent):
-                    compression = struct.pack('l', len(compression)) + compression
+                    compression = struct.pack('<i', len(compression)) + compression
                     entry.filesize = len(compression)
                     entry.rawContent = compression
                     entry.buffer = entry.buffer[:16] + struct.pack('I', entry.filesize) + entry.buffer[16 + 4:]
@@ -947,11 +951,11 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
     indexRecordType = 7
     header = b'\x00' * 96
     header = b'DBPF' + header[4:]
-    header = header[:4] + struct.pack('l', fileVersionMajor) + header[4 + 4:]
-    header = header[:8] + struct.pack('l', fileVersionMinor) + header[8 + 4:]
+    header = header[:4] + struct.pack('<i', fileVersionMajor) + header[4 + 4:]
+    header = header[:8] + struct.pack('<i', fileVersionMinor) + header[8 + 4:]
     header = header[:24] + struct.pack('I', dateCreated) + header[24 + 4:]
     header = header[:28] + struct.pack('I', dateUpdated) + header[28 + 4:]
-    header = header[:32] + struct.pack('l', indexRecordType) + header[32 + 4:]
+    header = header[:32] + struct.pack('<i', indexRecordType) + header[32 + 4:]
     header = header[:36] + struct.pack('I', indexRecordEntryCount) + header[36 + 4:]
     header = header[:40] + struct.pack('I', indexRecordPosition) + header[40 + 4:]
     header = header[:44] + struct.pack('I', indexRecordLength) + header[44 + 4:]
@@ -966,7 +970,7 @@ def WriteADat(fileName, allEntries, dlg, bRecompress):
         wx.Yield()
         entry.fileLocation = pos
         entry.initialFileLocation = entry.fileLocation
-        newbuffer = entry.buffer[0:12] + struct.pack('lI', entry.fileLocation, entry.filesize) + entry.buffer[12 + 8:]
+        newbuffer = entry.buffer[0:12] + struct.pack('<II', entry.fileLocation, entry.filesize) + entry.buffer[12 + 8:]
         entry.buffer = newbuffer
         pos += entry.filesize
         if entry.filesize == 0:
