@@ -27,10 +27,13 @@ jobs:
         run: uv python install 3.12
 
       - name: Sync environment
-        run: uv sync --python 3.12
+        run: uv sync --python 3.12 --group dev
 
       - name: Compile check
         run: uv run --python 3.12 python -m compileall -q src/sc4pimx
 
       - name: Import check
         run: uv run --python 3.12 python -c "import sc4pimx.SC4PIMApp; print('import OK')"
+
+      - name: Test
+        run: uv run --python 3.12 pytest
