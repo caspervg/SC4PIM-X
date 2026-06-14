@@ -4331,7 +4331,6 @@ class ImageDBBuilder(wx.Frame):
         image.save(sc4data[0])
         del image
         del data
-        del size
         self.viewer.s3d_mesh.FreeAll(self.viewer.s3d_textures_holder)
         return
 
