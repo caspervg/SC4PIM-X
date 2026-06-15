@@ -3,8 +3,10 @@ from sc4pimx.DependenciesDlg import (
     dependency_package_buckets,
     filter_catalog_matches,
     found_catalog_status,
+    identification_catalog_status,
     is_ignored_sound_iid,
     is_builtin_game_file,
+    is_placeholder_ltext_key,
     lookup_catalog,
     package_bucket_display_text,
     row_display_label,
@@ -157,6 +159,28 @@ def test_known_missing_maxis_sound_is_ignored():
     assert is_ignored_sound_iid(0x8A8B7DD1)
     assert is_ignored_sound_iid("0x8A8B7DD1")
     assert not is_ignored_sound_iid(0x8A8B7DD2)
+
+
+def test_placeholder_ltext_key_is_skipped():
+    assert is_placeholder_ltext_key((0, 0, 0))
+    assert not is_placeholder_ltext_key((0x2026960B, 0, 0))
+    assert not is_placeholder_ltext_key(None)
+
+
+def test_catalog_lookup_can_be_disabled_for_specific_tgis():
+    row = DependencyRow(
+        id=1,
+        status="missing",
+        kind="Model",
+        name="",
+        key="0x6534284A-0x5AD0E817-0x12345678",
+        source="not found",
+        referenced_by="Props: Known Prop",
+        tgi=(0x6534284A, 0x5AD0E817, 0x12345678),
+        catalog_lookup=False,
+    )
+
+    assert identification_catalog_status(row, True, "https://catalog.example") == "not_applicable"
 
 
 def test_dependency_label_uses_typed_id_when_name_is_unknown_or_generic():

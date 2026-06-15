@@ -107,11 +107,25 @@ def found_catalog_status(file_name, tgi, catalog_enabled, catalog_base_url):
     return "not_applicable"
 
 
+def identification_catalog_status(row, catalog_enabled, catalog_base_url):
+    if row.status == "ignored" or not row.catalog_lookup:
+        return "not_applicable"
+    if row.status == "found":
+        return found_catalog_status(row.source, row.tgi, catalog_enabled, catalog_base_url)
+    if row.status == "missing" and (row.tgi is not None or row.iid is not None):
+        return "pending" if catalog_enabled and catalog_base_url else "disabled"
+    return "not_applicable"
+
+
 def is_ignored_sound_iid(iid):
     try:
         return (int(str(iid), 0) & 0xFFFFFFFF) in IGNORED_SOUND_IIDS
     except (TypeError, ValueError):
         return False
+
+
+def is_placeholder_ltext_key(tgi):
+    return tgi is not None and tuple(tgi) == (0, 0, 0)
 
 
 @dataclass
@@ -128,6 +142,7 @@ class DependencyRow:
     iid: int | None = None
     catalog_category: str | None = None
     catalog_status: str = "not_applicable"
+    catalog_lookup: bool = True
     catalog_matches: list[dict] = field(default_factory=list)
     catalog_name: str = ""
     catalog_match_reason: str = ""
@@ -611,7 +626,8 @@ class DependenciesDlg(sc.SizedDialog):
         self.lb.Append(fileName)
 
     def AddRow(self, status, kind, name, key, source, referenced_by, parent_id=None,
-               tgi=None, iid=None, catalog_category=None, catalog_status="not_applicable"):
+               tgi=None, iid=None, catalog_category=None, catalog_status="not_applicable",
+               catalog_lookup=True):
         row = DependencyRow(
             id=self._next_row_id,
             status=status,
@@ -625,27 +641,29 @@ class DependenciesDlg(sc.SizedDialog):
             iid=iid,
             catalog_category=catalog_category,
             catalog_status=catalog_status,
+            catalog_lookup=catalog_lookup,
         )
         self._next_row_id += 1
         self.rows.append(row)
         self.rows_by_id[row.id] = row
         return row
 
-    def AddFoundRow(self, kind, name, key, file_name, referenced_by, parent_id=None, tgi=None):
+    def AddFoundRow(self, kind, name, key, file_name, referenced_by, parent_id=None, tgi=None,
+                    catalog_lookup=True):
         source = os.path.split(file_name)[1] if file_name else ""
         row = self.AddRow("found", kind, name, key, source, referenced_by,
-                          parent_id=parent_id, tgi=tgi)
+                          parent_id=parent_id, tgi=tgi, catalog_lookup=catalog_lookup)
         if file_name:
             self.lb.Append(file_name)
         return row
 
     def AddMissingRow(self, kind, name, key, referenced_by, parent_id=None,
-                      tgi=None, iid=None, catalog_category=None):
+                      tgi=None, iid=None, catalog_category=None, catalog_lookup=True):
         self.lb.Missing(DepDlgMissing)
         return self.AddRow(
             "missing", kind, name, key, DepDlgNotFound, referenced_by,
             parent_id=parent_id, tgi=tgi, iid=iid,
-            catalog_category=catalog_category,
+            catalog_category=catalog_category, catalog_lookup=catalog_lookup,
         )
 
     def AddIgnoredRow(self, kind, name, key, referenced_by, source="ignored", parent_id=None):
@@ -820,14 +838,11 @@ class DependenciesDlg(sc.SizedDialog):
             row.catalog_matches = []
             row.catalog_name = ""
             row.catalog_match_reason = ""
-            if row.status == "ignored":
-                row.catalog_status = "not_applicable"
-            elif row.status == "found":
-                row.catalog_status = found_catalog_status(row.source, row.tgi, self.catalog.enabled, self.catalog.base_url)
-            elif row.status == "missing" and (row.tgi is not None or row.iid is not None):
-                row.catalog_status = "pending" if self.catalog.enabled and self.catalog.base_url else "disabled"
-            else:
-                row.catalog_status = "not_applicable"
+            row.catalog_status = identification_catalog_status(
+                row,
+                self.catalog.enabled,
+                self.catalog.base_url,
+            )
         self.identifyButton.SetLabel(DepDlgIdentifyPackagesRunning)
         self.identifyButton.Enable(False)
         self.ScheduleRender()
@@ -959,6 +974,7 @@ class DependenciesDlg(sc.SizedDialog):
         parent_row = self.AddFoundRow(kind, desc.name, self.EntryTGIText(desc.exemplar.entry),
                                       desc.fileName, referenced_by, tgi=desc_tgi)
         pid = parent_row.id
+        model_catalog_lookup = kind != "Prop"
 
         for prop_id in (662775840, 662775841):
             rtk = desc.exemplar.GetProp(prop_id)
@@ -966,10 +982,10 @@ class DependenciesDlg(sc.SizedDialog):
                 entry = self.virtualDAT.getEntry(rtk[0], rtk[1], rtk[2])
                 if entry:
                     self.AddFoundRow("Model", "", self.TGIText(rtk), entry.fileName, referenced_by,
-                                     parent_id=pid, tgi=rtk)
+                                     parent_id=pid, tgi=rtk, catalog_lookup=model_catalog_lookup)
                 else:
                     self.AddMissingRow("Model", "", self.TGIText(rtk), referenced_by,
-                                       parent_id=pid, tgi=rtk)
+                                       parent_id=pid, tgi=rtk, catalog_lookup=model_catalog_lookup)
 
         rtk = desc.exemplar.GetProp(662775844)
         if rtk:
@@ -982,10 +998,10 @@ class DependenciesDlg(sc.SizedDialog):
                 entry = self.virtualDAT.getEntry(model_tgi[0], model_tgi[1], model_tgi[2])
                 if entry:
                     self.AddFoundRow("Model", "", self.TGIText(model_tgi), entry.fileName, referenced_by,
-                                     parent_id=pid, tgi=model_tgi)
+                                     parent_id=pid, tgi=model_tgi, catalog_lookup=model_catalog_lookup)
                 else:
                     self.AddMissingRow("Model", "", self.TGIText(model_tgi), referenced_by,
-                                       parent_id=pid, tgi=model_tgi)
+                                       parent_id=pid, tgi=model_tgi, catalog_lookup=model_catalog_lookup)
 
         prop_query = desc.exemplar.GetProp(709468037)
         if prop_query:
@@ -1044,7 +1060,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.AddMissingRow("LTEXT", "", self.TGIText(UVNK), referenced_by, parent_id=pid,
                                    tgi=tuple(UVNK), catalog_category="LTEXT")
         else:
-            if UVNK is not None:
+            if UVNK is not None and not is_placeholder_ltext_key(UVNK):
                 self.AddIgnoredRow("LTEXT", "", self.TGIText(UVNK), referenced_by, "placeholder",
                                    parent_id=pid)
 
@@ -1061,7 +1077,7 @@ class DependenciesDlg(sc.SizedDialog):
                 self.AddMissingRow("LTEXT", "", self.TGIText(IDK), referenced_by, parent_id=pid,
                                    tgi=tuple(IDK), catalog_category="LTEXT")
         else:
-            if IDK is not None:
+            if IDK is not None and not is_placeholder_ltext_key(IDK):
                 self.AddIgnoredRow("LTEXT", "", self.TGIText(IDK), referenced_by, "placeholder",
                                    parent_id=pid)
 
