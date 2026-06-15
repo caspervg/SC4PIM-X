@@ -328,6 +328,26 @@ def apply_overrides(
     return output
 
 
+def _override_from_field(current: str, seeded: str) -> Optional[float]:
+    """Decide the cost/capacity override for an editable field.
+
+    Returns ``None`` when the field still holds its seeded category value (so
+    the category's own line is left untouched) or when the field is blank/
+    unparseable. Returns the parsed float only when the user changed the field
+    to a different, valid number. Keeping this pure makes the seed-vs-override
+    rule unit-testable without a live wx dialog.
+    """
+    current = (current or "").strip()
+    if current == (seeded or "").strip():
+        return None
+    if not current:
+        return None
+    try:
+        return float(current)
+    except ValueError:
+        return None
+
+
 def _bytes_from_values_str(values_str: str) -> list[int]:
     """Parse the ``(0xa,0xb,...)`` body of a Uint8 array prop line."""
     out: list[int] = []
@@ -405,6 +425,12 @@ class PresetWizardDialog(wx.Dialog):
         # evaluated values. Whatever's in the field on Apply gets written.
         self.costText = wx.TextCtrl(self, -1, "")
         self.capacityText = wx.TextCtrl(self, -1, "")
+        # The cost/capacity values last seeded from the selected preset's
+        # category. A field counts as a user override only when it differs
+        # from its seed, so a category that legitimately emits 0 is not
+        # mistaken for an explicit "force 0" override.
+        self._seeded_cost = ""
+        self._seeded_capacity = ""
         cost_label = self._prop_name(tsw.PROP_TRANSIT_SWITCH_ENTRY_COST)
         cap_label = self._prop_name(tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY)
         switches_label = self._prop_name(tsw.PROP_TRANSIT_SWITCH_POINT)
@@ -567,6 +593,14 @@ class PresetWizardDialog(wx.Dialog):
         except ValueError:
             return None
 
+    def _override_float(self, text: wx.TextCtrl, seeded: str) -> Optional[float]:
+        """Return a cost/capacity override only when the field was edited away
+        from its seeded category value. Returns ``None`` when unchanged so the
+        category's own value flows through untouched (even when that value is
+        0), instead of being re-applied as an explicit override.
+        """
+        return _override_from_field(text.GetValue(), seeded)
+
     def _generate_lines(self) -> Optional[list[str]]:
         """Run the preset+overrides pipeline. Sets the status line on error."""
         registry_preset = self._selected_registry_preset()
@@ -592,8 +626,8 @@ class PresetWizardDialog(wx.Dialog):
             return None
         rows = tsw.decode_switch_array(registry_preset.switches)
         lines = _replace_tsec_lines(self.virtual_dat, base_lines, rows)
-        override_cost = self._field_float(self.costText)
-        override_capacity = self._field_float(self.capacityText)
+        override_cost = self._override_float(self.costText, self._seeded_cost)
+        override_capacity = self._override_float(self.capacityText, self._seeded_capacity)
         lines = apply_overrides(
             self.virtual_dat,
             lines,
@@ -696,8 +730,14 @@ class PresetWizardDialog(wx.Dialog):
             self.occupantGroupsText.SetLabel("")
 
     def _on_changed(self, event: wx.Event) -> None:
-        if event.GetEventObject() is self.baseChoice:
+        obj = event.GetEventObject()
+        if obj is self.baseChoice:
             self._refresh_base_dependent()
+        # Reseed cost/capacity whenever the selected preset (and thus its
+        # category_id) can change: base, placement, or option checkboxes.
+        # Skip when the cost/capacity fields themselves fired, otherwise the
+        # SetValue in _refresh_preset_dependent recurses via EVT_TEXT.
+        if obj not in (self.costText, self.capacityText):
             self._refresh_preset_dependent()
         self._refresh_preview()
         event.Skip()
@@ -750,6 +790,8 @@ class PresetWizardDialog(wx.Dialog):
                 cost_str = values_str.strip()
             elif prop_id == tsw.PROP_TRANSIT_SWITCH_TRAFFIC_CAPACITY:
                 cap_str = values_str.strip()
+        self._seeded_cost = cost_str
+        self._seeded_capacity = cap_str
         self.costText.SetValue(cost_str)
         self.capacityText.SetValue(cap_str)
 
