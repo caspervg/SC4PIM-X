@@ -120,7 +120,7 @@
 
 [[option]]
 id = "garage"
-label = "Garage"
+label = "Parking (Garage)"
 
 [[option]]
 id = "bus_stop"
@@ -132,138 +132,191 @@ label = "Subway Station"
 
 [[option]]
 id = "freight_train_pass_through"
-label = "Freight Train pass-through"
+label = "Freight Train Pass-Through"
 
 [[option]]
 id = "passenger_train_pass_through"
-label = "Passenger Train pass-through"
+label = "Passenger Train Pass-Through"
+
+[[option]]
+id = "railway_pass_through"
+label = "Network Enabling Railway Pass-Through"
+
+[[option]]
+id = "roadway_pass_through"
+label = "Network Enabling Roadway Pass-Through"
+
+[[option]]
+id = "eltrain_pass_through"
+label = "Network Enabling Light Rail Pass-Through"
+
+[[option]]
+id = "monorail_pass_through"
+label = "Network Enabling Monorail/HSR Pass-Through"
+
+[[option]]
+id = "hwr_pass_through"
+label = "Network Enabling Hybrid Railway (HRW) Pass-Through"
 
 [[base]]
 id = "bus_stop"
 label = "Bus Stop"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage"]
+note = "Choose a proximity placement if the station sits beside the network and the network does not pass through the lot. Choose one of the on-top placements if the station sits on the network (for example, the RTMT stations), with the direction set to match how the network passes through the lot. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "subway_station"
 label = "Subway Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop"]
+note = "Choose a proximity placement if the station sits beside the network and the network does not pass through the lot. Choose one of the on-top placements if the station sits on the network (for example, the RTMT stations), with the direction set to match how the network passes through the lot. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "elevated_rail_station"
-label = "Elevated Rail Station"
+label = "Light Rail (El-Rail / GLR / Tram) Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "These switches serve both Elevated Light Rail (El-Rail) and Ground Light Rail (GLR, also known as Tram) services. If you are modding a GLR station, remember to apply the GLR network paths on the TE editor side of the Lot Editor. By default these are on-top stations (the network passes through the lot). If your station is a proximity, El-Rail-based setup, use the Multipurpose Proximity Station or Multipurpose Proximity Hub presets instead. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "passenger_train_station"
 label = "Passenger Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
+note = "Choose a proximity placement if the station sits beside the network and the network does not pass through the lot. Choose one of the on-top placements if the station sits on the network (the rail tracks run through the lot), with the direction set to match how the network passes through the lot. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "freight_train_station"
 label = "Freight Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["passenger_train_pass_through"]
+note = "Choose a proximity placement if the station sits beside the network and the network does not pass through the lot. Choose one of the on-top placements if the station sits on the network (the rail tracks run through the lot), with the direction set to match how the network passes through the lot. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "passenger_freight_station"
 label = "Passenger + Freight Train Station"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "These are special stations that serve passenger rail and also handle freight. Choose a proximity placement if the station sits beside the network and the network does not pass through the lot. Choose one of the on-top placements if the station sits on the network (the rail tracks run through the lot), with the direction set to match how the network passes through the lot. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "monorail_station"
-label = "Monorail Station"
+label = "Monorail (and High Speed Rail / HSR) Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "These switches serve both Monorail and BTM/Shinkansen/High Speed Rail (HSR) services. By default these are on-top stations (the network passes through the lot). If your station is a proximity, Monorail-based setup, use the Multipurpose Proximity Station or Multipurpose Proximity Hub presets instead. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "hrw_station"
 label = "Hybrid Railway (HRW) Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "freight_train_pass_through"]
+note = "A Hybrid Railway (HRW) station is generally Monorail-based and allows both Monorail and regular passenger rail to pass through, with passengers able to transfer between them on the same line. Subway and Bus services are included by default. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it." 
 
 [[base]]
-id = "rail_elevated_rail_station"
-label = "Rail + Elevated Rail Station"
+id = "hrw_station_passenger_rail"
+label = "Hybrid Railway Passenger Rail Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "freight_train_pass_through"]
-
-[[base]]
-id = "monorail_elevated_rail_station"
-label = "Monorail + Elevated Rail Station"
-placements = ["on_top_we", "on_top_ns"]
-options = ["garage"]
-
-[[base]]
-id = "hrw_elevated_rail_station"
-label = "HRW + Elevated Rail Station"
-placements = ["on_top_we", "on_top_ns"]
-options = ["garage", "freight_train_pass_through"]
+note = "This special type of HRW station allows both Monorail and regular passenger rail to pass through, but only lets passengers transfer to and from passenger rail services at the station. Monorail and high speed rail services do not stop here; only regular passenger rail services do. Subway and Bus services are included by default. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it." 
 
 [[base]]
 id = "u_rail_station"
 label = "U-Rail Station"
-placements = ["proximity", "on_top_we", "on_top_ns"]
+placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "These setups are for Underground Rail (U-Rail), where the rail line runs beneath the road network. They are made specifically to support the U-Rail puzzle pieces following the RTMT v4 (and later) standards. The switches allow freight trains to pass through, but provide no cargo handling function. These presets cover only the rail station side, with additional Bus and Subway options. They do not cover plain Bus and Subway options over a U-Rail network without the passenger train station transition function; for those, look for options in RTMT v4 (and later). Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "el_rail_glr_dual_network_station"
-label = "El-Rail/GLR Dual Network Station"
+label = "Light Rail Dual Network Station"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "These presets cover the following station types: Tram-in-Avenue (TIA), Tram-on-Road (TOR), Tram-in-Road (TIR), Tram-on-Street (TOS), Underground GLR (U-GLR or U-Tram; currently a very niche and limited network with only a few puzzle pieces, which run beneath roads and avenues), El-Rail-over-Road, El-Rail-over-Street, El-Rail-over-Avenue and El-Rail-over-RD4. They do not cover plain Bus and Subway options over the network without the El-Rail/GLR station transition function; for those, look for options in RTMT v4 (and later). Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
+
+[[base]]
+id = "rail_elevated_rail_station"
+label = "Rail + Light Rail Station"
+placements = ["on_top_we", "on_top_ns"]
+options = ["garage", "freight_train_pass_through"]
+note = "These presets are for complex stations where multiple rail-based networks pass through a lot and let passengers transfer between them (here, Passenger Rail and Light Rail (El-Rail/GLR)). They are exclusively for on-top stations; Subway and Bus services are included by default. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
+
+[[base]]
+id = "monorail_elevated_rail_station"
+label = "Monorail + Light Rail Station"
+placements = ["on_top_we", "on_top_ns"]
+options = ["garage"]
+note = "These presets are for complex stations where multiple rail-based networks pass through a lot and let passengers transfer between them (here, Monorail and Light Rail (El-Rail/GLR)). They are exclusively for on-top stations; Subway and Bus services are included by default. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
+
+[[base]]
+id = "hrw_elevated_rail_station"
+label = "Monorail-Rail (HRW) + Light Rail Station"
+placements = ["on_top_we", "on_top_ns"]
+options = ["garage", "freight_train_pass_through"]
+note = "These presets are for complex stations where multiple rail-based networks pass through a lot and let passengers transfer between them (here, Monorail, Passenger Rail (or HRW) and Light Rail (El-Rail/GLR)). This preset can be used equally for HRW + Light Rail or Monorail + Passenger Rail + Light Rail stations (such as the HSRP Transit Hub in the NAM). They are exclusively for on-top stations; Subway and Bus services are included by default. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_proximity_station"
 label = "Multipurpose Proximity Station"
-placements = ["proximity", "on_top_we", "on_top_ns"]
-options = ["garage", "bus_stop", "subway_station"]
+placements = ["proximity"]
+options = ["garage"]
+note = "Subway and Bus services are included. The station supports Monorail, Passenger Rail, Hybrid Railway (HRW), El-Rail and BRT (Bus Rapid Transit, an RHW-based bus service) travel types on one side (usually the far side). It can also partly support dual-network GLR-based (TIR/TOR/TIS) travel types on the other side (usually the front side). Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_proximity_hub"
 label = "Multipurpose Proximity Hub"
 placements = ["proximity"]
-options = ["garage", "bus_stop", "subway_station"]
+options = ["garage"]
+note = "Subway and Bus services are included. This is a specific setup for when networks (such as Monorail and regular Rail) cross each other at different levels at the station. The station supports Monorail, Passenger Rail, Hybrid Railway (HRW), El-Rail and BRT travel types on one side (usually the far side). It can also partly support dual-network GLR-based (TIR/TOR/TIS) travel types on the other side (usually the front side). Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_on_top_proximity_rail_station"
 label = "Multipurpose On-Top Proximity Station - Rail"
 placements = ["on_top_we", "on_top_ns"]
-options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
+options = ["garage", "freight_train_pass_through"]
+note = "Subway and Bus services are included. These are special stations with switches for mostly one major on-top travel type (here, Passenger Rail) plus proximity access on the side(s) for other travel types (such as BRT, Monorail/GHSR/HRW, El-Rail/GLR). These switches are experimental. The best current example of this type is the NAM version of Debussyman's Dresden Central HB. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_on_top_proximity_el_rail_station"
 label = "Multipurpose On-Top Proximity Station - El-Rail"
 placements = ["on_top_we", "on_top_ns"]
-options = ["garage", "bus_stop", "subway_station"]
+options = ["garage"]
+note = "Subway and Bus services are included. These are special stations with switches for mostly one major on-top travel type (here, El-Rail) plus proximity access on the side(s) for other travel types (such as Passenger Rail, BRT, Monorail/HSR/BTM/HRW). These switches are experimental and cover a station type that has been discussed internally but not yet implemented. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_on_top_proximity_monorail_station"
 label = "Multipurpose On-Top Proximity Station - Monorail"
 placements = ["on_top_we", "on_top_ns"]
 options = ["garage", "bus_stop", "subway_station"]
+note = "Subway and Bus services are included. These are special stations with switches for mostly one major on-top travel type (here, Monorail/HSR/BTM) plus proximity access on the side(s) for other travel types (such as Passenger Rail, BRT, El-Rail/GLR). These switches are experimental and cover a station type that has been discussed internally but not yet implemented. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "multipurpose_on_top_proximity_hrw_station"
 label = "Multipurpose On-Top Proximity Station - HRW"
 placements = ["on_top_we", "on_top_ns"]
-options = ["garage", "bus_stop", "subway_station", "freight_train_pass_through"]
-note = "Switch data for this station type has not been authored yet; pick a combination to see whether a preset exists."
+options = ["garage", "freight_train_pass_through"]
+note = "Subway and Bus services are included. These are special stations with switches for mostly one major on-top travel type (here, Hybrid Railway (HRW)) plus proximity access on the side(s) for other travel types (such as Passenger Rail, BRT, El-Rail/GLR and Monorail/HSR/BTM). These switches are experimental and cover a station type that has been discussed internally but not yet implemented. Note: the Parking (Garage) option should only be enabled for lots whose building visually supports it."
 
 [[base]]
 id = "garage"
-label = "Garage"
+label = "Parking (Garage)"
 placements = ["proximity", "on_top_we", "on_top_ns"]
 options = []
+note = "These presets are for car parks only — above-ground or underground parking garages. For a car park function attached to another type of transportation station (bus stops, train stations, etc.), use that station's presets and enable the Parking (Garage) option."
 
 [[base]]
 id = "toll_booth"
 label = "Toll Booth"
 placements = ["on_top_ns", "on_top_we"]
 options = []
+
+[[base]]
+id = "network_enabling"
+label = "Network Enabling"
+placements = ["on_top_ns", "on_top_we"]
+options = ["roadway_pass_through", "railway_pass_through", "eltrain_pass_through", "monorail_pass_through", "hwr_pass_through"]
+note = "Network Enabling (NE) means the lot is given at least one directional pair of transit switches for the selected networks (roadway traffic: car, bus, freight trucks; railway networks; etc.) so that traffic can pass through the lot. It does not provide passenger transfer (station) functions. Although vehicles may visually stop at these lots, no passenger transfer takes place. These presets only provide the basic pass-through transit switches and combinations; you must still set the appropriate Transit Switch Entry Cost and Capacity manually, following the Transit Switch Entry Costs and Station Capacities guide. Complex Network Enabling switches must be set up and tailored manually. Network Enabling presets are available for: roadway-based networks (street, road, one-way road (OWR), avenue, highway) for pedestrians, cars, buses and freight trucks; the railway base network for passenger and freight trains; the El-Rail base network for Elevated Light Rail and Ground Light Rail (GLR); and the Monorail base network for Monorail, High Speed Rail (HSR) and Hybrid Railway (HRW)."
 
 # OccupantGroup auto-detect rules, most specific first.
 
@@ -392,17 +445,12 @@ rows = [
 ]
 
 [[rowset]]
-id = "pass_through.passenger_train.all"
+id = "elevated_rail_station.on_top_ns"
 rows = [
-  ["outside_in", "all", "train", "train"],
-  ["inside_out", "all", "train", "train"],
-]
-
-[[rowset]]
-id = "pass_through.freight_train.all"
-rows = [
-  ["outside_in", "all", "freight_train", "freight_train"],
-  ["inside_out", "all", "freight_train", "freight_train"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
 ]
 
 [[rowset]]
@@ -415,12 +463,12 @@ rows = [
 ]
 
 [[rowset]]
-id = "elevated_rail_station.on_top_ns"
+id = "monorail_station.on_top_ns"
 rows = [
-  ["outside_in", "ns", "el_train", "el_train"],
-  ["inside_out", "ns", "el_train", "el_train"],
-  ["outside_in", "all", "walk", "el_train"],
-  ["inside_out", "all", "el_train", "walk"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "all", "walk", "monorail"],
+  ["inside_out", "all", "monorail", "walk"],
 ]
 
 [[rowset]]
@@ -433,21 +481,103 @@ rows = [
 ]
 
 [[rowset]]
-id = "monorail_station.on_top_ns"
+id = "pass_through.passenger_train.ns"
 rows = [
-  ["outside_in", "ns", "monorail", "monorail"],
-  ["inside_out", "ns", "monorail", "monorail"],
-  ["outside_in", "all", "walk", "monorail"],
-  ["inside_out", "all", "monorail", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
 ]
 
 [[rowset]]
-id = "pass_through.road.we"
+id = "pass_through.passenger_train.we"
+rows = [
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+]
+
+[[rowset]]
+id = "pass_through.freight_train.ns"
+rows = [
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "pass_through.freight_train.we"
+rows = [
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "pass_through.railway.ns"
+rows = [
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "pass_through.railway.we"
+rows = [
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_ped.ns"
+rows = [
+  ["outside_in", "ns", "walk", "walk"],
+  ["inside_out", "ns", "walk", "walk"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_ped.we"
+rows = [
+  ["outside_in", "we", "walk", "walk"],
+  ["inside_out", "we", "walk", "walk"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_car.ns"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_car.we"
 rows = [
   ["outside_in", "we", "car", "car"],
   ["inside_out", "we", "car", "car"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_bus.ns"
+rows = [
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_bus.we"
+rows = [
   ["outside_in", "we", "bus", "bus"],
   ["inside_out", "we", "bus", "bus"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_freight_truck.ns"
+rows = [
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+]
+
+[[rowset]]
+id = "roadway_pass_through_freight_truck.we"
+rows = [
   ["outside_in", "we", "freight_truck", "freight_truck"],
   ["inside_out", "we", "freight_truck", "freight_truck"],
 ]
@@ -464,29 +594,42 @@ rows = [
 ]
 
 [[rowset]]
-id = "toll_booth.on_top_ns"
+id = "pass_through.road.we"
 rows = [
-  ["outside_in", "ns", "walk", "walk"],
-  ["inside_out", "ns", "car", "car"],
-  ["outside_in", "ns", "car", "car"],
-  ["inside_out", "ns", "walk", "walk"],
-  ["outside_in", "ns", "freight_truck", "freight_truck"],
-  ["inside_out", "ns", "freight_truck", "freight_truck"],
-  ["outside_in", "ns", "bus", "bus"],
-  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
 ]
 
 [[rowset]]
-id = "toll_booth.on_top_we"
+id = "el_train_pass_through.ns"
 rows = [
-  ["outside_in", "we", "walk", "walk"],
-  ["inside_out", "we", "car", "car"],
-  ["outside_in", "we", "car", "car"],
-  ["inside_out", "we", "walk", "walk"],
-  ["outside_in", "we", "freight_truck", "freight_truck"],
-  ["inside_out", "we", "freight_truck", "freight_truck"],
-  ["outside_in", "we", "bus", "bus"],
-  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+]
+
+[[rowset]]
+id = "el_train_pass_through.we"
+rows = [
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+]
+
+[[rowset]]
+id = "monorail_pass_through.ns"
+rows = [
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+]
+
+[[rowset]]
+id = "monorail_pass_through.we"
+rows = [
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
 ]
 
 # Base presets from new_properties.xml.
@@ -569,7 +712,7 @@ base = "toll_booth"
 placement = "on_top_ns"
 options = []
 category_id = "0xacb23926"
-rowsets = ["toll_booth.on_top_ns"]
+rowsets = ["roadway_pass_through_ped.ns", "pass_through.road.ns"]
 
 [[preset]]
 id = "toll_booth.on_top_we"
@@ -577,7 +720,7 @@ base = "toll_booth"
 placement = "on_top_we"
 options = []
 category_id = "0xacb23926"
-rowsets = ["toll_booth.on_top_we"]
+rowsets = ["roadway_pass_through_ped.we", "pass_through.road.we"]
 
 [[preset]]
 id = "bus_stop.proximity.garage"
@@ -611,7 +754,23 @@ options = ["bus_stop", "garage"]
 category_id = "0x0c8fbcf9"
 rowsets = ["walk.loop", "subway_station.link", "bus_stop.link", "garage.link"]
 
-# Additional presets converted from Tyberius' v0.5 switch pre-set notes.
+[[preset]]
+id = "network_enabling.on_top_ns"
+base = "network_enabling"
+placement = "on_top_ns"
+options = []
+category_id = "0x06e8a9ac"
+rowsets = ["walk.loop"]
+
+[[preset]]
+id = "network_enabling.on_top_we"
+base = "network_enabling"
+placement = "on_top_we"
+options = []
+category_id = "0x06e8a9ac"
+rowsets = ["walk.loop"]
+
+# NAM/MTA standard pre-sets added by Tyberius06 (Originally developped and tested by z1, Brian55 and Pierreh).
 
 [[preset]]
 id = "passenger_train_station.proximity.bus_stop"
@@ -713,6 +872,76 @@ rows = [
   ["inside_out", "ns", "bus", "train"],
   ["outside_in", "all", "freight_truck", "freight_truck"],
   ["inside_out", "all", "freight_truck", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_proximity_station"
+base = "multipurpose_proximity_station"
+placement = "proximity"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_proximity_hub"
+base = "multipurpose_proximity_hub"
+placement = "proximity"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "el_train", "train"],
+  ["inside_out", "all", "train", "el_train"],
   ["outside_in", "all", "subway", "subway"],
   ["inside_out", "all", "subway", "subway"],
 ]
@@ -886,6 +1115,21 @@ rows = [
   ["inside_out", "all", "walk", "walk"],
   ["outside_in", "ns", "train", "train"],
   ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
   ["outside_in", "ns", "freight_train", "freight_train"],
   ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "ns", "train", "walk"],
@@ -897,6 +1141,21 @@ id = "passenger_train_station.on_top_we"
 base = "passenger_train_station"
 placement = "on_top_we"
 options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
 category_id = "0x0c8fbd07"
 rows = [
   ["outside_in", "all", "walk", "walk"],
@@ -924,6 +1183,27 @@ rows = [
   ["inside_out", "all", "train", "bus"],
   ["outside_in", "ns", "train", "train"],
   ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "walk", "train"],
+  ["inside_out", "all", "train", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.bus_stop.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["bus_stop", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
   ["outside_in", "ns", "freight_train", "freight_train"],
   ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "ns", "train", "walk"],
@@ -937,6 +1217,27 @@ id = "passenger_train_station.on_top_we.bus_stop"
 base = "passenger_train_station"
 placement = "on_top_we"
 options = ["bus_stop"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "walk", "train"],
+  ["inside_out", "all", "train", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.bus_stop.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["bus_stop", "freight_train_pass_through"]
 category_id = "0x0c8fbd07"
 rows = [
   ["outside_in", "all", "walk", "walk"],
@@ -974,6 +1275,29 @@ rows = [
   ["inside_out", "ns", "walk", "train"],
   ["outside_in", "all", "subway", "train"],
   ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.subway_station.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["subway_station", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
   ["outside_in", "ns", "freight_train", "freight_train"],
   ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "all", "subway", "subway"],
@@ -985,6 +1309,29 @@ id = "passenger_train_station.on_top_we.subway_station"
 base = "passenger_train_station"
 placement = "on_top_we"
 options = ["subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.subway_station.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["subway_station", "freight_train_pass_through"]
 category_id = "0x0c8fbd07"
 rows = [
   ["outside_in", "all", "walk", "walk"],
@@ -1028,6 +1375,33 @@ rows = [
   ["inside_out", "all", "train", "subway"],
   ["outside_in", "all", "bus", "train"],
   ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.bus_stop.subway_station.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["bus_stop", "subway_station", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
   ["outside_in", "ns", "freight_train", "freight_train"],
   ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "all", "subway", "subway"],
@@ -1039,6 +1413,33 @@ id = "passenger_train_station.on_top_we.bus_stop.subway_station"
 base = "passenger_train_station"
 placement = "on_top_we"
 options = ["bus_stop", "subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.bus_stop.subway_station.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["bus_stop", "subway_station", "freight_train_pass_through"]
 category_id = "0x0c8fbd07"
 rows = [
   ["outside_in", "all", "walk", "walk"],
@@ -1520,6 +1921,43 @@ rows = [
   ["inside_out", "ns", "walk", "monorail"],
   ["outside_in", "ns", "train", "train"],
   ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station.on_top_ns.freight_train_pass_through"
+base = "hrw_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
   ["outside_in", "ns", "freight_train", "freight_train"],
   ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "ns", "train", "walk"],
@@ -1559,6 +1997,43 @@ rows = [
   ["inside_out", "we", "walk", "monorail"],
   ["outside_in", "we", "train", "train"],
   ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station.on_top_we.freight_train_pass_through"
+base = "hrw_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
   ["outside_in", "we", "freight_train", "freight_train"],
   ["inside_out", "we", "freight_train", "freight_train"],
   ["outside_in", "we", "train", "walk"],
@@ -1573,6 +2048,1465 @@ rows = [
   ["inside_out", "all", "train", "bus"],
   ["outside_in", "we", "monorail", "train"],
   ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_ns"
+base = "hrw_station_passenger_rail"
+placement = "on_top_ns"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_ns.freight_train_pass_through"
+base = "hrw_station_passenger_rail"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_we"
+base = "hrw_station_passenger_rail"
+placement = "on_top_we"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_we.freight_train_pass_through"
+base = "hrw_station_passenger_rail"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we"
+base = "u_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.bus_stop"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["bus_stop"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.bus_stop"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["bus_stop"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.subway_station"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.subway_station"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.bus_stop.subway_station"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["bus_stop", "subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.bus_stop.subway_station"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["bus_stop", "subway_station"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = []
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.bus_stop"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["bus_stop"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "ns", "walk", "bus"],
+  ["outside_in", "ns", "bus", "walk"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "bus"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.bus_stop"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["bus_stop"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "we", "walk", "bus"],
+  ["outside_in", "we", "bus", "walk"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "bus"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["inside_out", "all", "walk", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.subway_station"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["subway_station"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.subway_station"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["subway_station"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.bus_stop.subway_station"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["bus_stop", "subway_station"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "bus", "subway"],
+  ["inside_out", "all", "subway", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.bus_stop.subway_station"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["bus_stop", "subway_station"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "bus", "subway"],
+  ["inside_out", "all", "subway", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_ns"
+base = "rail_elevated_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_we"
+base = "rail_elevated_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_ns.freight_train_pass_through"
+base = "rail_elevated_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_we.freight_train_pass_through"
+base = "rail_elevated_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "monorail_elevated_rail_station.on_top_ns"
+base = "monorail_elevated_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "monorail_elevated_rail_station.on_top_we"
+base = "monorail_elevated_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_ns"
+base = "hrw_elevated_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_we"
+base = "hrw_elevated_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_ns.freight_train_pass_through"
+base = "hrw_elevated_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_we.freight_train_pass_through"
+base = "hrw_elevated_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_ns"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_we"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_ns.freight_train_pass_through"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_we.freight_train_pass_through"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_el_rail_station.on_top_ns"
+base = "multipurpose_on_top_proximity_el_rail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "el_train", "el_train"],
+  ["inside_out", "all", "el_train", "el_train"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "train", "el_train"],
+  ["inside_out", "we", "el_train", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_el_rail_station.on_top_we"
+base = "multipurpose_on_top_proximity_el_rail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "el_train", "el_train"],
+  ["inside_out", "all", "el_train", "el_train"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "train", "el_train"],
+  ["inside_out", "ns", "el_train", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_monorail_station.on_top_ns"
+base = "multipurpose_on_top_proximity_monorail_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "train", "monorail"],
+  ["inside_out", "we", "monorail", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_monorail_station.on_top_we"
+base = "multipurpose_on_top_proximity_monorail_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "train", "monorail"],
+  ["inside_out", "ns", "monorail", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_ns"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_ns"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_we"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_we"
+options = []
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_ns.freight_train_pass_through"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_we.freight_train_pass_through"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
   ["outside_in", "all", "subway", "subway"],
   ["inside_out", "all", "subway", "subway"],
 ]
@@ -1695,6 +3629,78 @@ rows = [
   ["inside_out", "ns", "bus", "train"],
   ["outside_in", "all", "freight_truck", "freight_truck"],
   ["inside_out", "all", "freight_truck", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_proximity_station.garage"
+base = "multipurpose_proximity_station"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_proximity_hub.garage"
+base = "multipurpose_proximity_hub"
+placement = "proximity"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "el_train", "train"],
+  ["inside_out", "all", "train", "el_train"],
   ["outside_in", "all", "subway", "subway"],
   ["inside_out", "all", "subway", "subway"],
   ["outside_in", "all", "car", "walk"],
@@ -2019,6 +4025,202 @@ rows = [
   ["inside_out", "all", "train", "subway"],
   ["outside_in", "all", "bus", "train"],
   ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.bus_stop.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "walk", "train"],
+  ["inside_out", "all", "train", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.bus_stop.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "walk", "train"],
+  ["inside_out", "all", "train", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.subway_station.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["subway_station", "garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.subway_station.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["subway_station", "garage", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_ns.bus_stop.subway_station.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage", "subway_station", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "passenger_train_station.on_top_we.bus_stop.subway_station.garage.freight_train_pass_through"
+base = "passenger_train_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage", "subway_station", "freight_train_pass_through"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
   ["outside_in", "all", "subway", "subway"],
   ["inside_out", "all", "subway", "subway"],
   ["outside_in", "all", "car", "walk"],
@@ -2501,8 +4703,6 @@ rows = [
   ["inside_out", "ns", "walk", "monorail"],
   ["outside_in", "ns", "train", "train"],
   ["inside_out", "ns", "train", "train"],
-  ["outside_in", "ns", "freight_train", "freight_train"],
-  ["inside_out", "ns", "freight_train", "freight_train"],
   ["outside_in", "ns", "train", "walk"],
   ["inside_out", "ns", "walk", "train"],
   ["outside_in", "all", "subway", "monorail"],
@@ -2541,6 +4741,84 @@ rows = [
   ["inside_out", "we", "walk", "monorail"],
   ["outside_in", "we", "train", "train"],
   ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_station.on_top_ns.garage.freight_train_pass_through"
+base = "hrw_station"
+placement = "on_top_ns"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_station.on_top_we.garage.freight_train_pass_through"
+base = "hrw_station"
+placement = "on_top_we"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
   ["outside_in", "we", "freight_train", "freight_train"],
   ["inside_out", "we", "freight_train", "freight_train"],
   ["outside_in", "we", "train", "walk"],
@@ -2559,3 +4837,1615 @@ rows = [
   ["inside_out", "all", "subway", "subway"],
   ["outside_in", "all", "car", "walk"],
 ]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_ns.garage"
+base = "hrw_station_passenger_rail"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_ns.garage.freight_train_pass_through"
+base = "hrw_station_passenger_rail"
+placement = "on_top_ns"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "monorail", "monorail"],
+  ["inside_out", "ns", "monorail", "monorail"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_we.garage"
+base = "hrw_station_passenger_rail"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_station_passenger_rail.on_top_we.garage.freight_train_pass_through"
+base = "hrw_station_passenger_rail"
+placement = "on_top_we"
+options = ["garage", "freight_train_pass_through"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.garage"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.garage"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.bus_stop.garage"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.bus_stop.garage"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.subway_station.garage"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["subway_station", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.subway_station.garage"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["subway_station", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_ns.bus_stop.subway_station.garage"
+base = "u_rail_station"
+placement = "on_top_ns"
+options = ["bus_stop", "subway_station", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "u_rail_station.on_top_we.bus_stop.subway_station.garage"
+base = "u_rail_station"
+placement = "on_top_we"
+options = ["bus_stop", "subway_station", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "el_train"],
+  ["inside_out", "all", "el_train", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.bus_stop.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["bus_stop", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "ns", "walk", "bus"],
+  ["outside_in", "ns", "bus", "walk"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "bus"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.bus_stop.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["bus_stop", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "all", "walk", "walk"],
+  ["outside_in", "we", "walk", "bus"],
+  ["outside_in", "we", "bus", "walk"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "bus"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.subway_station.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["subway_station", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.subway_station.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["subway_station", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_ns.bus_stop.subway_station.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_ns"
+options = ["bus_stop", "subway_station", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "car", "car"],
+  ["inside_out", "ns", "car", "car"],
+  ["outside_in", "ns", "bus", "bus"],
+  ["inside_out", "ns", "bus", "bus"],
+  ["outside_in", "ns", "freight_truck", "freight_truck"],
+  ["inside_out", "ns", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "bus", "subway"],
+  ["inside_out", "all", "subway", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "el_rail_glr_dual_network_station.on_top_we.bus_stop.subway_station.garage"
+base = "el_rail_glr_dual_network_station"
+placement = "on_top_we"
+options = ["bus_stop", "subway_station", "garage"]
+category_id = "0x4cb2392f"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "car", "car"],
+  ["inside_out", "we", "car", "car"],
+  ["outside_in", "we", "bus", "bus"],
+  ["inside_out", "we", "bus", "bus"],
+  ["outside_in", "we", "freight_truck", "freight_truck"],
+  ["inside_out", "we", "freight_truck", "freight_truck"],
+  ["outside_in", "all", "bus", "subway"],
+  ["inside_out", "all", "subway", "bus"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_ns.garage"
+base = "rail_elevated_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_we.garage"
+base = "rail_elevated_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_ns.freight_train_pass_through.garage"
+base = "rail_elevated_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "rail_elevated_rail_station.on_top_we.freight_train_pass_through.garage"
+base = "rail_elevated_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "monorail_elevated_rail_station.on_top_ns.garage"
+base = "monorail_elevated_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "monorail_elevated_rail_station.on_top_we.garage"
+base = "monorail_elevated_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_ns.garage"
+base = "hrw_elevated_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_we.garage"
+base = "hrw_elevated_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_ns.freight_train_pass_through.garage"
+base = "hrw_elevated_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "ns", "el_train", "el_train"],
+  ["inside_out", "ns", "el_train", "el_train"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "train", "train"],
+  ["inside_out", "ns", "train", "train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "hrw_elevated_rail_station.on_top_we.freight_train_pass_through.garage"
+base = "hrw_elevated_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0cb23934"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "we", "monorail", "monorail"],
+  ["inside_out", "we", "monorail", "monorail"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "el_train", "el_train"],
+  ["inside_out", "we", "el_train", "el_train"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "train", "train"],
+  ["inside_out", "we", "train", "train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_ns.garage"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_we.garage"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_ns.freight_train_pass_through.garage"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "train"],
+  ["inside_out", "we", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_rail_station.on_top_we.freight_train_pass_through.garage"
+base = "multipurpose_on_top_proximity_rail_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "train"],
+  ["inside_out", "ns", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"], 
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_el_rail_station.on_top_ns.garage"
+base = "multipurpose_on_top_proximity_el_rail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "el_train", "el_train"],
+  ["inside_out", "all", "el_train", "el_train"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "we", "monorail", "walk"],
+  ["inside_out", "we", "walk", "monorail"],
+  ["outside_in", "we", "monorail", "el_train"],
+  ["inside_out", "we", "el_train", "monorail"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "train", "el_train"],
+  ["inside_out", "we", "el_train", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_el_rail_station.on_top_we.garage"
+base = "multipurpose_on_top_proximity_el_rail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "el_train", "el_train"],
+  ["inside_out", "all", "el_train", "el_train"],
+  ["outside_in", "all", "el_train", "walk"],
+  ["inside_out", "all", "walk", "el_train"],
+  ["outside_in", "all", "subway", "el_train"],
+  ["inside_out", "all", "el_train", "subway"],
+  ["outside_in", "all", "bus", "el_train"],
+  ["inside_out", "all", "el_train", "bus"],
+  ["outside_in", "ns", "monorail", "walk"],
+  ["inside_out", "ns", "walk", "monorail"],
+  ["outside_in", "ns", "monorail", "el_train"],
+  ["inside_out", "ns", "el_train", "monorail"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "train", "el_train"],
+  ["inside_out", "ns", "el_train", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_monorail_station.on_top_ns.garage"
+base = "multipurpose_on_top_proximity_monorail_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "train", "walk"],
+  ["inside_out", "we", "walk", "train"],
+  ["outside_in", "we", "train", "monorail"],
+  ["inside_out", "we", "monorail", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_monorail_station.on_top_we.garage"
+base = "multipurpose_on_top_proximity_monorail_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "train", "walk"],
+  ["inside_out", "ns", "walk", "train"],
+  ["outside_in", "ns", "train", "monorail"],
+  ["inside_out", "ns", "monorail", "train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_ns.garage"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_ns"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_we.garage"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_we"
+options = ["garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_ns.freight_train_pass_through.garage"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_ns"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "we", "el_train", "walk"],
+  ["inside_out", "we", "walk", "el_train"],
+  ["outside_in", "we", "el_train", "monorail"],
+  ["inside_out", "we", "monorail", "el_train"],
+  ["outside_in", "we", "el_train", "train"],
+  ["inside_out", "we", "train", "el_train"],
+  ["outside_in", "ns", "freight_train", "freight_train"],
+  ["inside_out", "ns", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "multipurpose_on_top_proximity_hrw_station.on_top_we.freight_train_pass_through.garage"
+base = "multipurpose_on_top_proximity_hrw_station"
+placement = "on_top_we"
+options = ["freight_train_pass_through", "garage"]
+category_id = "0x0c8fbd07"
+rows = [
+  ["outside_in", "all", "walk", "walk"],
+  ["inside_out", "all", "walk", "walk"],
+  ["outside_in", "all", "walk", "subway"],
+  ["inside_out", "all", "subway", "walk"],
+  ["inside_out", "all", "walk", "subway"],
+  ["outside_in", "all", "subway", "walk"],
+  ["outside_in", "all", "bus", "walk"],
+  ["inside_out", "all", "walk", "bus"],
+  ["outside_in", "all", "monorail", "monorail"],
+  ["inside_out", "all", "monorail", "monorail"],
+  ["outside_in", "all", "monorail", "walk"],
+  ["inside_out", "all", "walk", "monorail"],
+  ["outside_in", "all", "subway", "monorail"],
+  ["inside_out", "all", "monorail", "subway"],
+  ["outside_in", "all", "bus", "monorail"],
+  ["inside_out", "all", "monorail", "bus"],
+  ["outside_in", "all", "train", "train"],
+  ["inside_out", "all", "train", "train"],
+  ["outside_in", "all", "train", "walk"],
+  ["inside_out", "all", "walk", "train"],
+  ["outside_in", "all", "subway", "train"],
+  ["inside_out", "all", "train", "subway"],
+  ["outside_in", "all", "bus", "train"],
+  ["inside_out", "all", "train", "bus"],
+  ["outside_in", "all", "monorail", "train"],
+  ["inside_out", "all", "train", "monorail"],
+  ["outside_in", "ns", "el_train", "walk"],
+  ["inside_out", "ns", "walk", "el_train"],
+  ["outside_in", "ns", "el_train", "monorail"],
+  ["inside_out", "ns", "monorail", "el_train"],
+  ["outside_in", "ns", "el_train", "train"],
+  ["inside_out", "ns", "train", "el_train"],
+  ["outside_in", "we", "freight_train", "freight_train"],
+  ["inside_out", "we", "freight_train", "freight_train"],
+  ["outside_in", "all", "subway", "subway"],
+  ["inside_out", "all", "subway", "subway"],
+  ["outside_in", "all", "car", "walk"],
+]
+
+[[preset]]
+id = "network_enabling.on_top_ns.roadway_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["roadway_pass_through"]
+category_id = "0x06e8a9ac"
+rowsets = ["roadway_pass_through_ped.ns", "pass_through.road.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.roadway_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["roadway_pass_through"]
+category_id = "0x06e8a9ac"
+rowsets = ["roadway_pass_through_ped.we", "pass_through.road.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.railway_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["railway_pass_through"]
+category_id = "0x0c8fbd07"
+rowsets = ["pass_through.railway.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.railway_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["railway_pass_through"]
+category_id = "0x0c8fbd07"
+rowsets = ["pass_through.railway.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.eltrain_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["eltrain_pass_through"]
+category_id = "0x4cb2392f"
+rowsets = ["el_train_pass_through.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.eltrain_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["eltrain_pass_through"]
+category_id = "0x4cb2392f"
+rowsets = ["el_train_pass_through.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.monorail_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["monorail_pass_through"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_pass_through.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.monorail_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["monorail_pass_through"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_pass_through.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.hwr_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["hwr_pass_through"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_pass_through.ns", "pass_through.railway.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.hwr_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["hwr_pass_through"]
+category_id = "0x0cb23934"
+rowsets = ["monorail_pass_through.we", "pass_through.railway.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.eltrain_pass_through.roadway_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["eltrain_pass_through", "roadway_pass_through"]
+category_id = "0x4cb2392f"
+rowsets = ["el_train_pass_through.ns", "roadway_pass_through_ped.ns", "pass_through.road.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.eltrain_pass_through.roadway_pass_through"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["eltrain_pass_through", "roadway_pass_through"]
+category_id = "0x4cb2392f"
+rowsets = ["el_train_pass_through.we", "roadway_pass_through_ped.we", "pass_through.road.we"]
+
+[[preset]]
+id = "network_enabling.on_top_ns.railway_pass_through.roadway_pass_through"
+base = "network_enabling"
+placement = "on_top_ns"
+options = ["railway_pass_through", "roadway_pass_through"]
+category_id = "0x0c8fbd07"
+rowsets = ["pass_through.railway.ns", "roadway_pass_through_ped.ns", "pass_through.road.ns"]
+
+[[preset]]
+id = "network_enabling.on_top_we.railway_pass_through.roadway_pass_through_ped"
+base = "network_enabling"
+placement = "on_top_we"
+options = ["railway_pass_through", "roadway_pass_through"]
+category_id = "0x0c8fbd07"
+rowsets = ["pass_through.railway.we", "roadway_pass_through_ped.we", "pass_through.road.we"]
