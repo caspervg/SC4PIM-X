@@ -60,7 +60,7 @@ DEFAULT_MAIN_WINDOW = {
 DEFAULT_DEPENDENCY_CATALOG = {
     "Enabled": False,
     "BaseUrl": "",
-    "TimeoutSeconds": 5,
+    "TimeoutSeconds": 15,
 }
 
 
