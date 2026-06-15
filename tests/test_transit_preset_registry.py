@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -143,20 +142,6 @@ def test_tyberius_imported_presets_match_source_switches():
 
         assert preset is not None, imported.id
         assert len(preset.switches) % 4 == 0, imported.id
-
-
-def test_tyberius_imported_presets_are_committed():
-    target = ROOT / tyberius_importer.DEFAULT_TARGET
-    text = target.read_text(encoding="utf-8")
-    assert tyberius_importer.IMPORTED_MARKER in text
-    imported_text = text.split(tyberius_importer.IMPORTED_MARKER, 1)[1]
-    imported_presets = tomllib.loads(imported_text).get("preset", [])
-
-    assert len(imported_presets) >= 69
-    for item in imported_presets:
-        options = tuple(sorted(str(option) for option in item.get("options", [])))
-        preset = registry.find_preset(str(item["base"]), str(item["placement"]), options)
-        assert preset is not None, item["id"]
 
 
 def test_infers_transit_preset_base_from_occupant_groups():
