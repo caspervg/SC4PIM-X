@@ -1,7 +1,7 @@
 import json
 
 from sc4pimx import DependencyCatalog
-from sc4pimx.DependencyCatalog import DependencyCatalogClient, format_catalog_match
+from sc4pimx.DependencyCatalog import DEFAULT_TIMEOUT_SECONDS, DependencyCatalogClient, format_catalog_match
 
 
 class FakeResponse:
@@ -44,6 +44,16 @@ def test_catalog_client_searches_tgi(monkeypatch):
     assert result.matches[0]["Package"] == "bsc:mega-props-sg-vol01"
     assert requested[0][0].startswith("http://localhost:3000/api/search?")
     assert requested[0][1] == 2.0
+
+
+def test_catalog_client_default_timeout_is_longer():
+    client = DependencyCatalogClient({
+        "Enabled": True,
+        "BaseUrl": "http://localhost:3000",
+    })
+
+    assert client.timeout == DEFAULT_TIMEOUT_SECONDS
+    assert client.timeout == 15.0
 
 
 def test_catalog_client_disabled_does_not_request(monkeypatch):

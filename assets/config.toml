@@ -120,7 +120,7 @@ AssetCompact = false
 [DependencyCatalog]
 Enabled = true
 BaseUrl = "https://sc4proptexturecatalog-production.up.railway.app"
-TimeoutSeconds = 5
+TimeoutSeconds = 15
 
 # --- Plugin scan folders ---
 # Populated by the Configure dialog. Each entry has a path and a recurse flag.

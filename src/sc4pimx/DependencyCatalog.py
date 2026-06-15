@@ -10,6 +10,8 @@ from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TIMEOUT_SECONDS = 15.0
+
 
 @dataclass(frozen=True)
 class CatalogLookupResult:
@@ -22,9 +24,9 @@ class DependencyCatalogClient:
         self.enabled = bool(settings.get("Enabled", False))
         self.base_url = str(settings.get("BaseUrl", "")).strip().rstrip("/")
         try:
-            self.timeout = max(1.0, float(settings.get("TimeoutSeconds", 5)))
+            self.timeout = max(1.0, float(settings.get("TimeoutSeconds", DEFAULT_TIMEOUT_SECONDS)))
         except (TypeError, ValueError):
-            self.timeout = 5.0
+            self.timeout = DEFAULT_TIMEOUT_SECONDS
 
     def search_tgi(self, tgi):
         if not self.enabled or not self.base_url or not tgi:

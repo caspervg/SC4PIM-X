@@ -7,7 +7,6 @@ import threading
 import webbrowser
 from dataclasses import dataclass, field
 
-import wx.adv
 import wx.html
 import wx.lib.sized_controls as sc
 from wx.lib.agw import ultimatelistctrl as ULC
@@ -31,6 +30,7 @@ SOUND_GIDS = (
     0xCA4D1948,  # Occupant Instance Sounds
     0xEA4D192A,  # Fireworks, Riots, Children, Anger, Demo, Crime, Construction, Jet
 )
+IGNORED_SOUND_IIDS = {0x8A8B7DD1, 0x2A8B7DB4}
 
 BUILTIN_GAME_FILES = {"cohorts.dat", "ep1.dat", "merged.dat", "simcitylocale.dat", "sound.dat"}
 
@@ -64,6 +64,20 @@ _KIND_LABELS = {
     "Texture": DepDlgKindTexture,
 }
 
+_KIND_GROUP_LABELS = {
+    "Building": DepDlgFilterBuildings,
+    "Flora": DepDlgKindFlora,
+    "Foundation": DepDlgKindFoundation,
+    "Icon": DepDlgKindIcon,
+    "LTEXT": DepDlgKindLTEXT,
+    "Model": DepDlgFilterModels,
+    "Prop": DepDlgFilterProps,
+    "Query": DepDlgKindQuery,
+    "SC4Path": DepDlgKindSC4Path,
+    "Sound": DepDlgKindSound,
+    "Texture": DepDlgFilterTextures,
+}
+
 
 def _row_sort_key(row):
     return (
@@ -93,17 +107,11 @@ def found_catalog_status(file_name, tgi, catalog_enabled, catalog_base_url):
     return "not_applicable"
 
 
-def _monospace_font(base_font):
+def is_ignored_sound_iid(iid):
     try:
-        available = set(wx.FontEnumerator.GetFacenames())
-    except Exception:
-        available = set()
-    size = base_font.GetPointSize()
-    for name in ('Consolas', 'Cascadia Mono', 'Courier New'):
-        if name in available:
-            return wx.Font(size, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL,
-                           wx.FONTWEIGHT_NORMAL, faceName=name)
-    return wx.Font(size, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        return (int(str(iid), 0) & 0xFFFFFFFF) in IGNORED_SOUND_IIDS
+    except (TypeError, ValueError):
+        return False
 
 
 @dataclass
@@ -187,18 +195,80 @@ def row_kind_text(row):
     return _KIND_LABELS.get(row.kind, row.kind or "")
 
 
+def row_kind_group_text(row):
+    return _KIND_GROUP_LABELS.get(row.kind, row_kind_text(row))
+
+
+def row_status_text(row):
+    if row.status == "found":
+        return DepDlgLocalStateFound
+    if row.status == "ignored":
+        return DepDlgLocalStateIgnored
+    return DepDlgLocalStateMissing
+
+
 def first_catalog_match(row):
     return row.catalog_matches[0] if row.catalog_matches else None
 
 
+def _normalised_asset_text(value):
+    return " ".join(str(value or "").strip().lower().replace("_", " ").split())
+
+
+def _is_generic_asset_name(row, value):
+    text = _normalised_asset_text(value)
+    if not text:
+        return True
+    kind = _normalised_asset_text(row_kind_text(row))
+    group = _normalised_asset_text(row_kind_group_text(row))
+    category = _normalised_asset_text(row.catalog_category)
+    generic = {v for v in (kind, group, category) if v}
+    generic.update({
+        "building", "buildings",
+        "flora",
+        "foundation", "foundations",
+        "icon", "icons",
+        "ltext",
+        "model", "models",
+        "prop", "props",
+        "query", "queries",
+        "sc4path", "sc4paths", "sc4 path", "sc4 paths",
+        "sound", "sounds",
+        "texture", "textures",
+    })
+    return text in generic
+
+
+def row_specific_label(row):
+    for value in (row.name, row.catalog_name):
+        if value and not _is_generic_asset_name(row, value):
+            return str(value).strip()
+    if row.key:
+        return row.key
+    if row.iid is not None:
+        return _hex32(row.iid)
+    return row_kind_text(row)
+
+
+def _has_asset_prefix(row, value):
+    text = str(value or "").strip().lower()
+    prefixes = {
+        row_kind_text(row).strip().lower(),
+        row_kind_group_text(row).strip().lower(),
+        str(row.catalog_category or "").strip().lower(),
+    }
+    prefixes = {prefix for prefix in prefixes if prefix}
+    return any(text.startswith(prefix + ":") for prefix in prefixes)
+
+
 def row_display_label(row):
-    if row.name:
-        return row.name
-    if row.catalog_name:
-        return row.catalog_name
-    if row.parent_id is None and row.referenced_by:
-        return row.referenced_by
-    return row.kind or row.key
+    specific = row_specific_label(row)
+    group = row_kind_group_text(row)
+    if _has_asset_prefix(row, specific):
+        return specific
+    if group and specific and _normalised_asset_text(specific) != _normalised_asset_text(group):
+        return "%s: %s" % (group, specific)
+    return specific or group or row.key
 
 
 def row_catalog_title(row):
@@ -287,85 +357,12 @@ def dependency_package_buckets(rows):
     return buckets
 
 
-def _append_report_package(lines, bucket):
-    lines.append("- %s" % bucket["title"])
-    if bucket["file_name"] and bucket["file_name"] != bucket["title"]:
-        lines.append("  %s" % (DepDlgPackageFile % bucket["file_name"]))
-    if bucket["url"]:
-        lines.append("  %s" % (DepDlgPackageLink % bucket["url"]))
-    if bucket["local_files"]:
-        lines.append("  %s" % (DepDlgPackageLocalFile % ", ".join(sorted(bucket["local_files"], key=str.lower))))
-    if bucket["ids"]:
-        lines.append("  %s" % (DepDlgPackageIDs % ", ".join(sorted(bucket["ids"]))))
-    if bucket["refs"]:
-        refs = sorted(bucket["refs"], key=str.lower)
-        lines.append("  %s" % (DepDlgPackageReferencedBy % "; ".join(refs[:6])))
-        if len(refs) > 6:
-            lines.append("  %s" % (DepDlgPackageReferencedBy % (DepDlgMoreCount % (len(refs) - 6))))
-
-
-def build_dependency_report(rows):
-    buckets = dependency_package_buckets(rows)
-    missing_rows = [row for row in rows if row.status == "missing"]
-    unmatched_missing = [row for row in missing_rows if not row.catalog_matches]
-    installed_unmatched = [
-        row for row in rows
-        if row.status == "found" and row.catalog_status == "checked" and not row.catalog_matches
-    ]
-    missing_packages = [
-        bucket for bucket in buckets.values()
-        if bucket["missing_count"] > 0
-    ]
-    installed_packages = [
-        bucket for bucket in buckets.values()
-        if bucket["found_count"] > 0
-    ]
-
-    lines = [DepDlgReportTitle, ""]
-    lines.append(DepDlgReportSummary)
-    lines.append("- %s" % (DepDlgMissingDependenciesCount % len(missing_rows)))
-    lines.append("- %s" % (DepDlgCatalogPackagesSuggested % len(missing_packages)))
-    lines.append("- %s" % (DepDlgInstalledCatalogPackagesIdentified % len(installed_packages)))
-    lines.append("")
-
-    lines.append(DepDlgMissingCatalogHeading)
-    if missing_packages:
-        for bucket in sorted(missing_packages, key=lambda b: b["title"].lower()):
-            _append_report_package(lines, bucket)
-    else:
-        lines.append("- %s" % DepDlgNone)
-    lines.append("")
-
-    lines.append(DepDlgMissingUnknownHeading)
-    if unmatched_missing:
-        for row in sorted(unmatched_missing, key=_row_sort_key):
-            label = row_display_label(row)
-            bits = [row_kind_text(row), label, row.key]
-            text = " / ".join([bit for bit in bits if bit])
-            if row.referenced_by:
-                text += " (%s)" % (DepDlgPackageReferencedBy % row.referenced_by)
-            lines.append("- %s" % text)
-    else:
-        lines.append("- %s" % DepDlgNone)
-    lines.append("")
-
-    lines.append(DepDlgInstalledCatalogHeading)
-    if installed_packages:
-        for bucket in sorted(installed_packages, key=lambda b: b["title"].lower()):
-            _append_report_package(lines, bucket)
-    else:
-        lines.append("- %s" % DepDlgNone)
-
-    if installed_unmatched:
-        lines.append("")
-        lines.append(DepDlgInstalledWithoutCatalogHeading)
-        by_file = sorted({row.source for row in installed_unmatched if row.source}, key=str.lower)
-        for file_name in by_file[:50]:
-            lines.append("- %s" % file_name)
-        if len(by_file) > 50:
-            lines.append("- %s" % (DepDlgMoreCount % (len(by_file) - 50)))
-
-    return "\n".join(lines).rstrip() + "\n"
+def package_bucket_display_text(bucket):
+    package = bucket["package"] or bucket["title"]
+    file_name = bucket["file_name"]
+    if file_name and file_name != package:
+        return "%s\n%s" % (package, file_name)
+    return package
 
 
 def _match_tgi_group(match, group_id):
@@ -432,14 +429,14 @@ def run_catalog_lookups(generation, jobs, catalog_settings, callback):
 
 
 class DependencyResourcePanel(wx.html.HtmlWindow):
-    """Bottom panel showing source files and catalog suggestions."""
+    """Panel showing source files and catalog package suggestions."""
 
     def __init__(self, parent):
         wx.html.HtmlWindow.__init__(self, parent, -1, style=wx.html.HW_SCROLLBAR_AUTO | wx.BORDER_THEME)
         self._files = []
-        self._catalog = {}
         self._files_seen = set()
         self._rows = []
+        self._catalog_requested = False
         self.bMissing = False
         base = self.GetFont()
         try:
@@ -461,53 +458,26 @@ class DependencyResourcePanel(wx.html.HtmlWindow):
         self._files_seen.add(key)
         self._files.append(name)
 
-    def AppendCatalog(self, match):
-        package = str(match.get("Package") or "").strip()
-        file_name = str(match.get("FileName") or "").strip()
-        websites = str(match.get("Websites") or "").strip()
-        exemplar = str(match.get("ExemplarName") or "").strip()
-        tgi_text = str(match.get("TGI") or "").strip()
-        category = str(match.get("Category") or "").strip()
-        if not package and not file_name:
-            return
-        url = websites.split(";")[0].strip()
-        pkey = (package or file_name).lower()
-        bucket = self._catalog.get(pkey)
-        if bucket is None:
-            bucket = {"package": package, "file_name": file_name, "url": url,
-                      "items": [], "seen": set()}
-            self._catalog[pkey] = bucket
-        else:
-            if not bucket["file_name"] and file_name:
-                bucket["file_name"] = file_name
-            if not bucket["url"] and url:
-                bucket["url"] = url
-        instance = ""
-        if tgi_text:
-            parts = [p.strip() for p in tgi_text.split(",")]
-            if parts:
-                instance = parts[-1].upper().replace("0X", "0x")
-        ikey = (instance, exemplar.lower())
-        if ikey in bucket["seen"]:
-            return
-        bucket["seen"].add(ikey)
-        bucket["items"].append({"instance": instance, "exemplar": exemplar, "category": category})
-
     def Missing(self, v):
         self.bMissing = True
 
-    def Render(self, rows=None):
+    def _package_item_html(self, bucket, esc):
+        package = bucket["package"] or bucket["title"]
+        url = bucket["url"]
+        text = package_bucket_display_text(bucket)
+        title = esc(package)
+        if url:
+            title = '<a href="%s">%s</a>' % (esc(url, quote=True), title)
+        suffix = text[len(package):]
+        return title + esc(suffix).replace("\n", "<br>")
+
+    def Render(self, rows=None, catalog_requested=None):
         if rows is not None:
             self._rows = rows
+        if catalog_requested is not None:
+            self._catalog_requested = catalog_requested
         buckets = dependency_package_buckets(self._rows)
-        missing_packages = [
-            bucket for bucket in buckets.values()
-            if bucket["missing_count"] > 0
-        ]
-        installed_packages = [
-            bucket for bucket in buckets.values()
-            if bucket["found_count"] > 0
-        ]
+        packages = sorted(buckets.values(), key=lambda b: b["title"].lower())
         esc = html_std.escape
         out = ['<html><body style="margin:6px">']
         if self._files:
@@ -521,43 +491,15 @@ class DependencyResourcePanel(wx.html.HtmlWindow):
                 '<p style="margin:0 0 4px 0"><font color="#a00000">'
                 '%s</font></p>' % esc(DepDlgSomeMissing)
             )
-        for heading, packages in (
-            (DepDlgMissingCatalogHeading, missing_packages),
-            (DepDlgInstalledCatalogHeading, installed_packages),
-        ):
-            if not packages:
-                continue
-            out.append('<p style="margin:0 0 4px 0"><b>%s</b></p>' % esc(heading))
+        if not self._catalog_requested:
+            out.append('<p><i>%s</i></p>' % esc(DepDlgPackageLookupNotRun))
+        if packages:
+            out.append('<p style="margin:0 0 4px 0"><b>%s</b></p>' % esc(DepDlgPublishPackagesHeading))
             out.append('<ul style="margin:0 0 8px 18px">')
-            for bucket in sorted(packages, key=lambda b: b["title"].lower()):
-                package = bucket["package"]
-                file_name = bucket["file_name"]
-                url = bucket["url"]
-                title = esc(package or file_name)
-                if url:
-                    title = '<a href="%s">%s</a>' % (esc(url, quote=True), title)
-                header = title
-                if package and file_name:
-                    header += ' &mdash; <font color="#555555">%s</font>' % esc(file_name)
-                out.append('<li>%s' % header)
-                ids = sorted(bucket["ids"])
-                refs = sorted(bucket["refs"], key=str.lower)
-                local_files = sorted(bucket["local_files"], key=str.lower)
-                details = []
-                if local_files:
-                    details.append(DepDlgPackageLocalFile % ", ".join(local_files[:3]))
-                if ids:
-                    details.append(DepDlgPackageIDs % ", ".join(ids[:5]))
-                if refs:
-                    details.append(DepDlgPackageReferencedBy % "; ".join(refs[:4]))
-                if details:
-                    out.append('<ul style="margin:2px 0 4px 18px">')
-                    for detail in details:
-                        out.append('<li>%s</li>' % esc(detail))
-                    out.append('</ul>')
-                out.append('</li>')
+            for bucket in packages:
+                out.append('<li>%s</li>' % self._package_item_html(bucket, esc))
             out.append('</ul>')
-        if not self._files and not buckets and not self.bMissing:
+        if self._catalog_requested and not self._files and not buckets and not self.bMissing:
             out.append('<p><i>%s</i></p>' % esc(DepDlgNoReferencedFiles))
         out.append('</body></html>')
         self.SetPage(''.join(out))
@@ -579,6 +521,7 @@ class DependenciesDlg(sc.SizedDialog):
         self._catalog_generation = 0
         self._alive = True
         self._render_scheduled = False
+        self._catalog_requested = False
         self.selected_row_id = None
         self._visible_row_ids = []
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
@@ -605,16 +548,9 @@ class DependenciesDlg(sc.SizedDialog):
             pass
         filter_sizer.Add(self.search, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 
-        self.summaryText = wx.StaticText(filter_panel, -1, "")
-        filter_sizer.Add(self.summaryText, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-
-        self.refreshButton = wx.Button(filter_panel, -1, DepDlgCatalogRefresh)
-        self.refreshButton.Bind(wx.EVT_BUTTON, self.OnRefreshCatalog)
-        filter_sizer.Add(self.refreshButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-
-        self.copyReportButton = wx.Button(filter_panel, -1, DepDlgCopyReport)
-        self.copyReportButton.Bind(wx.EVT_BUTTON, self.OnCopyReport)
-        filter_sizer.Add(self.copyReportButton, 0, wx.ALIGN_CENTER_VERTICAL)
+        self.identifyButton = wx.Button(filter_panel, -1, DepDlgIdentifyPackages)
+        self.identifyButton.Bind(wx.EVT_BUTTON, self.OnIdentifyPackages)
+        filter_sizer.Add(self.identifyButton, 0, wx.ALIGN_CENTER_VERTICAL)
         filter_panel.SetSizer(filter_sizer)
         try:
             filter_panel.SetSizerProps(expand=True)
@@ -627,53 +563,37 @@ class DependenciesDlg(sc.SizedDialog):
         self.list = ULC.UltimateListCtrl(
             list_panel, -1,
             agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_VRULES | ULC.ULC_SHOW_TOOLTIPS | ULC.ULC_SINGLE_SEL,
-            size=(820, 430),
+            size=(960, 430),
         )
-        self._mono = _monospace_font(self.list.GetFont())
-        self.COL_NAME = 0
-        self.COL_STATUS = 1
-        self.COL_TYPE = 2
-        self.COL_ID = 3
-        self.COL_LOCAL = 4
-        self.COL_CATALOG = 5
-        self.COL_MATCH = 6
+        self.COL_STATUS = 0
+        self.COL_NAME = 1
+        self.COL_SOURCE = 2
+        self.COL_PACKAGE = 3
         for idx, (label, width) in enumerate((
-            (DepDlgColName, 240),
             (DepDlgColStatus, 90),
-            (DepDlgColType, 80),
-            (DepDlgColID, 230),
-            (DepDlgColLocalFile, 190),
-            (DepDlgColCatalog, 240),
-            (DepDlgColMatch, 120),
+            (DepDlgColDependency, 360),
+            (DepDlgColLocalFile, 220),
+            (DepDlgCatalogPackage, 240),
         )):
             self.list.InsertColumn(idx, label, width=width)
-        self.list.SetMinSize((780, 360))
+        self.list.SetMinSize((940, 360))
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnRowSelected)
         list_sizer.Add(self.list, 1, wx.EXPAND)
         list_panel.SetSizer(list_sizer)
 
         details_panel = wx.Panel(self.splitter, -1)
         details_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.notebook = wx.Notebook(details_panel, -1)
-        self.detailPanel = self.CreateDetailPanel(self.notebook)
-        self.lb = DependencyResourcePanel(self.notebook)
-        self.reportText = wx.TextCtrl(
-            self.notebook, -1, "",
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP | wx.BORDER_THEME,
-        )
-        self.notebook.AddPage(self.detailPanel, DepDlgDetailsTab)
-        self.notebook.AddPage(self.lb, DepDlgPackageSummaryTab)
-        self.notebook.AddPage(self.reportText, DepDlgReportTab)
-        details_sizer.Add(self.notebook, 1, wx.EXPAND)
+        self.lb = DependencyResourcePanel(details_panel)
+        details_sizer.Add(self.lb, 1, wx.EXPAND)
         details_panel.SetSizer(details_sizer)
 
-        self.splitter.SplitVertically(list_panel, details_panel, 850)
+        self.splitter.SplitVertically(list_panel, details_panel, 980)
         self.splitter.SetMinimumPaneSize(320)
         try:
-            self.splitter.SetSashGravity(0.70)
+            self.splitter.SetSashGravity(0.75)
         except AttributeError:
             pass
-        self.splitter.SetMinSize((1180, 430))
+        self.splitter.SetMinSize((1280, 430))
         try:
             self.splitter.SetSizerProps(expand=True, proportion=1)
         except AttributeError:
@@ -681,76 +601,11 @@ class DependenciesDlg(sc.SizedDialog):
 
         self.BuildRows()
         self.RenderRows()
-        self.lb.Render(self.rows)
-        self.UpdateSummary()
-        self.UpdateDetails()
-        self.UpdateReport()
-        self.StartCatalogLookups()
+        self.lb.Render(self.rows, self._catalog_requested)
 
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
-        self.SetMinSize((1220, 680))
-
-    def CreateDetailPanel(self, parent):
-        panel = wx.Panel(parent, -1)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-
-        self.detailTitle = wx.StaticText(panel, -1, DepDlgNoSelection)
-        title_font = self.detailTitle.GetFont()
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        self.detailTitle.SetFont(title_font)
-        sizer.Add(self.detailTitle, 0, wx.EXPAND | wx.ALL, 6)
-
-        grid = wx.FlexGridSizer(cols=2, hgap=6, vgap=5)
-        grid.AddGrowableCol(1)
-        self.detailFields = {}
-
-        def add_field(key, label):
-            grid.Add(wx.StaticText(panel, -1, label), 0, wx.ALIGN_CENTER_VERTICAL)
-            ctrl = wx.TextCtrl(panel, -1, "", style=wx.TE_READONLY | wx.BORDER_THEME)
-            grid.Add(ctrl, 1, wx.EXPAND)
-            self.detailFields[key] = ctrl
-
-        add_field("status", DepDlgColStatus)
-        add_field("type", DepDlgColType)
-        add_field("id", DepDlgColID)
-        add_field("local", DepDlgDetailLocalFile)
-        add_field("referenced_by", DepDlgDetailReferencedBy)
-        add_field("parent", DepDlgDetailParent)
-        add_field("catalog_package", DepDlgCatalogPackage)
-        add_field("catalog_file", DepDlgDetailCatalogFile)
-        add_field("match", DepDlgColMatch)
-        sizer.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-
-        action_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.copyIDButton = wx.Button(panel, -1, DepDlgCopyID)
-        self.copyIDButton.Bind(wx.EVT_BUTTON, self.OnCopySelectedID)
-        action_row.Add(self.copyIDButton, 0, wx.RIGHT, 4)
-        self.copyPackageButton = wx.Button(panel, -1, DepDlgCopyPackage)
-        self.copyPackageButton.Bind(wx.EVT_BUTTON, self.OnCopySelectedPackage)
-        action_row.Add(self.copyPackageButton, 0)
-        sizer.Add(action_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-
-        link_row = wx.BoxSizer(wx.HORIZONTAL)
-        link_row.Add(wx.StaticText(panel, -1, DepDlgDetailLink), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        self.detailLink = wx.adv.HyperlinkCtrl(panel, -1, DepDlgCatalogNoLink, "")
-        self.detailLink.Enable(False)
-        link_row.Add(self.detailLink, 1, wx.ALIGN_CENTER_VERTICAL)
-        sizer.Add(link_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-
-        sizer.Add(wx.StaticText(panel, -1, DepDlgDetailCandidates), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-        self.candidateList = wx.ListCtrl(panel, -1, style=wx.LC_REPORT | wx.BORDER_THEME)
-        for idx, (label, width) in enumerate((
-            (DepDlgCatalogPackage, 150),
-            (DepDlgColLocalFile, 165),
-            (DepDlgColType, 90),
-            (DepDlgColID, 115),
-        )):
-            self.candidateList.InsertColumn(idx, label, width=width)
-        sizer.Add(self.candidateList, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-
-        panel.SetSizer(sizer)
-        return panel
+        self.SetMinSize((1320, 640))
 
     def AddFileName(self, fileName):
         self.lb.Append(fileName)
@@ -778,23 +633,19 @@ class DependenciesDlg(sc.SizedDialog):
 
     def AddFoundRow(self, kind, name, key, file_name, referenced_by, parent_id=None, tgi=None):
         source = os.path.split(file_name)[1] if file_name else ""
-        catalog_status = found_catalog_status(source, tgi, self.catalog.enabled, self.catalog.base_url)
         row = self.AddRow("found", kind, name, key, source, referenced_by,
-                          parent_id=parent_id, tgi=tgi, catalog_status=catalog_status)
+                          parent_id=parent_id, tgi=tgi)
         if file_name:
             self.lb.Append(file_name)
         return row
 
     def AddMissingRow(self, kind, name, key, referenced_by, parent_id=None,
                       tgi=None, iid=None, catalog_category=None):
-        catalog_status = "not_applicable"
-        if tgi is not None or iid is not None:
-            catalog_status = "pending" if self.catalog.enabled and self.catalog.base_url else "disabled"
         self.lb.Missing(DepDlgMissing)
         return self.AddRow(
             "missing", kind, name, key, DepDlgNotFound, referenced_by,
             parent_id=parent_id, tgi=tgi, iid=iid,
-            catalog_category=catalog_category, catalog_status=catalog_status,
+            catalog_category=catalog_category,
         )
 
     def AddIgnoredRow(self, kind, name, key, referenced_by, source="ignored", parent_id=None):
@@ -802,17 +653,13 @@ class DependenciesDlg(sc.SizedDialog):
                            parent_id=parent_id)
 
     def RowStatusText(self, row):
-        if row.status == "found":
-            return DepDlgLocalStateFound
-        if row.status == "ignored":
-            return DepDlgLocalStateIgnored
-        return DepDlgLocalStateMissing
+        return row_status_text(row)
 
     def RowSourceText(self, row):
         return row.source
 
     def RowCatalogText(self, row):
-        return row_catalog_title(row)
+        return row_catalog_title(row) or row_catalog_state_text(row)
 
     def RowLabel(self, row):
         return row_display_label(row)
@@ -931,15 +778,12 @@ class DependenciesDlg(sc.SizedDialog):
                     ):
                         continue
                 self.list.InsertStringItem(idx, "")
-                display_name = row.name or row.catalog_name or row_kind_text(row)
-                name = ("    " + display_name) if is_child else self.RowLabel(row)
+                display_name = self.RowLabel(row)
+                name = ("    " + display_name) if is_child else display_name
                 self._SetCell(idx, self.COL_STATUS, self.RowStatusText(row), colour=self.RowStatusColour(row))
-                self._SetCell(idx, self.COL_TYPE, row_kind_text(row))
                 self._SetCell(idx, self.COL_NAME, name)
-                self._SetCell(idx, self.COL_ID, row.key, font=self._mono)
-                self._SetCell(idx, self.COL_LOCAL, self.RowSourceText(row))
-                self._SetCell(idx, self.COL_CATALOG, self.RowCatalogText(row))
-                self._SetCell(idx, self.COL_MATCH, row_catalog_state_text(row), colour=self.RowCatalogColour(row))
+                self._SetCell(idx, self.COL_SOURCE, self.RowSourceText(row), colour=self.RowStatusColour(row) if row.status != "found" else None)
+                self._SetCell(idx, self.COL_PACKAGE, self.RowCatalogText(row), colour=self.RowCatalogColour(row))
                 self._visible_row_ids.append(row.id)
                 if row.id == self.selected_row_id:
                     selected_index = idx
@@ -953,8 +797,6 @@ class DependenciesDlg(sc.SizedDialog):
             self.list.Select(selected_index)
         elif self.selected_row_id is not None and self.selected_row_id not in self._visible_row_ids:
             self.selected_row_id = None
-            self.UpdateDetails()
-        self.UpdateSummary()
 
     def OnFilterChanged(self, event):
         self.RenderRows()
@@ -969,91 +811,10 @@ class DependenciesDlg(sc.SizedDialog):
         idx = event.GetIndex()
         if 0 <= idx < len(self._visible_row_ids):
             self.selected_row_id = self._visible_row_ids[idx]
-            self.UpdateDetails()
         event.Skip()
 
-    def UpdateSummary(self):
-        missing = len([row for row in self.rows if row.status == "missing"])
-        found = len([row for row in self.rows if row.status == "found"])
-        matched = len([row for row in self.rows if row.catalog_matches])
-        unmatched = len([
-            row for row in self.rows
-            if row.catalog_status == "checked" and not row.catalog_matches and row.status != "ignored"
-        ])
-        self.summaryText.SetLabel(DepDlgSummary % (missing, found, matched, unmatched))
-
-    def UpdateDetails(self):
-        row = self.rows_by_id.get(self.selected_row_id)
-        if row is None:
-            self.detailTitle.SetLabel(DepDlgNoSelection)
-            for ctrl in self.detailFields.values():
-                ctrl.ChangeValue("")
-            self.copyIDButton.Enable(False)
-            self.copyPackageButton.Enable(False)
-            self.detailLink.SetLabel(DepDlgCatalogNoLink)
-            self.detailLink.SetURL("")
-            self.detailLink.Enable(False)
-            self.candidateList.DeleteAllItems()
-            return
-
-        parent = self.rows_by_id.get(row.parent_id) if row.parent_id is not None else None
-        self.detailTitle.SetLabel(row_display_label(row))
-        values = {
-            "status": self.RowStatusText(row),
-            "type": row_kind_text(row),
-            "id": row.key,
-            "local": self.RowSourceText(row),
-            "referenced_by": row.referenced_by,
-            "parent": row_display_label(parent) if parent is not None else "",
-            "catalog_package": row_catalog_title(row),
-            "catalog_file": row_catalog_file(row),
-            "match": row_catalog_state_text(row),
-        }
-        for key, ctrl in self.detailFields.items():
-            ctrl.ChangeValue(values.get(key, ""))
-
-        self.copyIDButton.Enable(bool(row.key))
-        self.copyPackageButton.Enable(bool(row_catalog_title(row)))
-        url = row_catalog_url(row)
-        self.detailLink.SetLabel(url or DepDlgCatalogNoLink)
-        self.detailLink.SetURL(url or "")
-        self.detailLink.Enable(bool(url))
-
-        self.candidateList.DeleteAllItems()
-        for idx, match in enumerate(row.catalog_matches):
-            self.candidateList.InsertItem(idx, catalog_match_title(match))
-            self.candidateList.SetItem(idx, 1, catalog_match_file_name(match))
-            self.candidateList.SetItem(idx, 2, str(match.get("Category") or ""))
-            self.candidateList.SetItem(idx, 3, catalog_match_instance(match))
-
-    def UpdateReport(self):
-        self.reportText.ChangeValue(build_dependency_report(self.rows))
-
-    def CopyTextToClipboard(self, text):
-        if not text:
-            return False
-        data = wx.TextDataObject(text)
-        if not wx.TheClipboard.Open():
-            return False
-        try:
-            return bool(wx.TheClipboard.SetData(data))
-        finally:
-            wx.TheClipboard.Close()
-
-    def OnCopySelectedID(self, event):
-        row = self.rows_by_id.get(self.selected_row_id)
-        if row is not None and self.CopyTextToClipboard(row.key):
-            self.summaryText.SetLabel(DepDlgCopyIDDone)
-        event.Skip()
-
-    def OnCopySelectedPackage(self, event):
-        row = self.rows_by_id.get(self.selected_row_id)
-        package = row_catalog_title(row) if row is not None else ""
-        if self.CopyTextToClipboard(package):
-            self.summaryText.SetLabel(DepDlgCopyPackageDone)
-        event.Skip()
-
-    def OnRefreshCatalog(self, event):
+    def OnIdentifyPackages(self, event):
+        self._catalog_requested = True
         self._catalog_generation += 1
         for row in self.rows:
             row.catalog_matches = []
@@ -1067,14 +828,12 @@ class DependenciesDlg(sc.SizedDialog):
                 row.catalog_status = "pending" if self.catalog.enabled and self.catalog.base_url else "disabled"
             else:
                 row.catalog_status = "not_applicable"
+        self.identifyButton.SetLabel(DepDlgIdentifyPackagesRunning)
+        self.identifyButton.Enable(False)
         self.ScheduleRender()
-        self.StartCatalogLookups()
-        event.Skip()
-
-    def OnCopyReport(self, event):
-        text = build_dependency_report(self.rows)
-        copied = self.CopyTextToClipboard(text)
-        self.summaryText.SetLabel(DepDlgReportCopied if copied else DepDlgReportCopyFailed)
+        if not self.StartCatalogLookups():
+            self.identifyButton.SetLabel(DepDlgIdentifyPackages)
+            self.identifyButton.Enable(True)
         event.Skip()
 
     def ScheduleRender(self):
@@ -1088,9 +847,7 @@ class DependenciesDlg(sc.SizedDialog):
             return
         self._render_scheduled = False
         self.RenderRows()
-        self.lb.Render(self.rows)
-        self.UpdateDetails()
-        self.UpdateReport()
+        self.lb.Render(self.rows, self._catalog_requested)
 
     def StartCatalogLookups(self):
         generation = self._catalog_generation + 1
@@ -1105,7 +862,7 @@ class DependenciesDlg(sc.SizedDialog):
             if row.status == "found" and row.catalog_status == "pending" and row.tgi is not None:
                 jobs.append(CatalogJob(generation, row.id, row.tgi, None, row.catalog_category, False))
         if not jobs:
-            return
+            return False
         self._catalog_generation = generation
         worker = threading.Thread(
             target=run_catalog_lookups,
@@ -1114,6 +871,7 @@ class DependenciesDlg(sc.SizedDialog):
             daemon=True,
         )
         worker.start()
+        return True
 
     def ApplyCatalogBatch(self, generation, results):
         if not self._alive or generation != self._catalog_generation:
@@ -1124,6 +882,9 @@ class DependenciesDlg(sc.SizedDialog):
                 changed = True
         if changed:
             self.ScheduleRender()
+        if not any(row.catalog_status == "pending" for row in self.rows):
+            self.identifyButton.SetLabel(DepDlgIdentifyPackages)
+            self.identifyButton.Enable(True)
 
     def ApplyCatalogResult(self, result):
         if not self._alive or result.generation != self._catalog_generation:
@@ -1252,6 +1013,8 @@ class DependenciesDlg(sc.SizedDialog):
             prop_sound = desc.exemplar.GetProp(prop_id)
             if prop_sound:
                 iid = prop_sound[0]
+                if is_ignored_sound_iid(iid):
+                    continue
                 found_entry = None
                 found_tgi = None
                 for gid in SOUND_GIDS:
