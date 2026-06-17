@@ -326,6 +326,17 @@ def ConvertAPropToReadable(prop, propFormat):
     return resultat
 
 
+def _normalize_bool_text_value(value):
+    token = str(value).strip()
+    lower = token.lower()
+    if lower in ("true", "false"):
+        return lower.title()
+    try:
+        return "True" if int(token, 0) != 0 else "False"
+    except ValueError:
+        return token
+
+
 def CreateAPropFromString(prop, value):
     if isinstance(value, bytes):
         value = value.decode('utf-8', errors='replace')
@@ -337,10 +348,7 @@ def CreateAPropFromString(prop, value):
     elif prop.Type != 'String':
         count = len(value.split(','))
     if prop.Type == 'Bool':
-        if value == '0':
-            value = 'False'
-        if value == '1':
-            value = 'True'
+        value = ','.join(_normalize_bool_text_value(v) for v in value.split(','))
     if prop.Type == 'String':
         count = 1
         buffer = '0x%08x:{"%s"}=%s:%d:("%s")' % (prop.ID, prop.Name, prop.Type, count, value)
