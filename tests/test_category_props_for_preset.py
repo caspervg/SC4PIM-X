@@ -51,3 +51,17 @@ def test_category_prop_generator_can_skip_unwanted_broken_formulas():
     )
 
     assert lines == ['0xe90e25a3:{"Transit Switch Traffic Capacity"}=Float32:0:(12345.0)']
+
+
+def test_category_prop_generator_serializes_bool_eval_as_literal_bool():
+    w2w_prop = 0xAA1DD401
+    category = _category({w2w_prop: "True"})
+    virtual_dat = SimpleNamespace(
+        properties={
+            w2w_prop: _prop(w2w_prop, "Building Is Wall-to-Wall", "Bool"),
+        }
+    )
+
+    lines = build_category_props_for_preset(virtual_dat, Exemplar(), category, {})
+
+    assert lines == ['0xaa1dd401:{"Building Is Wall-to-Wall"}=Bool:0:(True)']
