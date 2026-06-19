@@ -301,7 +301,7 @@ class S3D(object):
 
         return buffer
 
-    def draw(self, s3DTexturesHolder, shader_program, lighting_state):
+    def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp=None, normal_matrix=None):
         if self.entry is None:
             return
         glColor3f(1.0, 1.0, 1.0)
@@ -336,7 +336,7 @@ class S3D(object):
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
         sample_alpha_to_coverage = globals().get('GL_SAMPLE_ALPHA_TO_COVERAGE')
         mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
-        shader_program.bind(lighting_state)
+        shader_program.bind(lighting_state, mvp, normal_matrix)
         for mi, mesh in enumerate(meshes):
             frameInfo = mesh['frames'][self.currentFrame]
             try:

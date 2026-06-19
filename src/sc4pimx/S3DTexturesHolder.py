@@ -1,6 +1,5 @@
 """S3D textures holder for OpenGL rendering."""
 import logging
-import os
 import weakref
 
 import numpy as np
@@ -21,7 +20,6 @@ from OpenGL.GL import (
     GL_TEXTURE_WRAP_T,
     GL_UNPACK_ALIGNMENT,
     GL_UNSIGNED_BYTE,
-    GL_VIEWPORT,
     glBindBuffer,
     glBindTexture,
     glBufferData,
@@ -32,11 +30,9 @@ from OpenGL.GL import (
     glEnable,
     glGenBuffers,
     glGenTextures,
-    glGetIntegerv,
     glPixelStorei,
     glTexParameterf,
     glTexImage2D,
-    glViewport,
 )
 from PIL import Image
 
@@ -171,42 +167,20 @@ class S3DTexturesHolder(object):
         # id() reuse after a mesh is garbage-collected (a recycled id maps to a
         # different object, so we rebuild instead of handing back stale buffers).
         self._mesh_buffers = {}
-        self._vp_logged = False
-
-    def _set_current_preserving_viewport(self):
-        """SetCurrent() without losing the active glViewport.
-
-        On macOS, wx's GLCanvas.SetCurrent() (via NSOpenGLContext) resets the
-        GL viewport to the full drawable. The split-screen preview sets a
-        half-pane viewport once per frame and then draws both textures and
-        models into it -- but models reach this holder mid-frame (texture bind
-        / VBO upload), so a naked SetCurrent here silently reverts the viewport
-        and the models render into the whole canvas (stretched + recentered)
-        while the textures, which never call SetCurrent, stay correct. Saving
-        and restoring the viewport around the call keeps the pane intact and is
-        a harmless no-op on platforms that don't reset it.
-        """
-        try:
-            saved = glGetIntegerv(GL_VIEWPORT)
-        except Exception:
-            saved = None
-        self.glCanvas.SetCurrent()
-        if saved is None:
-            return
-        if os.environ.get('SC4PIM_GL_DEBUG') and not self._vp_logged:
-            self._vp_logged = True
-            try:
-                after = tuple(int(v) for v in glGetIntegerv(GL_VIEWPORT))
-            except Exception:
-                after = None
-            logger.debug('S3DTexturesHolder SetCurrent viewport before=%s after=%s',
-                         tuple(int(v) for v in saved), after)
-        if int(saved[2]) > 0 and int(saved[3]) > 0:
-            glViewport(int(saved[0]), int(saved[1]), int(saved[2]), int(saved[3]))
 
     def get_mesh_buffers(self, mesh):
-        """Return this context's _MeshGLBuffers for mesh, creating it lazily."""
-        self._set_current_preserving_viewport()
+        """Return this context's _MeshGLBuffers for mesh, creating it lazily.
+
+        The caller is responsible for having made this canvas's GL context
+        current (every draw entry point does so once at frame start). We must
+        NOT SetCurrent here: on macOS wx's GLCanvas.SetCurrent() resets the GL
+        viewport to the full drawable, and this runs mid-frame -- per sub-mesh
+        -- after the split-screen preview has installed its half-pane viewport.
+        A make-current here both clobbered that viewport (models rendered into
+        the whole canvas) and cost a context switch on every sub-mesh. Relying
+        on the frame-start make-current avoids both; it's the same contract the
+        texture path has always used.
+        """
         key = id(mesh)
         entry = self._mesh_buffers.get(key)
         if entry is not None:
@@ -331,7 +305,9 @@ class S3DTexturesHolder(object):
         if cached is None:
             glDisable(GL_TEXTURE_2D)
             return
-        self._set_current_preserving_viewport()
+        # No SetCurrent here -- the context is already current for the frame
+        # (see get_mesh_buffers). A mid-frame make-current would reset the
+        # split-pane viewport on macOS and cost a context switch per mesh.
         if cached.get('day') is None and cached.get('night') is None:
             glColor3f(1, 0, 0)
             glDisable(GL_TEXTURE_2D)

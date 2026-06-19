@@ -162,7 +162,7 @@ class SC4LightingProgram:
             'texcoord': int(glGetAttribLocation(self.program, 'a_texcoord')),
         }
 
-    def bind(self, lighting_state):
+    def bind(self, lighting_state, mvp=None, normal_matrix=None):
         glUseProgram(self.program)
         glUniform1i(self._uniforms['texture'], 0)
         self._set_vec3('global_color', lighting_state['global_color'])
@@ -177,7 +177,17 @@ class SC4LightingProgram:
             float(lighting_state['terrain_shadow_amount']),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
-        self._upload_matrices()
+        if mvp is None:
+            self._upload_matrices()
+        else:
+            self._upload_explicit_matrices(mvp, normal_matrix)
+
+    def _upload_explicit_matrices(self, mvp, normal_matrix):
+        """Upload caller-computed math matrices (row-major -> transpose=GL_TRUE)."""
+        mvp = numpy.ascontiguousarray(mvp, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_TRUE, mvp)
+        normal_matrix = numpy.ascontiguousarray(normal_matrix, dtype=numpy.float32)
+        glUniformMatrix3fv(self._uniforms['normal_matrix'], 1, GL_TRUE, normal_matrix)
 
     def _upload_matrices(self):
         """Snapshot the current fixed-function MVP and push it as a uniform.

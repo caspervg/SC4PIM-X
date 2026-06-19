@@ -25,17 +25,16 @@ from OpenGL.GL import (
     glEnable,
     glEnd,
     glLoadIdentity,
+    glLoadMatrixf,
     glMatrixMode,
     glOrtho,
     glPolygonMode,
-    glRotatef,
-    glScalef,
     glShadeModel,
-    glTranslate,
     glVertex3f,
     glViewport,
 )
 
+from . import SC4Matrix
 from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram
 from .S3DTexturesHolder import S3DTexturesHolder
 from .SC4OpenGL import rotate_around_x, rotate_around_y
@@ -158,10 +157,6 @@ class S3DViewer(object):
             self.posx = (maxX + minX) / 2.0
             self.posy = (maxY + minY) / 2.0
             self.posz = maxZ
-            maxX = diff / 2.0
-            minX = -diff / 2.0
-            maxY = diff / 2.0
-            minY = -diff / 2.0
             self.size = self.openGLCanvas.GetClientSize()
             w, h = self.openGLCanvas.GetPhysicalSize()
             if w > h:
@@ -169,7 +164,7 @@ class S3DViewer(object):
             if h > w:
                 h = w
             glViewport(0, 0, w, h)
-            glOrtho(minX, maxX, minY, maxY, 40000, -40000)
+            proj_l, proj_r, proj_b, proj_t = -diff / 2.0, diff / 2.0, -diff / 2.0, diff / 2.0
         else:
             if self.zoom == 4 or self.zoom == 3:
                 angleX = 45
@@ -184,23 +179,30 @@ class S3DViewer(object):
             valW = w * 20.0 / 400.0
             valH = h * 20.0 / 400.0
             glViewport(0, 0, w, h)
-            glOrtho(-valW, valW, -valH, valH, 40000, -40000)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
+            proj_l, proj_r, proj_b, proj_t = -valW, valW, -valH, valH
         self.rx = self.angle_mul * angleX
         self.ry = -22.5 + self.pre_angle
         self.rz = 0
-        glScalef(1, 1, -1)
+        mv = SC4Matrix.scale(1, 1, -1)
         if not self.use_best_fit:
             scaling = S3DViewer.zoomScale[self.zoom]
-            glScalef(scaling, scaling, scaling)
+            mv = mv @ SC4Matrix.scale(scaling, scaling, scaling)
             self.posx -= self.openGLCanvas.dx * 0.25
             self.posy += self.openGLCanvas.dy * 0.25
             self.openGLCanvas.dx = 0
             self.openGLCanvas.dy = 0
-        glTranslate(-self.posx, -self.posy, -self.posz)
-        glRotatef(self.rx, 1.0, 0.0, 0.0)
-        glRotatef(self.ry, 0.0, 1.0, 0.0)
+        mv = mv @ SC4Matrix.translate(-self.posx, -self.posy, -self.posz)
+        mv = mv @ SC4Matrix.rotate_x(self.rx)
+        mv = mv @ SC4Matrix.rotate_y(self.ry)
+        proj = SC4Matrix.ortho(proj_l, proj_r, proj_b, proj_t, 40000, -40000)
+        # One source of truth: the FF stack (legacy axis/bbox draws below still
+        # read it) and the shader are fed from the same numpy matrices.
+        glMatrixMode(GL_PROJECTION)
+        glLoadMatrixf(SC4Matrix.gl_columns(proj))
+        glMatrixMode(GL_MODELVIEW)
+        glLoadMatrixf(SC4Matrix.gl_columns(mv))
+        self._model_mvp = proj @ mv
+        self._model_normal = SC4Matrix.normal_matrix(mv)
         self._update_lighting_state()
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         glDisable(GL_TEXTURE_2D)
@@ -250,7 +252,8 @@ class S3DViewer(object):
             glEnd()
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glEnable(GL_TEXTURE_2D)
-        self.s3d_mesh.draw(self.s3d_textures_holder, self.shader_program, self.lighting_state)
+        self.s3d_mesh.draw(self.s3d_textures_holder, self.shader_program, self.lighting_state,
+                           mvp=self._model_mvp, normal_matrix=self._model_normal)
         self.openGLCanvas.SwapBuffers()
         return
 
