@@ -1997,7 +1997,7 @@ class NoteBookPanel(wx.Panel):
 
             lst2 = [[CohortName(c), c] for c in self.virtual_dat.cohorts]
 
-            lst2.sort(functools.cmp_to_key(basic_cmp))
+            lst2.sort(key=functools.cmp_to_key(basic_cmp))
             lst = lst + lst2
             dlg = wx.SingleChoiceDialog(self, chooseParentCohortMsg, appTitle, [l[0] for l in lst])
             if dlg.ShowModal() == wx.ID_OK:
