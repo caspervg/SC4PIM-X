@@ -11178,7 +11178,7 @@ This selection will filter the display to only show Manufacturing Industry W2W p
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="(I-m) Manufacturing Industry Out W2W" ID="0x6c7e983e" ParentID="0xee28b711">
+<CATEGORY Name="(I-m) Manufacturing Industry Out W2W" ID="0xe5054011" ParentID="0xee28b711">
 <HELP>
 This selection will filter the display to only show Manufacturing Industry plug-ins.  To create a Manufacturing Industry plug-in drag a model to this category.
 </HELP>
@@ -14392,7 +14392,7 @@ This selection will filter the display to only show Landing Strip plug-ins.
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="Small Landing Strip" ID="0x0c8fbd21" ParentID="0x0c8fbd20">
+<CATEGORY Name="Small Landing Strip" ID="0x48dd2c20" ParentID="0x0c8fbd20">
 <HELP>
 This selection will filter the display to only show Small Landing Strip plug-ins.  To create an Airport plug-in drag a model to this category. In the lot editor this plug-in building can be found by choosing and replacing the building on PZ4x16_AirportLandingStrip3.
 </HELP>
@@ -14419,7 +14419,7 @@ This selection will filter the display to only show Small Landing Strip plug-ins
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="Medium Landing Strip" ID="0x0c8fbd22" ParentID="0x0c8fbd20">
+<CATEGORY Name="Medium Landing Strip" ID="0x07d73960" ParentID="0x0c8fbd20">
 <HELP>
 This selection will filter the display to only show Medium Landing Strip plug-ins.  To create an Airport plug-in drag a model to this category. In the lot editor this plug-in building can be found by choosing and replacing the building on PZ4x16_AirportLandingStrip3.
 </HELP>
@@ -14445,7 +14445,7 @@ This selection will filter the display to only show Medium Landing Strip plug-in
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="Large Landing Strip" ID="0x0c8fbd23" ParentID="0x0c8fbd20">
+<CATEGORY Name="Large Landing Strip" ID="0x4609d1e8" ParentID="0x0c8fbd20">
 <HELP>
 This selection will filter the display to only show Large Landing Strip plug-ins.  To create an Airport plug-in drag a model to this category. In the lot editor this plug-in building can be found by choosing and replacing the building on PZ4x16_AirportLandingStrip3.
 </HELP>
@@ -14485,7 +14485,7 @@ This selection will filter the display to only show Municipal Airport plug-ins.
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="Airport - Size 1" ID="0x0c8fbd31" ParentID="0x0c8fbd30">
+<CATEGORY Name="Airport - Size 1" ID="0x7ff36953" ParentID="0x0c8fbd30">
 <HELP>
 This selection will filter the display to only show Small Municipal Airport plug-ins.  To create an Airport plug-in drag a model to this category. In the lot editor this plug-in building can be found by choosing and replacing the building on PZ4x16_AirportLandingStrip3.
 </HELP>
@@ -17008,7 +17008,7 @@ This selection will filter the display to only show $ Building as Prop plug-ins.
 </PROPERTIES>
 </CATEGORY>
 
-<CATEGORY Name="No Wealth" ID="0x1c8fbd65" ParentID="0x0c8fbd25">
+<CATEGORY Name="No Wealth" ID="0x3224b476" ParentID="0x0c8fbd25">
 <HELP>
 This selection will filter the display to only show Other Building as Prop plug-ins.  To create an Other Building as Prop plug-in drag a model to this category. In the lot editor this plug-in Prop can be found by choosing add a prop to a lot.
 </HELP>
@@ -18694,7 +18694,7 @@ This selection will filter the display to only show lots plug-ins.
 </FILTERS>
 </CATEGORY>
 
-<CATEGORY Name="All others" ID="0xC96D2137" ParentID="0x0c85bd24">
+<CATEGORY Name="All others" ID="0xd897c110" ParentID="0x0c85bd24">
 <HELP>
 This selection will filter the display to only show lots plug-ins.
 </HELP>
@@ -18836,7 +18836,7 @@ This selection will filter the display to only show lots plug-ins.
 <STAGEvsDENSITY purpose="CS" wealth="0" ratio="16,28,40.6,53.4,67.3,84.7,107,135,169,214,269,339,427,538" baseTex="0x26353000"/>
 <STAGEvsDENSITY purpose="CS" wealth="1" ratio="8,14,20.3,26.7,33.6,42.4,53.4,67.3,84.7,107,135,169,214,269" baseTex="0x262f3000"/>
 <STAGEvsDENSITY purpose="CS" wealth="2" ratio="4,7,10.2,13.3,16.8,21.2,26.7,33.6,42.4,53.4,67.3,84.7,107,135" baseTex="0x262e3000"/>
-    <STAGEvsDENSITY purpose="IR" wealth="0" ratio="7.5,12.2,19.1,28.9,42.1,59.4,80.9,106,135" baseTex="0x25db0000" />
+<STAGEvsDENSITY purpose="IR" wealth="0" ratio="16,32,60,100,135,169,214,269,328" baseTex="0x25db0000" />
 <STAGEvsDENSITY purpose="ID" wealth="1" ratio="5,8.1,12.7,19.2,28.1,39.6,53.9,70.9,90" baseTex="0x25fb1000"/>
 <STAGEvsDENSITY purpose="IM" wealth="1" ratio="6.3,10.2,15.9,24,35.1,49.5,67.4,88.6,112.5" baseTex="0x25fb1100"/>
 <STAGEvsDENSITY purpose="IHT" wealth="2" ratio="7.5,12.2,19.1,28.9,42.1,59.4,80.9,106,135" baseTex="0x258d1000"/>
