@@ -1553,6 +1553,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
         self.thumb_slider.Bind(wx.EVT_SLIDER, self.OnThumbSize)
         self._debounce = None
+        self._destroyed = False
+        self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
         self.search.SetValue(str(settings.get('AssetSearch', '')))
         compact = bool(settings.get('AssetCompact', False))
         self.presentation.SetValue(compact)
@@ -1601,9 +1603,19 @@ class LEAssetBrowserPanel(wx.Panel):
         self.RefreshAssets()
 
     def OnSearch(self, event):
+        if self._destroyed:
+            return
         if self._debounce:
             self._debounce.Stop()
         self._debounce = wx.CallLater(120, self.ApplyFilters)
+
+    def OnDestroy(self, event):
+        if event.GetEventObject() is self:
+            self._destroyed = True
+            if self._debounce:
+                self._debounce.Stop()
+                self._debounce = None
+        event.Skip()
 
     def OnFilter(self, event):
         labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families']
@@ -1751,6 +1763,8 @@ class LEAssetBrowserPanel(wx.Panel):
         return False
 
     def ApplyFilters(self):
+        if self._destroyed:
+            return
         text = self.search.GetValue().strip().lower()
         filtered = []
         for item in self.all_items:
