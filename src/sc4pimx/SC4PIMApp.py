@@ -46,6 +46,25 @@ offsetGID = [
 _preload_config_result = None
 _faulthandler_file = None
 
+_PLOP_LOT_SEAPORT_CATEGORY = 0xCCB2391F
+_PLOP_LOT_AIRPORT_CATEGORY = 0x0C8FBD1C
+_PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
+_PLOP_LOT_SEAPORT_STAGES = tuple(
+    (_PLOP_LOT_SEAPORT_CATEGORY + stage + 1, stage) for stage in range(1, 16)
+)
+_PLOP_LOT_MUNICIPAL_AIRPORT_STAGES = (
+    (0x7FF36953, 1),
+    *((_PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY + stage, stage) for stage in range(2, 16)),
+)
+_PLOP_LOT_AIRPORT_STAGES = (
+    (0x0C8FBD21, 1),
+    (0x0C8FBD22, 2),
+    (0x0C8FBD23, 3),
+    (0x0C8FBD47, 1),
+    (0x0C8FBD49, 2),
+    (0x0C8FBD4C, 3),
+)
+
 
 def _env_true(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -56,6 +75,29 @@ def _exit_after(stage):
     if target and target == stage:
         logger.debug('exit after %s', stage)
         sys.exit(0)
+
+
+def _plop_lot_configuration(category_matches):
+    """Return the stage, zone type, and wealth types for a new ploppable lot."""
+    if category_matches(_PLOP_LOT_SEAPORT_CATEGORY):
+        stage_categories = _PLOP_LOT_SEAPORT_STAGES
+        zoning = 12
+        wealth_types = (0,)
+    elif category_matches(_PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY):
+        stage_categories = _PLOP_LOT_MUNICIPAL_AIRPORT_STAGES
+        zoning = 11
+        wealth_types = (1, 2, 3)
+    elif category_matches(_PLOP_LOT_AIRPORT_CATEGORY):
+        stage_categories = _PLOP_LOT_AIRPORT_STAGES
+        zoning = 11
+        wealth_types = (1, 2, 3)
+    else:
+        stage_categories = ()
+        zoning = 15
+        wealth_types = (0,)
+
+    stage = next((value for category_id, value in stage_categories if category_matches(category_id)), 255)
+    return stage, zoning, wealth_types
 
 
 def build_category_props_for_preset(virtual_dat, exemplar, category, scope, emit_prop_ids=None):
@@ -2990,235 +3032,227 @@ class NoteBookPanel(wx.Panel):
 
     def OnCreatePlopLot(self, event):
         dlg = LotCreatorDlg(self, self.exemplar, self.virtual_dat, False)
-        if dlg.ShowModal() == wx.ID_OK:
-            init = datetime.datetime(2005, 5, 5, 21, 24, 15)
-            today = datetime.datetime.today()
-            dt = today - init
-            dt = dt.days * 24 * 3600 + dt.seconds
-            first = random.randrange(0, 15)
-            IID = first * 268435456 + (dt & 268435455)
-            fileNameBase = 'PLOP_%sx%s_%s' % (dlg.widthCtrl.GetValue(), dlg.depthCtrl.GetValue(),
-                                              self.exemplar.GetProp(32)[0])
-            buffer = struct.pack('III', 1697917002, 2835075954, IID)
-            buffer += struct.pack('II', 0, 0)
-            entry = SC4Entry(buffer, 0,
-                             os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
-            props = []
-            props.append(CreateAProp(self.virtual_dat.properties[16], (16,)))
-            props.append(CreateAPropFromString(self.virtual_dat.properties[32], str(fileNameBase)))
-            if IsFromCategory(self.virtual_dat.categories[3434232095], self.exemplar):
-                bFound = False
-                for stage in range(1, 16):
-                    if IsFromCategory(self.virtual_dat.categories[3434232096 + stage], self.exemplar):
-                        props.append(CreateAProp(self.virtual_dat.properties[662775863], (stage,)))
-                        bFound = True
-                        break
-
-                bFound or props.append(CreateAProp(self.virtual_dat.properties[662775863], (255,)))
-        else:
+        if dlg.ShowModal() != wx.ID_OK:
             dlg.Destroy()
             return
-        if IsFromCategory(self.virtual_dat.categories[210746672], self.exemplar):
-            bFound = False
-            for stage in range(1, 16):
-                if IsFromCategory(self.virtual_dat.categories[210746672 + stage], self.exemplar):
-                    props.append(CreateAProp(self.virtual_dat.properties[662775863], (stage,)))
-                    bFound = True
-                    break
 
-            if not bFound:
-                props.append(CreateAProp(self.virtual_dat.properties[662775863], (255,)))
-        else:
-            if IsFromCategory(self.virtual_dat.categories[210746652], self.exemplar):
-                stages = {210746657: 1, 210746658: 2, 210746659: 3, 210746695: 1, 210746697: 2, 210746700: 3}
-                bFound = False
-                for catID, stage in stages.items():
-                    if IsFromCategory(self.virtual_dat.categories[catID], self.exemplar):
-                        props.append(CreateAProp(self.virtual_dat.properties[662775863], (stage,)))
-                        bFound = True
-                        break
+        init = datetime.datetime(2005, 5, 5, 21, 24, 15)
+        today = datetime.datetime.today()
+        dt = today - init
+        dt = dt.days * 24 * 3600 + dt.seconds
+        first = random.randrange(0, 15)
+        IID = first * 268435456 + (dt & 268435455)
+        lotwidth = int(dlg.widthCtrl.GetValue())
+        lotdepth = int(dlg.depthCtrl.GetValue())
+        fileNameBase = 'PLOP_%sx%s_%s' % (lotwidth, lotdepth, self.exemplar.GetProp(32)[0])
+        fileName = os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID))
 
-                if not bFound:
-                    props.append(CreateAProp(self.virtual_dat.properties[662775863], (255,)))
-            else:
-                props.append(CreateAProp(self.virtual_dat.properties[662775863], (255,)))
-            props.append(CreateAProp(self.virtual_dat.properties[1246398704], (8,)))
-            props.append(CreateAProp(self.virtual_dat.properties[2297284489], (2,)))
-            props.append(CreateAProp(self.virtual_dat.properties[2297284496],
-                                     (int(dlg.widthCtrl.GetValue()), int(dlg.depthCtrl.GetValue()))))
-            if IsFromCategory(self.virtual_dat.categories[210746652], self.exemplar):
-                props.append(CreateAProp(self.virtual_dat.properties[2297284499], (11,)))
-            else:
-                if IsFromCategory(self.virtual_dat.categories[3434232095], self.exemplar):
-                    props.append(CreateAProp(self.virtual_dat.properties[2297284499], (12,)))
-                else:
-                    props.append(CreateAProp(self.virtual_dat.properties[2297284499], (15,)))
-                props.append(CreateAProp(self.virtual_dat.properties[2297284501], (0,)))
-                props.append(CreateAProp(self.virtual_dat.properties[2297284502], (0,)))
-                props.append(CreateAProp(self.virtual_dat.properties[3420603383], (1,)))
-                currentID = 2297284864
-                objID = dt & 16777215
-                lotwidth = int(dlg.widthCtrl.GetValue())
-                lotdepth = int(dlg.depthCtrl.GetValue())
-                buildwidth = (self.exemplar.GetProp(662775824)[0] + 0.3) / 16.0
-                builddepth = (self.exemplar.GetProp(662775824)[2] + 0.3) / 16.0
-                posX = lotwidth / 2.0
-                posY = lotdepth / 2.0
-                xmin = posX - buildwidth / 2.0
-                ymin = posY - builddepth / 2.0
-                xmax = posX + buildwidth / 2.0
-                ymax = posY + builddepth / 2.0
-                posX = int(posX * 1048576)
-                posY = int(posY * 1048576)
-                xmin = int(xmin * 1048576)
-                ymin = int(ymin * 1048576)
-                xmax = int(xmax * 1048576)
-                ymax = int(ymax * 1048576)
-                families = self.exemplar.GetProp(662775920)
-                buildingID = IID
-                if families is not None:
-                    lst = [
-                              lotBuildingChoiceSelf] + ['Family %s' % hex2str(f) for f in families]
-                    dlg1 = wx.SingleChoiceDialog(self, lotBuildingChoiceMsg,
-                                                 lotCreationTitle, lst, wx.CHOICEDLG_STYLE)
-                    if dlg1.ShowModal() == wx.ID_OK:
-                        selected = dlg1.GetStringSelection()
-                        if selected != lotBuildingChoiceSelf:
-                            buildingID = int(selected[7:], 16)
-                        dlg1.Destroy()
-                    else:
-                        return
-                v = [
-                    0, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, objID, buildingID]
-                props.append(CreateAProp(self.virtual_dat.properties[currentID], v))
+        buffer = struct.pack('III', 1697917002, 2835075954, IID)
+        buffer += struct.pack('II', 0, 0)
+        entry = SC4Entry(buffer, 0, fileName)
+
+        def category_matches(category_id):
+            return IsFromCategory(self.virtual_dat.categories[category_id], self.exemplar)
+
+        stage, zoning, wealth_types = _plop_lot_configuration(category_matches)
+
+        props = [
+            CreateAProp(self.virtual_dat.properties[16], (16,)),
+            CreateAPropFromString(self.virtual_dat.properties[32], str(fileNameBase)),
+            CreateAProp(self.virtual_dat.properties[662775863], (stage,)),
+            CreateAProp(self.virtual_dat.properties[1246398704], (8,)),
+            CreateAProp(self.virtual_dat.properties[2297284489], (2,)),
+            CreateAProp(self.virtual_dat.properties[2297284496], (lotwidth, lotdepth)),
+            CreateAProp(self.virtual_dat.properties[2297284499], (zoning,)),
+            CreateAProp(self.virtual_dat.properties[2297284501], wealth_types),
+            CreateAProp(self.virtual_dat.properties[2297284502], (0,)),
+            CreateAProp(self.virtual_dat.properties[3420603383], (1,)),
+        ]
+
+        currentID = 2297284864
+        objID = dt & 16777215
+        buildwidth = (self.exemplar.GetProp(662775824)[0] + 0.3) / 16.0
+        builddepth = (self.exemplar.GetProp(662775824)[2] + 0.3) / 16.0
+        posX = lotwidth / 2.0
+        posY = lotdepth / 2.0
+        xmin = posX - buildwidth / 2.0
+        ymin = posY - builddepth / 2.0
+        xmax = posX + buildwidth / 2.0
+        ymax = posY + builddepth / 2.0
+        posX = int(posX * 1048576)
+        posY = int(posY * 1048576)
+        xmin = int(xmin * 1048576)
+        ymin = int(ymin * 1048576)
+        xmax = int(xmax * 1048576)
+        ymax = int(ymax * 1048576)
+
+        families = self.exemplar.GetProp(662775920)
+        buildingID = IID
+        if families is not None:
+            choices = [lotBuildingChoiceSelf] + ['Family %s' % hex2str(f) for f in families]
+            family_dialog = wx.SingleChoiceDialog(
+                self, lotBuildingChoiceMsg, lotCreationTitle, choices, wx.CHOICEDLG_STYLE
+            )
+            if family_dialog.ShowModal() != wx.ID_OK:
+                family_dialog.Destroy()
+                dlg.Destroy()
+                return
+            selected = family_dialog.GetStringSelection()
+            if selected != lotBuildingChoiceSelf:
+                buildingID = int(selected[7:], 16)
+            family_dialog.Destroy()
+
+        lot_object = [0, 0, 2, posX, 0, posY, xmin, ymin, xmax, ymax, 0, objID, buildingID]
+        props.append(CreateAProp(self.virtual_dat.properties[currentID], lot_object))
+        currentID += 1
+        objID += 1
+
+        baseTex = self.virtual_dat.baseTex[('None', 0)]
+        for h in range(lotdepth):
+            for w in range(lotwidth):
+                lot_object = [
+                    2, 0, 0, w * 1048576 + 524288, 0, h * 1048576 + 524288,
+                    w * 1048576, h * 1048576, (w + 1) * 1048576, (h + 1) * 1048576,
+                    0, objID, baseTex,
+                ]
+                props.append(CreateAProp(self.virtual_dat.properties[currentID], lot_object))
                 currentID += 1
                 objID += 1
-                baseTex = self.virtual_dat.baseTex[('None', 0)]
-                for h in range(0, lotdepth):
-                    for w in range(0, lotwidth):
-                        v = [
-                            2, 0, 0, w * 1048576 + 524288, 0, h * 1048576 + 524288, w * 1048576, h * 1048576,
-                                     (w + 1) * 1048576, (h + 1) * 1048576, 0, objID, baseTex]
-                        props.append(CreateAProp(self.virtual_dat.properties[currentID], v))
-                        currentID += 1
-                        objID += 1
 
-                LotSizeX = lotwidth
-                LotSizeY = lotdepth
-                Width = self.exemplar.GetProp(662775824)[0]
-                Depth = self.exemplar.GetProp(662775824)[2]
-                Height = self.exemplar.GetProp(662775824)[1]
-                MaxSlopeBeforeLotFoundation = eval(self.virtual_dat.MaxSlopeBeforeLotFoundation)
-                MaxSlopeAllowed = eval(self.virtual_dat.MaxSlopeAllowed)
-                if IsFromCategory(self.virtual_dat.categories[3434232095], self.exemplar):
-                    MaxSlopeBeforeLotFoundation = 0
-            props.append(CreateAProp(self.virtual_dat.properties[1771767972], (0.0,)))
-            props.append(CreateAProp(self.virtual_dat.properties[2297284498], (MaxSlopeBeforeLotFoundation,)))
-            props.append(CreateAProp(self.virtual_dat.properties[2297284504], (3379372341,)))
-            props.append(CreateAProp(self.virtual_dat.properties[2298271863], (2299228948,)))
-            props.append(CreateAProp(self.virtual_dat.properties[3919251084], (MaxSlopeAllowed,)))
-            props.sort(key=functools.cmp_to_key(lambda x, y: basic_cmp(x[2:2 + 8], y[2:2 + 8])))
-            buffer = 'EQZT1###\r\n' + 'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n' + 'PropCount=0x%08x\r\n' % len(
-                props)
-            buffer += '\r\n'.join(props)
-            entry.content = entry.rawContent = buffer
-            exemplar = SC4Exemplar(entry, self.virtual_dat)
-            exemplar.entry = entry
-            entry.exemplar = exemplar
-            descriptor = LotDesc(entry)
-            LotID = IID
-            copiedExamplarBuffer = self.exemplar.Rep()
-            buffer = struct.pack('III', 1697917002, self.exemplar.entry.tgi[1], IID)
-            buffer += struct.pack('II', 0, 0)
-            descEntry = SC4Entry(buffer, 0,
-                                 os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
-            descEntry.content = descEntry.rawContent = copiedExamplarBuffer
-            descExamplar = SC4Exemplar(descEntry, self.virtual_dat)
-            descExamplar.entry = descEntry
-            descEntry.exemplar = descExamplar
-            descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[1787239298], (IID,)))
-            descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[2317746872], (IID,)))
-            descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[3928360329], (IID,)))
-            descEntry.exemplar.Maj()
-            descDescriptor = BuildingDesc(descEntry)
-            self.virtual_dat.addEntries([descEntry], None, False, False)
-            self.parent.parent.tree.Recategorize(descDescriptor, False)
-            frame = LotEditorWin(self, -1, 'LotPreview ' + descriptor.name, size=(800,
-                                                                                  800))
-            frame.Display(entry.exemplar, self.virtual_dat, True)
-            frame.Show()
-            frame.on_draw()
-            frame.on_draw()
-            image = frame.Save()
-            iconImage = SC4IconMakerDlg.compose_lot_icon(image)
-            cIO = io.BytesIO()
-            iconImage.save(cIO, 'PNG')
-            strIcon = cIO.getvalue()
-            buffer = struct.pack('III', 2238569388, 1782082854, IID)
-            buffer += struct.pack('II', 0, len(strIcon))
-            iconEntry = SC4Entry(buffer, 0,
-                                 os.path.join(self.parent.parent.rootFolder, '%s_%08x.SC4Lot' % (fileNameBase, IID)))
-            iconEntry.content = iconEntry.rawContent = strIcon[:]
-            cIO.close()
-            entries = [entry, descEntry, iconEntry]
-            UVNK = self.exemplar.GetProp(2319542937)
-            if UVNK is not None:
-                if UVNK[0] == 539399691:
-                    descExamplar.AddTextProp(CreateAProp(self.virtual_dat.properties[2319542937],
-                                                         (UVNK[0], 1782082854, descExamplar.entry.tgi[2])))
-                    uvnks = [self.virtual_dat.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID]
-                    for i, uvnk in enumerate(uvnks):
-                        if uvnk is not None:
-                            uvnk.read_file(None, True, True)
-                            try:
-                                utxt = decode_sc4_text(uvnk.content[4:])
-                            except UnicodeDecodeError:
-                                utxt = uvnk.content.decode('utf-8', errors='replace')
+        occupant_size = self.exemplar.GetProp(662775824)
+        slope_scope = {
+            'LotSizeX': lotwidth,
+            'LotSizeY': lotdepth,
+            'Width': occupant_size[0],
+            'Depth': occupant_size[2],
+            'Height': occupant_size[1],
+        }
+        MaxSlopeBeforeLotFoundation = eval(
+            self.virtual_dat.MaxSlopeBeforeLotFoundation, globals(), slope_scope
+        )
+        MaxSlopeAllowed = eval(self.virtual_dat.MaxSlopeAllowed, globals(), slope_scope)
+        if category_matches(_PLOP_LOT_SEAPORT_CATEGORY):
+            MaxSlopeBeforeLotFoundation = 0
 
-                            uvnk.content = uvnk.rawContent = None
-                            ltextEnt = self.DuplicateLTEXTEntry(descEntry.exemplar, utxt, 539399691,
-                                                                1782082854 + uvnk.tgi[1] - UVNK[1],
-                                                                descExamplar.entry.tgi[2])
-                            entries.append(ltextEnt)
+        props.extend([
+            CreateAProp(self.virtual_dat.properties[1771767972], (0.0,)),
+            CreateAProp(self.virtual_dat.properties[2297284498], (MaxSlopeBeforeLotFoundation,)),
+            CreateAProp(self.virtual_dat.properties[2297284504], (3379372341,)),
+            CreateAProp(self.virtual_dat.properties[2298271863], (2299228948,)),
+            CreateAProp(self.virtual_dat.properties[3919251084], (MaxSlopeAllowed,)),
+        ])
+        props.sort(key=functools.cmp_to_key(lambda x, y: basic_cmp(x[2:2 + 8], y[2:2 + 8])))
+        buffer = (
+            'EQZT1###\r\n'
+            'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n'
+            'PropCount=0x%08x\r\n' % len(props)
+        )
+        buffer += '\r\n'.join(props)
+        entry.content = entry.rawContent = buffer
+        exemplar = SC4Exemplar(entry, self.virtual_dat)
+        exemplar.entry = entry
+        entry.exemplar = exemplar
+        descriptor = LotDesc(entry)
 
-                IDK = self.exemplar.GetProp(3393284789)
-                if IDK is not None:
-                    descExamplar.AddTextProp(CreateAProp(self.virtual_dat.properties[3393284789],
-                                                         (IDK[0], descExamplar.entry.tgi[1],
-                                                          descExamplar.entry.tgi[2])))
-                    idks = [self.virtual_dat.getEntry(IDK[0], v[1] + i, IDK[2]) for i in offsetGID]
-                    for i, idk in enumerate(idks):
-                        if idk is not None:
-                            idk.read_file(None, True, True)
-                            try:
-                                utxt = decode_sc4_text(idk.content[4:])
-                            except UnicodeDecodeError:
-                                utxt = idk.content.decode('utf-8', errors='replace')
+        copiedExamplarBuffer = self.exemplar.Rep()
+        buffer = struct.pack('III', 1697917002, self.exemplar.entry.tgi[1], IID)
+        buffer += struct.pack('II', 0, 0)
+        descEntry = SC4Entry(buffer, 0, fileName)
+        descEntry.content = descEntry.rawContent = copiedExamplarBuffer
+        descExamplar = SC4Exemplar(descEntry, self.virtual_dat)
+        descExamplar.entry = descEntry
+        descEntry.exemplar = descExamplar
+        descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[1787239298], (IID,)))
+        descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[2317746872], (IID,)))
+        descEntry.exemplar.AddTextProp(CreateAProp(self.virtual_dat.properties[3928360329], (IID,)))
+        descEntry.exemplar.Maj()
+        descDescriptor = BuildingDesc(descEntry)
+        self.virtual_dat.addEntries([descEntry], None, False, False)
+        self.parent.parent.tree.Recategorize(descDescriptor, False)
 
-                            idk.content = idk.rawContent = None
-                            ltextEnt = self.DuplicateLTEXTEntry(descEntry.exemplar, utxt, 539399691,
-                                                                descExamplar.entry.tgi[1] + idk.tgi[1] - IDK[1],
-                                                                descExamplar.entry.tgi[2])
-                            entries.append(ltextEnt)
+        frame = LotEditorWin(self, -1, 'LotPreview ' + descriptor.name, size=(800, 800))
+        frame.Display(entry.exemplar, self.virtual_dat, True)
+        frame.Show()
+        frame.on_draw()
+        frame.on_draw()
+        image = frame.Save()
+        iconImage = SC4IconMakerDlg.compose_lot_icon(image)
+        cIO = io.BytesIO()
+        iconImage.save(cIO, 'PNG')
+        strIcon = cIO.getvalue()
+        buffer = struct.pack('III', 2238569388, 1782082854, IID)
+        buffer += struct.pack('II', 0, len(strIcon))
+        iconEntry = SC4Entry(buffer, 0, fileName)
+        iconEntry.content = iconEntry.rawContent = strIcon[:]
+        cIO.close()
 
-                descEntry.exemplar.Maj()
-                entry.exemplar.Maj()
-                self.virtual_dat.addEntries(entries, None, False, False)
-                self.parent.parent.tree.Recategorize(descriptor, False)
-                virtualDAT = self.virtual_dat
-                parent = self.parent
-                dlg.Destroy()
-                self.parent.CloseCurrentTab()
-                descPage = parent.AddNewDesc(descDescriptor, virtualDAT, False)
-                descPage.OnRebuildProperties(None)
-                descPage.exemplar.Maj()
-                descPage.bSave.Enable(False)
-                descEntry.exemplar.Maj()
-                entry.exemplar.Maj()
-                WriteADat(entry.fileName, entries, None, True)
-                parent.AddNewDesc(descriptor, virtualDAT, False)
-            dlg.Destroy()
-        return
+        entries = [entry, descEntry, iconEntry]
+        UVNK = self.exemplar.GetProp(2319542937)
+        if UVNK is not None and UVNK[0] == 539399691:
+            descExamplar.AddTextProp(CreateAProp(
+                self.virtual_dat.properties[2319542937],
+                (UVNK[0], 1782082854, descExamplar.entry.tgi[2]),
+            ))
+            uvnks = [self.virtual_dat.getEntry(UVNK[0], UVNK[1] + i, UVNK[2]) for i in offsetGID]
+            for uvnk in uvnks:
+                if uvnk is not None:
+                    uvnk.read_file(None, True, True)
+                    try:
+                        utxt = decode_sc4_text(uvnk.content[4:])
+                    except UnicodeDecodeError:
+                        utxt = uvnk.content.decode('utf-8', errors='replace')
+
+                    uvnk.content = uvnk.rawContent = None
+                    ltextEnt = self.DuplicateLTEXTEntry(
+                        descEntry.exemplar,
+                        utxt,
+                        539399691,
+                        1782082854 + uvnk.tgi[1] - UVNK[1],
+                        descExamplar.entry.tgi[2],
+                    )
+                    entries.append(ltextEnt)
+
+        IDK = self.exemplar.GetProp(3393284789)
+        if IDK is not None:
+            descExamplar.AddTextProp(CreateAProp(
+                self.virtual_dat.properties[3393284789],
+                (IDK[0], descExamplar.entry.tgi[1], descExamplar.entry.tgi[2]),
+            ))
+            idks = [self.virtual_dat.getEntry(IDK[0], IDK[1] + i, IDK[2]) for i in offsetGID]
+            for idk in idks:
+                if idk is not None:
+                    idk.read_file(None, True, True)
+                    try:
+                        utxt = decode_sc4_text(idk.content[4:])
+                    except UnicodeDecodeError:
+                        utxt = idk.content.decode('utf-8', errors='replace')
+
+                    idk.content = idk.rawContent = None
+                    ltextEnt = self.DuplicateLTEXTEntry(
+                        descEntry.exemplar,
+                        utxt,
+                        539399691,
+                        descExamplar.entry.tgi[1] + idk.tgi[1] - IDK[1],
+                        descExamplar.entry.tgi[2],
+                    )
+                    entries.append(ltextEnt)
+
+        descEntry.exemplar.Maj()
+        entry.exemplar.Maj()
+        self.virtual_dat.addEntries(entries, None, False, False)
+        self.parent.parent.tree.Recategorize(descriptor, False)
+        virtualDAT = self.virtual_dat
+        parent = self.parent
+        dlg.Destroy()
+        self.parent.CloseCurrentTab()
+        descPage = parent.AddNewDesc(descDescriptor, virtualDAT, False)
+        descPage.OnRebuildProperties(None)
+        descPage.exemplar.Maj()
+        descPage.bSave.Enable(False)
+        descEntry.exemplar.Maj()
+        entry.exemplar.Maj()
+        WriteADat(entry.fileName, entries, None, True)
+        parent.AddNewDesc(descriptor, virtualDAT, False)
 
     def OnCreateLot(self, event):
         dlg = LotCreatorDlg(self, self.exemplar, self.virtual_dat, True)
