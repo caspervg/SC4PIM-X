@@ -49,6 +49,9 @@ _faulthandler_file = None
 _PLOP_LOT_SEAPORT_CATEGORY = 0xCCB2391F
 _PLOP_LOT_AIRPORT_CATEGORY = 0x0C8FBD1C
 _PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
+_GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY = 0x2CAA4E2A
+_GROWABLE_LOT_RCI_CATEGORY = 0xAC8FBB73
+_BUILDING_EXEMPLAR_TYPE = 0x6534284A
 _PLOP_LOT_SEAPORT_STAGES = tuple(
     (_PLOP_LOT_SEAPORT_CATEGORY + stage + 1, stage) for stage in range(1, 16)
 )
@@ -98,6 +101,14 @@ def _plop_lot_configuration(category_matches):
 
     stage = next((value for category_id, value in stage_categories if category_matches(category_id)), 255)
     return stage, zoning, wealth_types
+
+
+def _can_create_growable_lot(category_matches, entry_type):
+    """Return whether a building supports creating a growable lot."""
+    return entry_type == _BUILDING_EXEMPLAR_TYPE and (
+        category_matches(_GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY)
+        or category_matches(_GROWABLE_LOT_RCI_CATEGORY)
+    )
 
 
 def build_category_props_for_preset(virtual_dat, exemplar, category, scope, emit_prop_ids=None):
@@ -2534,11 +2545,9 @@ class NoteBookPanel(wx.Panel):
                 menu.AppendSeparator()
             menu.Append(self.popupID17, popupPropertyMenuItem17)
             menu.Append(self.popupID40, LEXBuildingSubmenuMenuItem)
-            if IsFromCategory(self.virtual_dat.categories[749358634], self.exemplar) and self.exemplar.entry.tgi[
-                0] == 1697917002:
-                menu.Append(self.popupID28, popupPropertyMenuItem28)
-            if IsFromCategory(self.virtual_dat.categories[2895100787], self.exemplar) and self.exemplar.entry.tgi[
-                0] == 1697917002:
+            if _can_create_growable_lot(
+                    lambda category_id: IsFromCategory(self.virtual_dat.categories[category_id], self.exemplar),
+                    self.exemplar.entry.tgi[0]):
                 menu.Append(self.popupID28, popupPropertyMenuItem28)
             if IsFromCategory(self.virtual_dat.categories[3431971885], self.exemplar) and self.exemplar.entry.tgi[
                 0] == 1697917002:
