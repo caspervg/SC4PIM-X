@@ -52,6 +52,8 @@ _PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
 _GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY = 0x2CAA4E2A
 _GROWABLE_LOT_RCI_CATEGORY = 0xAC8FBB73
 _BUILDING_EXEMPLAR_TYPE = 0x6534284A
+_LOT_CONFIG_PROPERTY_FIRST = 0x88EDC900
+_LOT_CONFIG_PROPERTY_LAST = 0x88EDCDFF
 _PLOP_LOT_SEAPORT_STAGES = tuple(
     (_PLOP_LOT_SEAPORT_CATEGORY + stage + 1, stage) for stage in range(1, 16)
 )
@@ -109,6 +111,16 @@ def _can_create_growable_lot(category_matches, entry_type):
         category_matches(_GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY)
         or category_matches(_GROWABLE_LOT_RCI_CATEGORY)
     )
+
+
+def _non_building_lot_object_rows(props, row_offset=3):
+    """Return property-table rows for non-building lot-config objects."""
+    return [
+        row_offset + index
+        for index, prop in enumerate(props)
+        if (_LOT_CONFIG_PROPERTY_FIRST <= prop.id <= _LOT_CONFIG_PROPERTY_LAST
+            and prop.values and prop.values[0] != 0)
+    ]
 
 
 def build_category_props_for_preset(virtual_dat, exemplar, category, scope, emit_prop_ids=None):
@@ -1588,13 +1600,6 @@ class PropListCtrl(ULC.UltimateListCtrl):
             self, parent, -1,
             agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_SHOW_TOOLTIPS)
         self._mono = _monospace_font(self.GetFont())
-        # The default selection highlight (the system accent blue) is rather
-        # loud; blend it toward grey so a selected row reads as selected
-        # without dominating the table.
-        hl = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
-        soft = wx.Colour(*(round(c * 0.6 + 128 * 0.4)
-                           for c in (hl.Red(), hl.Green(), hl.Blue())))
-        self._mainWin._highlightBrush = wx.Brush(soft)
         self.Bind(wx.EVT_SIZE, self._on_size)
 
     def _apply_text(self, info, label):
@@ -1608,6 +1613,12 @@ class PropListCtrl(ULC.UltimateListCtrl):
             info._mask |= ULC.ULC_MASK_TOOLTIP
         else:
             info._text = label
+        # UltimateListCtrl normally forces SYS_COLOUR_HIGHLIGHTTEXT for a
+        # selected row. An explicit per-cell colour is reapplied later by its
+        # report-mode painter, keeping values readable on the pale selection
+        # background without changing how unselected rows are rendered.
+        info.SetTextColour(self.GetForegroundColour())
+        info._mask |= ULC.ULC_MASK_FONTCOLOUR
 
     def InsertItem(self, *args):
         # One arg: native UltimateListCtrl call. Two: wx-style (index, label).
@@ -1727,6 +1738,28 @@ class NoteBookPanel(wx.Panel):
         self.Bind(wx.EVT_SET_FOCUS, self.parent.OnFocus, self.listProperties)
         self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivated, self.listProperties)
         self.listProperties.Bind(wx.EVT_LIST_COL_END_DRAG, self.OnPropColResize)
+        self.selectLotObjectsID = wx.NewIdRef()
+        self.copyPropertiesShortcutID = wx.NewIdRef()
+        self.pastePropertiesShortcutID = wx.NewIdRef()
+        self.deletePropertiesShortcutID = wx.NewIdRef()
+        self.addPropertyShortcutID = wx.NewIdRef()
+        self.Bind(wx.EVT_MENU, self.OnSelectLotObjectsExceptBuilding,
+                  id=self.selectLotObjectsID)
+        self.Bind(wx.EVT_MENU, self.OnShortcutCopyProperties,
+                  id=self.copyPropertiesShortcutID)
+        self.Bind(wx.EVT_MENU, self.OnShortcutPasteProperties,
+                  id=self.pastePropertiesShortcutID)
+        self.Bind(wx.EVT_MENU, self.OnShortcutDeleteProperties,
+                  id=self.deletePropertiesShortcutID)
+        self.Bind(wx.EVT_MENU, self.OnShortcutAddProperty,
+                  id=self.addPropertyShortcutID)
+        self.SetAcceleratorTable(wx.AcceleratorTable([
+            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('A'), int(self.selectLotObjectsID)),
+            (wx.ACCEL_CTRL, ord('C'), int(self.copyPropertiesShortcutID)),
+            (wx.ACCEL_CTRL, ord('V'), int(self.pastePropertiesShortcutID)),
+            (wx.ACCEL_NORMAL, wx.WXK_DELETE, int(self.deletePropertiesShortcutID)),
+            (wx.ACCEL_NORMAL, wx.WXK_INSERT, int(self.addPropertyShortcutID)),
+        ]))
         self.listProperties.DeleteAllItems()
         self.FillTheList()
         box = wx.BoxSizer(wx.VERTICAL)
@@ -2413,6 +2446,9 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
             self.Bind(wx.EVT_MENU, self.OnEditBuildingSubmenus, id=self.popupID40)
         menu = wx.Menu()
+        if self.exemplar.GetProp(16)[0] == 16:
+            menu.Append(self.selectLotObjectsID, popupPropertyMenuSelectLotObjects)
+            menu.AppendSeparator()
         if bAdvancedUser:
             menu.Append(self.popupID1, popupPropertyMenuItem1)
             menu.Append(self.popupID2, popupPropertyMenuItem2)
@@ -2632,6 +2668,39 @@ class NoteBookPanel(wx.Panel):
         self.PopupMenu(menu)
         menu.Destroy()
         return
+
+    def OnSelectLotObjectsExceptBuilding(self, event):
+        """Select every lot-config object row except the type-0 building."""
+        if self.exemplar.GetProp(16)[0] != 16:
+            return
+        rows = _non_building_lot_object_rows(self.exemplar.props)
+        self.listProperties.Freeze()
+        try:
+            for row in range(self.listProperties.GetItemCount()):
+                self.listProperties.Select(row, False)
+            for row in rows:
+                self.listProperties.Select(row)
+            if rows:
+                self.listProperties.Focus(rows[0])
+        finally:
+            self.listProperties.Thaw()
+        self.listProperties.SetFocus()
+
+    def OnShortcutCopyProperties(self, event):
+        if bAdvancedUser or self.SelectedPropForNonAdvanced():
+            self.OnCopy(event)
+
+    def OnShortcutPasteProperties(self, event):
+        if bAdvancedUser or self.parent.clipboard:
+            self.OnPaste(event)
+
+    def OnShortcutDeleteProperties(self, event):
+        if bAdvancedUser or self.SelectedPropForNonAdvanced():
+            self.OnDelete(event)
+
+    def OnShortcutAddProperty(self, event):
+        if bAdvancedUser:
+            self.OnAddProperty(event)
 
     def OnEditTransitSwitches(self, event):
         from . import SC4TransitPresets as _tp
