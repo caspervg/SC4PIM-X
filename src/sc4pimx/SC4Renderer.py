@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy
 from OpenGL.GL import (
     GL_ARRAY_BUFFER,
+    GL_BLEND,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_ATTACHMENT0,
     GL_COLOR_BUFFER_BIT,
@@ -36,6 +37,7 @@ from OpenGL.GL import (
     GL_MAX_SAMPLES,
     GL_NEAREST,
     GL_NEAREST_MIPMAP_NEAREST,
+    GL_ONE_MINUS_SRC_ALPHA,
     GL_PACK_ALIGNMENT,
     GL_R8,
     GL_READ_FRAMEBUFFER,
@@ -47,6 +49,7 @@ from OpenGL.GL import (
     GL_RGBA8,
     GL_SRGB8,
     GL_SRGB8_ALPHA8,
+    GL_SRC_ALPHA,
     GL_TEXTURE0,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -66,6 +69,7 @@ from OpenGL.GL import (
     glBindSampler,
     glBindTexture,
     glBindVertexArray,
+    glBlendFunc,
     glBlitFramebuffer,
     glBufferData,
     glBufferSubData,
@@ -77,8 +81,11 @@ from OpenGL.GL import (
     glDeleteSamplers,
     glDeleteTextures,
     glDeleteVertexArrays,
+    glDisable,
     glDrawArrays,
+    glEnable,
     glEnableVertexAttribArray,
+    glIsEnabled,
     glFramebufferRenderbuffer,
     glFramebufferTexture2D,
     glGenBuffers,
@@ -535,7 +542,9 @@ class PrimitiveRenderer:
         if self._font_texture is not None:
             return
         chars = "".join(chr(value) for value in range(32, 127))
-        cell_w, cell_h, columns = 12, 18, 16
+        # Cells must be wide enough for the widest glyph at this font size or
+        # capitals like 'W'/'N' get clipped on the right edge.
+        cell_w, cell_h, columns = 16, 18, 16
         rows = math.ceil(len(chars) / columns)
         image = Image.new("L", (columns * cell_w, rows * cell_h), 0)
         draw = ImageDraw.Draw(image)
@@ -556,13 +565,21 @@ class PrimitiveRenderer:
         self._font_glyphs = glyphs
 
     def text(self, x, y, text, mvp, *, color=(1.0, 1.0, 1.0, 1.0),
-             scale=0.12, rotation=0.0, z=0.0):
+             scale=0.12, rotation=0.0, z=0.0, flip_y=False):
+        """Draw a text string from the glyph atlas.
+
+        ``flip_y`` mirrors the glyph vertically, which keeps text upright when
+        the caller's model matrix negates Y (as the 2D lot view does). It flips
+        the texture coordinates rather than the geometry so glyph rotation and
+        advance are unaffected.
+        """
         self._ensure_font_atlas()
         positions = []
         uvs = []
         cursor = 0.0
         c, s = math.cos(math.radians(rotation)), math.sin(math.radians(rotation))
-        glyph_w, glyph_h = 8.0 * scale, 12.0 * scale
+        # Cell aspect (16:18) so glyphs aren't horizontally squashed.
+        glyph_w, glyph_h = 10.6 * scale, 12.0 * scale
         for char in str(text):
             u0, v0, u1, v1 = self._font_glyphs.get(char, self._font_glyphs["?"])
             local = (
@@ -574,14 +591,25 @@ class PrimitiveRenderer:
                 quad.append((x + px * c - py * s, y + px * s + py * c, z))
             order = (0, 1, 2, 0, 2, 3)
             positions.extend(quad[index] for index in order)
-            glyph_uvs = ((u0, v1), (u1, v1), (u1, v0), (u0, v0))
+            if flip_y:
+                glyph_uvs = ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
+            else:
+                glyph_uvs = ((u0, v1), (u1, v1), (u1, v0), (u0, v0))
             uvs.extend(glyph_uvs[index] for index in order)
-            cursor += glyph_w * 0.82
+            cursor += glyph_w * 0.78
         sampler = self.samplers.get(GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE)
+        # Glyphs are an alpha mask (texture_mode 2); without blending the quad
+        # fills solid with the text colour (the "yellow box" bug). Enable alpha
+        # blending for the draw and restore the caller's prior blend state.
+        was_blend = bool(glIsEnabled(GL_BLEND))
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         self.draw(
             GL_TRIANGLES, positions, mvp, color=color, uvs=uvs,
             texture=self._font_texture, sampler=sampler, texture_mode=2,
         )
+        if not was_blend:
+            glDisable(GL_BLEND)
 
     def release_gl(self):
         if self._font_texture:

@@ -547,7 +547,7 @@ def draw_transit_overlay(editor, tex_data, active, rot2d, scaling):
     if active or selected:
         primitives.text(
             minx + 3, miny + 10, network_short_label(network), render.mvp,
-            color=(1, 1, 1, 1), scale=0.12, rotation=-rot2d,
+            color=(1, 1, 1, 1), scale=0.12, rotation=-rot2d, flip_y=True,
         )
 
 

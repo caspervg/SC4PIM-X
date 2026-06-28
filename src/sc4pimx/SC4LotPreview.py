@@ -3136,12 +3136,14 @@ class LotEditorWin(wx.Frame):
             (LEXFacingEast, x + margin, -1.0),
             (LEXFacingWest, -x - margin, -1.0),
         ):
-            self._draw_text(lx, ly, label, rot2D, color=(1.0, 0.85, 0.2, 1.0))
+            self._draw_text(lx, ly, label, rot2D, color=(1.0, 0.85, 0.2, 1.0), scale=0.3)
 
-    def _draw_text(self, x, y, text, rot2D, color=(1.0, 1.0, 1.0, 1.0)):
+    def _draw_text(self, x, y, text, rot2D, color=(1.0, 1.0, 1.0, 1.0), scale=0.18):
+        # flip_y keeps text upright: the 2D model matrix negates Y (see Draw2D),
+        # which would otherwise render every glyph vertically mirrored.
         self.glCanvas2D.renderer.primitives.text(
             x, y, text, self._render_context.mvp,
-            color=color, scale=0.12, rotation=-rot2D,
+            color=color, scale=scale, rotation=-rot2D, flip_y=True,
         )
 
     def DrawBackGround2(self, x=0, y=0):
