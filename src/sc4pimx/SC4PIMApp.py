@@ -53,6 +53,9 @@ _PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
 _GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY = 0x2CAA4E2A
 _GROWABLE_LOT_RCI_CATEGORY = 0xAC8FBB73
 _BUILDING_EXEMPLAR_TYPE = 0x6534284A
+# Safety cap on animated-prop GIF length (frames). Vanilla ATCs sit well under
+# this; the cap just bounds file size/time for a pathological frame count.
+_ATC_GIF_MAX_FRAMES = 120
 _LOT_CONFIG_PROPERTY_FIRST = 0x88EDC900
 _LOT_CONFIG_PROPERTY_LAST = 0x88EDCDFF
 _PLOP_LOT_SEAPORT_STAGES = tuple(
@@ -5421,38 +5424,75 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
     finally:
         fsh_entry.content = None
         fsh_entry.rawContent = None
-    # Each animation frame is tiled within an FSH layer, and frame 0 of the
-    # chosen view lives on a specific layer -- the AVP chunk's "plane". decodeFSH
-    # returns every equal-sized layer concatenated, so slice out the plane's
-    # layer rather than always using layer 0. The live renderer does the same
-    # (ATCReader.draw_le feeds the chunk plane to SetCurrentTex as the GL layer).
-    # Cropping a fixed layer 0 with a higher-zoom frame size (w/h) is what tiled
-    # several grid cells into one image -- the "whole framesheet" thumbnail.
-    layer = plane if 0 <= plane < nbrLayers else 0
     layer_pixels = size[0] * size[1]
-    rgb_start = layer * layer_pixels * 3
-    pil = Image.frombytes('RGB', size, img[rgb_start:rgb_start + layer_pixels * 3])
-    if trueAlpha:
-        # Match the mid-gray background of S3D thumbnails (rendered against
-        # glClearColor(0.5, 0.5, 0.5)) for a consistent asset-browser look.
-        a_start = layer * layer_pixels
-        blank = Image.new('RGB', size, (128, 128, 128))
-        alpha_layer = Image.frombytes('L', size, alpha[a_start:a_start + layer_pixels])
-        pil = Image.composite(pil, blank, alpha_layer)
-    # AVP coordinates are pixel coordinates within the layer. Clamp to the layer
-    # bounds so a malformed AVP can't crop out of range.
-    x0 = max(0, min(size[0], x_start))
-    y0 = max(0, min(size[1], y_start))
-    x_end = max(x0, min(size[0], x_start + w))
-    y_end = max(y0, min(size[1], y_start + h))
-    if x_end <= x0 or y_end <= y0:
+
+    def crop_frame(fx, fy, fplane):
+        """Crop one animation frame (fx, fy, w, h) from FSH layer ``fplane``.
+
+        Each frame is tiled within an FSH layer; frame 0 lives on the AVP
+        chunk's "plane" and later frames may walk onto further layers. decodeFSH
+        returns every equal-sized layer concatenated, so slice the plane's layer
+        rather than always using layer 0 -- the live renderer does the same
+        (ATCReader.draw_le feeds the chunk plane to SetCurrentTex as the GL
+        layer). Cropping layer 0 with a higher-zoom frame size is what tiled
+        several grid cells into one image (the "whole framesheet" thumbnail).
+        """
+        lp = fplane if 0 <= fplane < nbrLayers else 0
+        rgb_start = lp * layer_pixels * 3
+        frame = Image.frombytes('RGB', size, img[rgb_start:rgb_start + layer_pixels * 3])
+        if trueAlpha:
+            # Match the mid-gray background of S3D thumbnails (rendered against
+            # glClearColor(0.5, 0.5, 0.5)) for a consistent asset-browser look.
+            a_start = lp * layer_pixels
+            blank = Image.new('RGB', size, (128, 128, 128))
+            alpha_layer = Image.frombytes('L', size, alpha[a_start:a_start + layer_pixels])
+            frame = Image.composite(frame, blank, alpha_layer)
+        # AVP coordinates are pixel coordinates within the layer. Clamp to the
+        # layer bounds so a malformed AVP can't crop out of range.
+        cx0 = max(0, min(size[0], fx))
+        cy0 = max(0, min(size[1], fy))
+        cx1 = max(cx0, min(size[0], fx + w))
+        cy1 = max(cy0, min(size[1], fy + h))
+        if cx1 <= cx0 or cy1 <= cy0:
+            return None
+        return frame.crop((cx0, cy0, cx1, cy1))
+
+    cropped = crop_frame(x_start, y_start, plane)
+    if cropped is None:
         return
-    cropped = pil.crop((x0, y0, x_end, y_end))
     head, name = os.path.split(dest_path)
     large_dir = head + 'Large'
     os.makedirs(large_dir, exist_ok=True)
     cropped.resize((128, 128), Image.BICUBIC).save(os.path.join(large_dir, name))
     cropped.resize((64, 64), Image.BICUBIC).save(dest_path)
+
+    # Animated props additionally get a looping GIF next to the large thumbnail,
+    # so the asset browser can play a preview on hover/selection. Frames walk the
+    # sheet exactly like the live renderer (ATCReader.draw_le, rotation 0): step
+    # +w across the layer, wrap a row by +h, wrap onto the next layer at the
+    # bottom. 10 fps (duration=100) matches the live viewer's default tick.
+    num_frames = min(int(getattr(atc, 'num_frames', 1) or 1), _ATC_GIF_MAX_FRAMES)
+    if num_frames > 1:
+        frames = []
+        fx, fy, fplane = x_start, y_start, plane
+        for _ in range(num_frames):
+            frame = crop_frame(fx, fy, fplane)
+            if frame is None:
+                break
+            frames.append(frame.resize((128, 128), Image.BICUBIC))
+            fx += w
+            if fx + w > size[0]:
+                fx = 0
+                fy += h
+                if fy + h > size[1]:
+                    fy = 0
+                    fplane += 1
+        if len(frames) > 1:
+            gif_path = os.path.join(large_dir, os.path.splitext(name)[0] + '.gif')
+            frames[0].save(
+                gif_path, save_all=True, append_images=frames[1:],
+                duration=100, loop=0, disposal=2, optimize=False,
+            )
 
 
 def main() -> None:
