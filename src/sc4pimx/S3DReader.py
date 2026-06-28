@@ -443,6 +443,10 @@ class S3D(object):
                 alpha_func=alpha_func,
                 alpha_threshold=material['alphaThreshold'],
                 textured=textured,
+                # Framebuffer-blended materials are self-illuminated glows
+                # (light flares, lit windows); render them unlit so night
+                # lighting does not dim them away under additive blending.
+                emissive=bool(flags & 16),
             )
             if flags & 2:
                 glEnable(GL_DEPTH_TEST)
