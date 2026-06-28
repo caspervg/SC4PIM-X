@@ -33,6 +33,7 @@ from .DependenciesDlg import *
 from .logsetup import configure_logging
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
+from .S3DViewer import S3DViewer
 from .settings import *
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *

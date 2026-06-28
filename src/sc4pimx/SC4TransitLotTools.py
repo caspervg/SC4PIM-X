@@ -10,34 +10,17 @@ import wx
 from OpenGL.GL import (
     GL_BLEND,
     GL_DEPTH_TEST,
-    GL_LINES,
-    GL_LINE_STRIP,
-    GL_LINE_LOOP,
     GL_ONE_MINUS_SRC_ALPHA,
-    GL_QUADS,
     GL_SRC_ALPHA,
-    GL_TEXTURE_2D,
-    glBegin,
     glBlendFunc,
-    glColor3f,
-    glColor4f,
     glDisable,
     glEnable,
-    glEnd,
-    glLineWidth,
-    glPopMatrix,
-    glPushMatrix,
-    glRectf,
-    glTranslatef,
-    glVertex2f,
-    glVertex3f,
 )
 
 from .SC4DataFunctions import ToCoord, ToUnsigned
 from .SC4PathPicker import pick_sc4path
 from .SC4PathReader import point_to_lot_2d, point_to_lot_3d
 from .translation import *
-
 
 # Maps the lot-editor "network" value (NETWORK_TYPES) to SC4Path transport
 # types worth preselecting in the path picker. Empty tuple = no preselection
@@ -541,47 +524,31 @@ def draw_transit_overlay(editor, tex_data, active, rot2d, scaling):
     maxy = miny + 16
     selected = object_id in getattr(editor, "selected", [])
 
-    glPushMatrix()
-    try:
-        glTranslatef(-editor.lotSizeXOffset, -editor.lotSizeYOffset, 0)
-        glDisable(GL_TEXTURE_2D)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        if selected:
-            glColor4f(0.10, 0.52, 0.95, 0.42)
-        elif active:
-            glColor4f(0.08, 0.36, 0.78, 0.30)
-        else:
-            glColor4f(0.08, 0.36, 0.78, 0.20)
-        glRectf(minx, miny, maxx, maxy)
-        glDisable(GL_BLEND)
+    render = editor._render_context
+    primitives = editor.glCanvas2D.renderer.primitives
+    ox, oy = editor.lotSizeXOffset, editor.lotSizeYOffset
+    minx, maxx, miny, maxy = minx - ox, maxx - ox, miny - oy, maxy - oy
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    fill = ((0.10, 0.52, 0.95, 0.42) if selected else
+            (0.08, 0.36, 0.78, 0.30) if active else
+            (0.08, 0.36, 0.78, 0.20))
+    primitives.rect(minx, miny, maxx, maxy, render.mvp, color=fill)
+    glDisable(GL_BLEND)
 
-        glLineWidth(1.5)
-        glColor3f(0.1, 0.32, 0.95)
-        _draw_mask_edges(minx, miny, min_mask, orientation)
-        glLineWidth(2.5)
-        glColor3f(0.95, 0.15, 0.12)
-        _draw_mask_edges(minx, miny, max_mask, orientation)
-        glLineWidth(1.0)
-
-        glBegin(GL_LINE_LOOP)
-        glColor3f(0.02, 0.16, 0.35)
-        glVertex3f(minx, miny, 0)
-        glVertex3f(maxx, miny, 0)
-        glVertex3f(maxx, maxy, 0)
-        glVertex3f(minx, maxy, 0)
-        glEnd()
-
-        if active or selected:
-            editor.glCanvas2D.text_2d(
-                minx + 3,
-                miny + 10,
-                network_short_label(network),
-                rot2d,
-                scaling,
-            )
-    finally:
-        glPopMatrix()
+    _draw_mask_edges(primitives, render.mvp, minx, miny, min_mask, orientation,
+                     (0.1, 0.32, 0.95, 1.0), 1.5)
+    _draw_mask_edges(primitives, render.mvp, minx, miny, max_mask, orientation,
+                     (0.95, 0.15, 0.12, 1.0), 2.5)
+    primitives.lines(
+        ((minx, miny, 0), (maxx, miny, 0), (maxx, maxy, 0), (minx, maxy, 0)),
+        render.mvp, color=(0.02, 0.16, 0.35, 1.0), loop=True,
+    )
+    if active or selected:
+        primitives.text(
+            minx + 3, miny + 10, network_short_label(network), render.mvp,
+            color=(1, 1, 1, 1), scale=0.12, rotation=-rot2d,
+        )
 
 
 def draw_sc4path_overlay_2d(editor, tex_data, active=False):
@@ -593,28 +560,27 @@ def draw_sc4path_overlay_2d(editor, tex_data, active=False):
     tile_x, tile_y, orientation = tex_data[0], tex_data[1], tex_data[2] & 15
     selected = tex_data[5] in getattr(editor, "selected", [])
 
-    glPushMatrix()
-    try:
-        glTranslatef(-editor.lotSizeXOffset, -editor.lotSizeYOffset, 0)
-        glDisable(GL_TEXTURE_2D)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        path_file = info.get("path_file")
-        if path_file is None:
-            _draw_path_warning_2d(tile_x, tile_y)
-            return
-        glLineWidth(3.0 if selected else 2.0 if active else 1.5)
-        for path in path_file.paths:
-            _set_transport_color(path.transport, 0.95 if selected or active else 0.72)
-            _draw_path_line_2d(tile_x, tile_y, orientation, path.points)
-            _draw_path_arrow_2d(tile_x, tile_y, orientation, path.points)
-        glLineWidth(2.0 if selected else 1.4)
-        for stop in path_file.stops:
-            _draw_stop_cross_2d(tile_x, tile_y, orientation, stop.point)
-        glLineWidth(1.0)
-    finally:
+    render = editor._render_context
+    primitives = editor.glCanvas2D.renderer.primitives
+    offset = (-editor.lotSizeXOffset, -editor.lotSizeYOffset)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    path_file = info.get("path_file")
+    if path_file is None:
+        _draw_path_warning_2d(primitives, render.mvp, tile_x, tile_y, offset)
         glDisable(GL_BLEND)
-        glPopMatrix()
+        return
+    path_width = 3.0 if selected else 2.0 if active else 1.5
+    for path in path_file.paths:
+        color = _transport_color(path.transport, 0.95 if selected or active else 0.72)
+        _draw_path_line_2d(primitives, render.mvp, tile_x, tile_y, orientation,
+                           path.points, offset, color, path_width)
+        _draw_path_arrow_2d(primitives, render.mvp, tile_x, tile_y, orientation,
+                            path.points, offset, color, path_width)
+    for stop in path_file.stops:
+        _draw_stop_cross_2d(primitives, render.mvp, tile_x, tile_y, orientation,
+                            stop.point, offset)
+    glDisable(GL_BLEND)
 
 
 def draw_sc4path_overlay_3d(editor, tex_data, active=False):
@@ -626,38 +592,37 @@ def draw_sc4path_overlay_3d(editor, tex_data, active=False):
     tile_x, tile_y, orientation = tex_data[0], tex_data[1], tex_data[2] & 15
     selected = tex_data[5] in getattr(editor, "selected", [])
 
-    glPushMatrix()
-    try:
-        glTranslatef(-editor.lotSizeXOffset, 0, -editor.lotSizeYOffset)
-        glDisable(GL_TEXTURE_2D)
-        glEnable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        path_file = info.get("path_file")
-        if path_file is None:
-            _draw_path_warning_3d(tile_x, tile_y)
-            return
-        glLineWidth(3.0 if selected else 2.0 if active else 1.5)
-        for path in path_file.paths:
-            _set_transport_color(path.transport, 0.95 if selected or active else 0.76)
-            _draw_path_line_3d(tile_x, tile_y, orientation, path.points)
-            _draw_path_arrow_3d(tile_x, tile_y, orientation, path.points)
-        glLineWidth(2.0 if selected else 1.4)
-        for stop in path_file.stops:
-            _draw_stop_cross_3d(tile_x, tile_y, orientation, stop.point)
-        glLineWidth(1.0)
-    finally:
+    render = editor._render_context
+    primitives = editor.glCanvas2D.renderer.primitives
+    offset = (-editor.lotSizeXOffset, 0, -editor.lotSizeYOffset)
+    glEnable(GL_DEPTH_TEST)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    path_file = info.get("path_file")
+    if path_file is None:
+        _draw_path_warning_3d(primitives, render.mvp, tile_x, tile_y, offset)
         glDisable(GL_BLEND)
-        glPopMatrix()
+        return
+    path_width = 3.0 if selected else 2.0 if active else 1.5
+    for path in path_file.paths:
+        color = _transport_color(path.transport, 0.95 if selected or active else 0.76)
+        _draw_path_line_3d(primitives, render.mvp, tile_x, tile_y, orientation,
+                           path.points, offset, color, path_width)
+        _draw_path_arrow_3d(primitives, render.mvp, tile_x, tile_y, orientation,
+                            path.points, offset, color, path_width)
+    for stop in path_file.stops:
+        _draw_stop_cross_3d(primitives, render.mvp, tile_x, tile_y, orientation,
+                            stop.point, offset)
+    glDisable(GL_BLEND)
 
 
-def _draw_mask_edges(minx, miny, mask, orientation):
+def _draw_mask_edges(primitives, mvp, minx, miny, mask, orientation, color, width):
     cx = minx + 8
     cy = miny + 8
     # Lot-object rotation flag 2 is the unrotated tile orientation used by
     # the rest of the lot editor texture rendering.
     rotation_steps = ((int(orientation) & 15) - 2) % 4
-    glBegin(GL_LINES)
+    positions = []
     for _name, normal_bit, alt_bit, direction in DIR_BITS:
         if mask & (normal_bit | alt_bit):
             edge, inner = DIR_GEOMETRY[(direction - rotation_steps) % 4]
@@ -665,14 +630,11 @@ def _draw_mask_edges(minx, miny, mask, orientation):
             ey = miny + edge[1] * 16
             ix = minx + inner[0] * 16
             iy = miny + inner[1] * 16
-            glVertex2f(cx, cy)
-            glVertex2f(ix, iy)
-            glVertex2f(ix, iy)
-            glVertex2f(ex, ey)
-    glEnd()
+            positions.extend(((cx, cy), (ix, iy), (ix, iy), (ex, ey)))
+    primitives.lines(positions, mvp, color=color, width=width)
 
 
-def _set_transport_color(transport, alpha):
+def _transport_color(transport, alpha):
     colors = {
         1: (0.45, 1.0, 0.45),   # Car/road: light green
         2: (0.18, 0.48, 1.0),   # Sim/pedestrian: blue
@@ -683,30 +645,30 @@ def _set_transport_color(transport, alpha):
         7: (0.72, 0.52, 1.0),   # Monorail: light purple
     }
     r, g, b = colors.get(int(transport), (0.95, 0.95, 0.95))
-    glColor4f(r, g, b, alpha)
+    return r, g, b, alpha
 
 
-def _draw_path_line_2d(tile_x, tile_y, orientation, points):
+def _draw_path_line_2d(primitives, mvp, tile_x, tile_y, orientation, points, offset, color, width):
     if len(points) < 2:
         return
-    glBegin(GL_LINE_STRIP)
+    positions = []
     for point in points:
         x, y = point_to_lot_2d(tile_x, tile_y, orientation, point)
-        glVertex2f(x, y)
-    glEnd()
+        positions.append((x + offset[0], y + offset[1]))
+    primitives.lines(positions, mvp, color=color, width=width, strip=True)
 
 
-def _draw_path_line_3d(tile_x, tile_y, orientation, points):
+def _draw_path_line_3d(primitives, mvp, tile_x, tile_y, orientation, points, offset, color, width):
     if len(points) < 2:
         return
-    glBegin(GL_LINE_STRIP)
+    positions = []
     for point in points:
         x, y, z = point_to_lot_3d(tile_x, tile_y, orientation, point)
-        glVertex3f(x, y, z)
-    glEnd()
+        positions.append((x + offset[0], y + offset[1], z + offset[2]))
+    primitives.lines(positions, mvp, color=color, width=width, strip=True)
 
 
-def _draw_path_arrow_2d(tile_x, tile_y, orientation, points):
+def _draw_path_arrow_2d(primitives, mvp, tile_x, tile_y, orientation, points, offset, color, width):
     if len(points) < 2:
         return
     x1, y1 = point_to_lot_2d(tile_x, tile_y, orientation, points[-2])
@@ -723,15 +685,15 @@ def _draw_path_arrow_2d(tile_x, tile_y, orientation, points):
     by = y2 - dy * size
     px = -dy * size * 0.55
     py = dx * size * 0.55
-    glBegin(GL_LINES)
-    glVertex2f(x2, y2)
-    glVertex2f(bx + px, by + py)
-    glVertex2f(x2, y2)
-    glVertex2f(bx - px, by - py)
-    glEnd()
+    ox, oy = offset
+    primitives.lines(
+        ((x2 + ox, y2 + oy), (bx + px + ox, by + py + oy),
+         (x2 + ox, y2 + oy), (bx - px + ox, by - py + oy)),
+        mvp, color=color, width=width,
+    )
 
 
-def _draw_path_arrow_3d(tile_x, tile_y, orientation, points):
+def _draw_path_arrow_3d(primitives, mvp, tile_x, tile_y, orientation, points, offset, color, width):
     if len(points) < 2:
         return
     x1, y1, z1 = point_to_lot_3d(tile_x, tile_y, orientation, points[-2])
@@ -748,90 +710,72 @@ def _draw_path_arrow_3d(tile_x, tile_y, orientation, points):
     bz = z2 - dz * size
     px = -dz * size * 0.55
     pz = dx * size * 0.55
-    glBegin(GL_LINES)
-    glVertex3f(x2, y2, z2)
-    glVertex3f(bx + px, y2, bz + pz)
-    glVertex3f(x2, y2, z2)
-    glVertex3f(bx - px, y2, bz - pz)
-    glEnd()
+    ox, oy, oz = offset
+    primitives.lines(
+        ((x2 + ox, y2 + oy, z2 + oz), (bx + px + ox, y2 + oy, bz + pz + oz),
+         (x2 + ox, y2 + oy, z2 + oz), (bx - px + ox, y2 + oy, bz - pz + oz)),
+        mvp, color=color, width=width,
+    )
 
 
-def _draw_stop_cross_2d(tile_x, tile_y, orientation, point):
+def _draw_stop_cross_2d(primitives, mvp, tile_x, tile_y, orientation, point, offset):
     x, y = point_to_lot_2d(tile_x, tile_y, orientation, point)
+    x, y = x + offset[0], y + offset[1]
     size = 0.75
-    glLineWidth(2.0)
-    glColor4f(0.06, 0.04, 0.04, 0.95)
-    glBegin(GL_LINES)
-    glVertex2f(x - size, y - size)
-    glVertex2f(x + size, y + size)
-    glVertex2f(x - size, y + size)
-    glVertex2f(x + size, y - size)
-    glEnd()
-    glLineWidth(0.8)
-    glColor4f(0.78, 0.05, 0.04, 0.85)
-    glBegin(GL_LINES)
-    glVertex2f(x - size * 0.55, y - size * 0.55)
-    glVertex2f(x + size * 0.55, y + size * 0.55)
-    glVertex2f(x - size * 0.55, y + size * 0.55)
-    glVertex2f(x + size * 0.55, y - size * 0.55)
-    glEnd()
-    glLineWidth(1.0)
+    primitives.lines(
+        ((x - size, y - size), (x + size, y + size),
+         (x - size, y + size), (x + size, y - size)),
+        mvp, color=(0.06, 0.04, 0.04, 0.95), width=2.0,
+    )
+    size *= 0.55
+    primitives.lines(
+        ((x - size, y - size), (x + size, y + size),
+         (x - size, y + size), (x + size, y - size)),
+        mvp, color=(0.78, 0.05, 0.04, 0.85),
+    )
 
 
-def _draw_stop_cross_3d(tile_x, tile_y, orientation, point):
+def _draw_stop_cross_3d(primitives, mvp, tile_x, tile_y, orientation, point, offset):
     x, y, z = point_to_lot_3d(tile_x, tile_y, orientation, point)
+    x, y, z = x + offset[0], y + offset[1], z + offset[2]
     size = 0.75
-    glLineWidth(2.0)
-    glColor4f(0.06, 0.04, 0.04, 0.95)
-    glBegin(GL_LINES)
-    glVertex3f(x - size, y, z - size)
-    glVertex3f(x + size, y, z + size)
-    glVertex3f(x - size, y, z + size)
-    glVertex3f(x + size, y, z - size)
-    glVertex3f(x, y, z)
-    glVertex3f(x, y + 1.2, z)
-    glEnd()
-    glLineWidth(0.8)
-    glColor4f(0.78, 0.05, 0.04, 0.85)
-    glBegin(GL_LINES)
-    glVertex3f(x - size * 0.55, y + 0.02, z - size * 0.55)
-    glVertex3f(x + size * 0.55, y + 0.02, z + size * 0.55)
-    glVertex3f(x - size * 0.55, y + 0.02, z + size * 0.55)
-    glVertex3f(x + size * 0.55, y + 0.02, z - size * 0.55)
-    glVertex3f(x, y + 0.02, z)
-    glVertex3f(x, y + 0.8, z)
-    glEnd()
-    glLineWidth(1.0)
+    primitives.lines(
+        ((x - size, y, z - size), (x + size, y, z + size),
+         (x - size, y, z + size), (x + size, y, z - size),
+         (x, y, z), (x, y + 1.2, z)),
+        mvp, color=(0.06, 0.04, 0.04, 0.95), width=2.0,
+    )
+    size *= 0.55
+    primitives.lines(
+        ((x - size, y + 0.02, z - size), (x + size, y + 0.02, z + size),
+         (x - size, y + 0.02, z + size), (x + size, y + 0.02, z - size),
+         (x, y + 0.02, z), (x, y + 0.8, z)),
+        mvp, color=(0.78, 0.05, 0.04, 0.85),
+    )
 
 
-def _draw_path_warning_2d(tile_x, tile_y):
+def _draw_path_warning_2d(primitives, mvp, tile_x, tile_y, offset):
     minx = tile_x * 16 + 2
     miny = tile_y * 16 + 2
     maxx = tile_x * 16 + 14
     maxy = tile_y * 16 + 14
-    glLineWidth(2.0)
-    glColor4f(1.0, 0.55, 0.0, 0.95)
-    glBegin(GL_LINES)
-    glVertex2f(minx, miny)
-    glVertex2f(maxx, maxy)
-    glVertex2f(minx, maxy)
-    glVertex2f(maxx, miny)
-    glEnd()
-    glLineWidth(1.0)
+    ox, oy = offset
+    primitives.lines(
+        ((minx + ox, miny + oy), (maxx + ox, maxy + oy),
+         (minx + ox, maxy + oy), (maxx + ox, miny + oy)),
+        mvp, color=(1.0, 0.55, 0.0, 0.95), width=2.0,
+    )
 
 
-def _draw_path_warning_3d(tile_x, tile_y):
+def _draw_path_warning_3d(primitives, mvp, tile_x, tile_y, offset):
     minx = tile_x * 16 + 2
     minz = tile_y * 16 + 2
     maxx = tile_x * 16 + 14
     maxz = tile_y * 16 + 14
     y = 0.25
-    glLineWidth(2.0)
-    glColor4f(1.0, 0.55, 0.0, 0.95)
-    glBegin(GL_LINES)
-    glVertex3f(minx, y, minz)
-    glVertex3f(maxx, y, maxz)
-    glVertex3f(minx, y, maxz)
-    glVertex3f(maxx, y, minz)
-    glEnd()
-    glLineWidth(1.0)
+    ox, oy, oz = offset
+    primitives.lines(
+        ((minx + ox, y + oy, minz + oz), (maxx + ox, y + oy, maxz + oz),
+         (minx + ox, y + oy, maxz + oz), (maxx + ox, y + oy, minz + oz)),
+        mvp, color=(1.0, 0.55, 0.0, 0.95), width=2.0,
+    )

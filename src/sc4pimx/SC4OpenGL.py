@@ -1,48 +1,51 @@
-"""OpenGL canvas wrapper for SC4 3D rendering."""
+"""OpenGL 3.3 core canvas wrapper for SC4 rendering."""
+import ctypes
+import logging
 import math
+import os
 
 import wx
 from OpenGL.GL import (
-    GL_MODELVIEW,
-    GL_PROJECTION,
-    glLoadIdentity,
-    glMatrixMode,
-    glPopMatrix,
-    glPushMatrix,
-    glRotatef,
-    glScalef,
-    glTranslatef,
+    GL_EXTENSIONS,
+    GL_FRAMEBUFFER_SRGB,
+    GL_NUM_EXTENSIONS,
+    GL_RENDERER,
+    GL_SHADING_LANGUAGE_VERSION,
+    GL_VENDOR,
+    GL_VERSION,
+    glEnable,
+    glGetIntegerv,
+    glGetString,
+    glGetStringi,
     glViewport,
 )
-from OpenGL.GLUT import glutInit, glutStrokeCharacter
-from OpenGL.GLUT.fonts import GLUT_STROKE_ROMAN
 from wx import glcanvas
 from wx.glcanvas import GLContext
 
-# glutStrokeCharacter aborts the process ("called without first calling
-# glutInit") unless GLUT has been initialised. Do it lazily and once.
-_glut_ready = None
+from .SC4Renderer import RenderDevice
 
-
-def _glut_available():
-    global _glut_ready
-    if _glut_ready is None:
-        try:
-            glutInit()
-            _glut_ready = True
-        except Exception:
-            _glut_ready = False
-    return _glut_ready
+logger = logging.getLogger(__name__)
 
 
 class MyCanvasBase(glcanvas.GLCanvas):
 
     @staticmethod
-    def _gl_attributes(samples, depth):
+    def _gl_attributes(samples, depth, srgb):
         attribs = wx.glcanvas.GLAttributes()
         attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(depth)
+        if srgb:
+            attribs.FrameBuffersRGB()
         if samples:
             attribs.SampleBuffers(1).Samplers(samples)
+        attribs.EndList()
+        return attribs
+
+    @staticmethod
+    def _context_attributes():
+        attribs = wx.glcanvas.GLContextAttrs()
+        attribs.PlatformDefaults().CoreProfile().OGLVersion(3, 3).ForwardCompatible()
+        if os.environ.get("SC4PIM_GL_DEBUG"):
+            attribs.DebugCtx()
         attribs.EndList()
         return attribs
 
@@ -52,16 +55,26 @@ class MyCanvasBase(glcanvas.GLCanvas):
         # configs if the display cannot supply it.
         samples = 0
         attribs = None
-        for try_samples, try_depth in ((4, 24), (0, 24), (0, 16)):
-            candidate = self._gl_attributes(try_samples, try_depth)
+        srgb = False
+        for try_samples, try_depth, try_srgb in (
+            (4, 24, True), (0, 24, True),
+            (4, 24, False), (0, 24, False), (0, 16, False),
+        ):
+            candidate = self._gl_attributes(try_samples, try_depth, try_srgb)
             if glcanvas.GLCanvas.IsDisplaySupported(candidate):
-                attribs, samples = candidate, try_samples
+                attribs, samples, srgb = candidate, try_samples, try_srgb
                 break
         if attribs is None:
-            attribs = self._gl_attributes(0, 16)
+            attribs = self._gl_attributes(0, 16, False)
         self.samples = samples
+        self.srgb = srgb
         glcanvas.GLCanvas.__init__(self, parent, attribs, size=size)
-        self.context = GLContext(self)
+        self.context = GLContext(self, ctxAttrs=self._context_attributes())
+        if not self.context.IsOK():
+            raise RuntimeError("OpenGL 3.3 core profile is required")
+        self.renderer = None
+        self._frame_call = None
+        self._debug_callback = None
         self.displayer = None
         self.init = False
         self.mouseX = self.mouseY = 30
@@ -76,6 +89,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
         self.Bind(wx.EVT_LEFT_DOWN, self.on_mouse_down)
         self.Bind(wx.EVT_LEFT_UP, self.on_mouse_up)
         self.Bind(wx.EVT_MOTION, self.on_mouse_motion)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)
         return
 
     def on_erase_background(self, event):
@@ -86,6 +100,55 @@ class MyCanvasBase(glcanvas.GLCanvas):
         # a no-arg call. Default to this canvas's own context so existing
         # no-arg call sites keep working.
         super().SetCurrent(context if context is not None else self.context)
+        if self.renderer is None:
+            self.renderer = RenderDevice.create()
+            values = {}
+            for label, enum in (
+                ("vendor", GL_VENDOR),
+                ("renderer", GL_RENDERER),
+                ("version", GL_VERSION),
+                ("glsl", GL_SHADING_LANGUAGE_VERSION),
+            ):
+                raw = glGetString(enum)
+                values[label] = raw.decode("utf-8", "replace") if raw else "unknown"
+            logger.info(
+                "OpenGL core context: vendor=%s renderer=%s version=%s GLSL=%s",
+                values["vendor"], values["renderer"], values["version"], values["glsl"],
+            )
+            if self.srgb:
+                glEnable(GL_FRAMEBUFFER_SRGB)
+            self._install_debug_output()
+
+    def _install_debug_output(self):
+        if not os.environ.get("SC4PIM_GL_DEBUG"):
+            return
+        try:
+            extensions = {
+                glGetStringi(GL_EXTENSIONS, index).decode("ascii", "replace")
+                for index in range(int(glGetIntegerv(GL_NUM_EXTENSIONS)))
+            }
+            if "GL_KHR_debug" not in extensions:
+                logger.info("GL_KHR_debug is not available")
+                return
+            from OpenGL.GL.KHR.debug import (
+                GL_DEBUG_OUTPUT,
+                GL_DEBUG_OUTPUT_SYNCHRONOUS,
+                glDebugMessageCallback,
+            )
+
+            def debug_message(_source, _kind, message_id, severity, length, message, _user):
+                text = ctypes.string_at(message, length).decode("utf-8", "replace")
+                logger.debug(
+                    "OpenGL debug id=%s severity=0x%X: %s",
+                    message_id, severity, text,
+                )
+
+            self._debug_callback = debug_message
+            glEnable(GL_DEBUG_OUTPUT)
+            glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS)
+            glDebugMessageCallback(self._debug_callback, None)
+        except Exception:
+            logger.exception("Failed to enable OpenGL debug output")
 
     def GetPhysicalSize(self):
         """GL framebuffer size in device pixels, accounting for Retina/HiDPI.
@@ -98,18 +161,6 @@ class MyCanvasBase(glcanvas.GLCanvas):
         scale = self.GetContentScaleFactor()
         return int(size[0] * scale), int(size[1] * scale)
 
-    def text_2d(self, x, y, text, rot_2d, scaling):
-        if not _glut_available():
-            return
-        glPushMatrix()
-        glTranslatef(x, y, 0)
-        glRotatef(-rot_2d, 0, 0, 1)
-        glScalef(0.02, -0.02, 0.02)
-        for c in text:
-            glutStrokeCharacter(GLUT_STROKE_ROMAN, ord(c))
-
-        glPopMatrix()
-
     def on_size(self, event):
         self.size = self.GetClientSize()
         if self.context:
@@ -120,20 +171,44 @@ class MyCanvasBase(glcanvas.GLCanvas):
             if h > w:
                 h = w
             glViewport(0, 0, w, h)
-            glMatrixMode(GL_PROJECTION)
-            glLoadIdentity()
-            glMatrixMode(GL_MODELVIEW)
         event.Skip()
 
     def on_paint(self, event):
         self.SetCurrent(self.context)
-        dc = wx.PaintDC(self)
+        _dc = wx.PaintDC(self)
         if not self.init:
             if self.displayer:
                 self.displayer.init_gl()
                 self.init = True
         if self.init and self.displayer:
             self.displayer.on_draw()
+
+    def request_animation(self, delay_ms=100):
+        """Request one future repaint; repeated requests coalesce per canvas."""
+        if self._frame_call is not None and self._frame_call.IsRunning():
+            return
+        self._frame_call = wx.CallLater(max(1, int(delay_ms)), self._on_animation_frame)
+
+    def _on_animation_frame(self):
+        self._frame_call = None
+        if self and self.IsShownOnScreen():
+            self.Refresh(False)
+
+    def on_destroy(self, event):
+        if event.GetEventObject() is not self:
+            event.Skip()
+            return
+        if self._frame_call is not None:
+            self._frame_call.Stop()
+            self._frame_call = None
+        if self.renderer is not None:
+            try:
+                super().SetCurrent(self.context)
+                self.renderer.release_gl()
+            except (RuntimeError, wx.PyDeadObjectError):
+                pass
+            self.renderer = None
+        event.Skip()
 
     def on_mouse_down(self, evt):
         self.CaptureMouse()

@@ -6,18 +6,12 @@ import time
 from OpenGL.GL import (
     GL_BLEND,
     GL_ONE_MINUS_SRC_ALPHA,
-    GL_QUADS,
     GL_SRC_ALPHA,
-    glBegin,
     glBlendFunc,
-    glColor3f,
     glEnable,
-    glEnd,
-    glTexCoord2f,
-    glTranslate,
-    glVertex3f,
 )
 
+from sc4pimx import SC4Matrix
 from sc4pimx.S3DTexturesHolder import S3DTexturesHolder
 from sc4pimx.SC4DatTools import SC4Entry
 from sc4pimx.SC4VirtualDat import VirtualDat
@@ -150,22 +144,35 @@ class ATC(object):
         ]
         return True
 
-    def DrawGL(self, s3d_textures_holder: S3DTexturesHolder):
-        glTranslate(self.hotspot[0], -self.hotspot[1], 0)
-        s3d_textures_holder.SetCurrentTex((self.fsh_tgi[1], self.fsh_tgi[2]), self.current_layer)
+    def DrawGL(self, s3d_textures_holder: S3DTexturesHolder, renderer, projection, model):
+        binding = s3d_textures_holder.SetCurrentTex(
+            (self.fsh_tgi[1], self.fsh_tgi[2]), self.current_layer,
+        )
+        if not binding:
+            return
+        texture, sampler = binding
+        if max(1, getattr(self, "num_frames", 1) or 1) > 1:
+            s3d_textures_holder.glCanvas.request_animation(100)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glColor3f(1.0, 1.0, 1.0)
-        glBegin(GL_QUADS)
-        glTexCoord2f(self.quad_uvs[0], self.quad_uvs[3])
-        glVertex3f(-self.size[0] / 2, -self.size[1] / 2, 1)
-        glTexCoord2f(self.quad_uvs[0], self.quad_uvs[1])
-        glVertex3f(-self.size[0] / 2, self.size[1] / 2, 1)
-        glTexCoord2f(self.quad_uvs[2], self.quad_uvs[1])
-        glVertex3f(self.size[0] / 2, self.size[1] / 2, 1)
-        glTexCoord2f(self.quad_uvs[2], self.quad_uvs[3])
-        glVertex3f(self.size[0] / 2, -self.size[1] / 2, 1)
-        glEnd()
+        model = model @ SC4Matrix.translate(self.hotspot[0], -self.hotspot[1], 0)
+        renderer.primitives.quad(
+            (
+                (-self.size[0] / 2, -self.size[1] / 2, 1),
+                (-self.size[0] / 2, self.size[1] / 2, 1),
+                (self.size[0] / 2, self.size[1] / 2, 1),
+                (self.size[0] / 2, -self.size[1] / 2, 1),
+            ),
+            projection @ model,
+            uvs=(
+                (self.quad_uvs[0], self.quad_uvs[3]),
+                (self.quad_uvs[0], self.quad_uvs[1]),
+                (self.quad_uvs[2], self.quad_uvs[1]),
+                (self.quad_uvs[2], self.quad_uvs[3]),
+            ),
+            texture=texture,
+            sampler=sampler,
+        )
 
 
 class AVP(object):
@@ -192,7 +199,7 @@ class AVP(object):
         buffer = buffer[36:]
         for x in range(self.count):
             plane = struct.unpack("B", buffer[0:1])[0]
-            storage_type = struct.unpack("B", buffer[1:2])[0]
+            struct.unpack("B", buffer[1:2])[0]
             offset = struct.unpack("H", buffer[2:4])[0]
             x_start = offset % img_width
             y_start = offset // img_width
