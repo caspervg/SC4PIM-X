@@ -51,6 +51,14 @@ from .SC4PathReader import (
     SC4PathParseError,
     parse_sc4path,
 )
+from .SC4PropTiming import (
+    clamp_date,
+    effective_night_hours,
+    is_night,
+    prop_temporal_state,
+    timer_hides_prop,
+    timer_state_index,
+)
 from .SC4Renderer import RenderTarget, TransformStack, create_texture_2d
 from .SC4TransitLotTools import (
     DEFAULT_TRANSIT_SETTINGS,
@@ -535,7 +543,14 @@ class LotEditorWin(wx.Frame):
         self.backgroundSet = str(settings.get('BackgroundSet', 'Default'))
         self.visibleLayers2D = self._load_visible_layers(settings.get('VisibleLayers2D', {}))
         self.visibleLayers3D = self._load_visible_layers(settings.get('VisibleLayers3D', {}))
-        self.nightMode = bool(settings.get('NightMode', False))
+        self.previewDate = clamp_date(
+            settings.get('PreviewMonth', 1),
+            settings.get('PreviewDay', 1),
+        )
+        self.previewMinutes = max(0, min(1439, int(settings.get('PreviewMinutes', 720))))
+        self.showInactiveProps = bool(settings.get('ShowInactiveProps', False))
+        self.nightBegin, self.nightEnd = 20, 1
+        self.nightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
         self.s3DTexturesHolder.SetNightMode(self.nightMode)
         self._layer_menu_ids = {}
         self._background_menu_ids = {}
@@ -641,8 +656,11 @@ class LotEditorWin(wx.Frame):
         self.rightSplitter = wx.SplitterWindow(self.mainSplitter, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
         self.assetBrowser = LEAssetBrowserPanel(self.mainSplitter, self)
         viewport_panel = wx.Panel(self.rightSplitter, -1)
+        self.viewportPanel = viewport_panel
         self.glCanvas2D.Reparent(viewport_panel)
         viewport_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.temporalBar = self._build_temporal_bar(viewport_panel)
+        viewport_sizer.Add(self.temporalBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
         viewport_sizer.Add(self.glCanvas2D, 1, wx.EXPAND | wx.ALL, 6)
         viewport_panel.SetSizer(viewport_sizer)
         self.inspector = LEInspectorPanel(self.rightSplitter, self)
@@ -659,6 +677,88 @@ class LotEditorWin(wx.Frame):
         # cramped at 800x600, so open it maximized.
         self.Maximize(True)
 
+    def _build_temporal_bar(self, parent):
+        bar = wx.Panel(parent, -1)
+        bar.SetBackgroundColour(wx.Colour(244, 246, 248))
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(wx.StaticText(bar, -1, LEXTemporalPreview), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 8)
+
+        row.Add(wx.StaticText(bar, -1, LEXTemporalDayField), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.previewDayCtrl = wx.SpinCtrl(bar, -1, min=1, max=31,
+                                          initial=self.previewDate.day,
+                                          size=(56, -1))
+        row.Add(self.previewDayCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        row.Add(wx.StaticText(bar, -1, LEXTemporalMonthField), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.previewMonthCtrl = wx.Choice(bar, -1, choices=[
+            LEXMonthJan, LEXMonthFeb, LEXMonthMar, LEXMonthApr,
+            LEXMonthMay, LEXMonthJun, LEXMonthJul, LEXMonthAug,
+            LEXMonthSep, LEXMonthOct, LEXMonthNov, LEXMonthDec,
+        ])
+        self.previewMonthCtrl.SetSelection(self.previewDate.month - 1)
+        row.Add(self.previewMonthCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.previewTimeSlider = wx.Slider(
+            bar, -1, self.previewMinutes, 0, 1439, size=(220, -1),
+        )
+        row.Add(self.previewTimeSlider, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.previewTimeLabel = wx.StaticText(bar, -1, '')
+        self.previewTimeLabel.SetMinSize((88, -1))
+        row.Add(self.previewTimeLabel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        self.showInactiveCheck = wx.CheckBox(bar, -1, LEXTemporalShowInactive)
+        self.showInactiveCheck.SetValue(self.showInactiveProps)
+        row.Add(self.showInactiveCheck, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        bar.SetSizer(row)
+
+        self._updatingTemporalControls = False
+        self.previewMonthCtrl.Bind(wx.EVT_CHOICE, self.OnTemporalChange)
+        self.previewDayCtrl.Bind(wx.EVT_SPINCTRL, self.OnTemporalChange)
+        self.previewDayCtrl.Bind(wx.EVT_TEXT, self.OnTemporalChange)
+        self.previewTimeSlider.Bind(wx.EVT_SLIDER, self.OnTemporalChange)
+        self.showInactiveCheck.Bind(wx.EVT_CHECKBOX, self.OnTemporalChange)
+        self._update_temporal_controls()
+        return bar
+
+    def _update_temporal_controls(self):
+        if not hasattr(self, 'previewTimeLabel'):
+            return
+        hours, minutes = divmod(self.previewMinutes, 60)
+        suffix = '  %s' % (LEXTemporalNight if self.nightMode else LEXTemporalDay)
+        self.previewTimeLabel.SetLabel('%02d:%02d%s' % (hours, minutes, suffix))
+        self.previewDayCtrl.SetRange(1, self._days_in_preview_month())
+
+    def _days_in_preview_month(self):
+        import calendar
+        return calendar.monthrange(self.previewDate.year, self.previewDate.month)[1]
+
+    def OnTemporalChange(self, event=None):
+        if getattr(self, '_updatingTemporalControls', False):
+            return
+        self._updatingTemporalControls = True
+        try:
+            month = self.previewMonthCtrl.GetSelection() + 1
+            day = self.previewDayCtrl.GetValue()
+            self.previewDate = clamp_date(month, day)
+            if day != self.previewDate.day:
+                self.previewDayCtrl.SetValue(self.previewDate.day)
+            self.previewMinutes = self.previewTimeSlider.GetValue()
+            self.showInactiveProps = self.showInactiveCheck.GetValue()
+            self._apply_preview_night_mode()
+            self._update_temporal_controls()
+            self.SaveEditorState()
+            self.UpdateSelectionInspector()
+            self._request_draw()
+        finally:
+            self._updatingTemporalControls = False
+
+    def _apply_preview_night_mode(self):
+        night = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.nightMode = night
+        if getattr(self, 's3DTexturesHolder', None) is not None:
+            self.s3DTexturesHolder.SetNightMode(night)
+
     def _editor_state(self):
         state = {}
         if hasattr(self, 'assetBrowser'):
@@ -672,7 +772,10 @@ class LotEditorWin(wx.Frame):
         state['BackgroundSet'] = str(getattr(self, 'backgroundSet', 'Default'))
         state['VisibleLayers2D'] = dict(getattr(self, 'visibleLayers2D', self._default_visible_layers()))
         state['VisibleLayers3D'] = dict(getattr(self, 'visibleLayers3D', self._default_visible_layers()))
-        state['NightMode'] = bool(getattr(self, 'nightMode', False))
+        state['PreviewMonth'] = int(self.previewDate.month)
+        state['PreviewDay'] = int(self.previewDate.day)
+        state['PreviewMinutes'] = int(self.previewMinutes)
+        state['ShowInactiveProps'] = bool(self.showInactiveProps)
         return state
 
     def _default_visible_layers(self):
@@ -735,6 +838,10 @@ class LotEditorWin(wx.Frame):
         size = getattr(item, 'occupant_size', None)
         if size:
             lines.append('%s: %.1f x %.1f x %.1f m' % (LEXInspectorSize, size[0], size[1], size[2]))
+        source = getattr(item, 'source', None)
+        exemplar = getattr(source, 'exemplar', None)
+        state_count = len(getattr(source, 'viewingData', None) or []) or 1
+        lines.extend(self._temporal_status_lines(exemplar, state_count))
         try:
             source = item.source
             file_name = getattr(source, 'fileName', None)
@@ -746,6 +853,56 @@ class LotEditorWin(wx.Frame):
             pass
         self.inspector.SetText('\n'.join(lines))
         self.inspector.HideFields()
+
+    def _temporal_state_for_exemplar(self, exemplar):
+        return prop_temporal_state(exemplar, self.previewDate, self.previewMinutes)
+
+    def _temporal_status_lines(self, exemplar, state_count=1):
+        if exemplar is None:
+            return []
+        state = self._temporal_state_for_exemplar(exemplar)
+        lines = []
+        if state.has_time_rule or state.has_date_rule:
+            if state.active:
+                lines.append(LEXTemporalVisible)
+            elif state_count >= 2:
+                # Two-state prop: it swaps to its other model rather than hiding.
+                if not state.time_active:
+                    lines.append(LEXTemporalAltTime)
+                if not state.date_active:
+                    lines.append(LEXTemporalAltDate)
+            else:
+                if not state.time_active:
+                    lines.append(LEXTemporalInactiveTime)
+                if not state.date_active:
+                    lines.append(LEXTemporalInactiveDate)
+        if state.random_chance is not None and state.random_chance < 100:
+            lines.append('%s: %d%%. %s.' % (
+                LEXTooltipSpawnChance, state.random_chance,
+                LEXTemporalRandomNotSimulated,
+            ))
+        return lines
+
+    def _viewer_for_lot_values(self, values):
+        if not values or values[0] not in (1, 4):
+            return None
+        records = self.props if values[0] == 1 else self.floras
+        viewers = self.propViewers if values[0] == 1 else self.floraViewers
+        for record, viewer in zip(records, viewers):
+            if len(record) > 11 and record[11] == values[11]:
+                return viewer
+        return None
+
+    def _viewer_is_temporally_active(self, viewer):
+        if self.showInactiveProps or viewer is None:
+            return True
+        # A two-state ("semiseasonal") prop switches to its dormant state 1
+        # model when out of season rather than disappearing, so it is always
+        # rendered; only single-state timed props vanish when inactive.
+        state_count = len(getattr(viewer, 'viewingData', None) or [])
+        exemplar = getattr(viewer, 'lighting_exemplar', None)
+        state = self._temporal_state_for_exemplar(exemplar)
+        return not timer_hides_prop(state, state_count)
 
     def _lot_config_for_selection(self, selected_id):
         if not hasattr(self, 'exemplar'):
@@ -946,6 +1103,11 @@ class LotEditorWin(wx.Frame):
                             if desc is not None:
                                 selected_family_tgi = desc.exemplar.entry.tgi
                                 lines.append('Variation: %s' % desc.name)
+                viewer = self._viewer_for_lot_values(values)
+                lines.extend(self._temporal_status_lines(
+                    getattr(viewer, 'lighting_exemplar', None),
+                    len(getattr(viewer, 'viewingData', None) or []) or 1,
+                ))
                 lines.extend([
                     '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
                     '%s: %.2f, %.2f - %.2f, %.2f' % ((LEXInspectorBounds,) + bounds),
@@ -1338,6 +1500,9 @@ class LotEditorWin(wx.Frame):
         self.panel += 1
         if self.panel == 4:
             self.panel = 1
+        if hasattr(self, 'temporalBar'):
+            self.temporalBar.Show(self.panel != 2)
+            self.viewportPanel.Layout()
         self.glCanvas2D.Refresh(False)
 
     def SetZoom(self, zoom):
@@ -2067,26 +2232,11 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, '3d', LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
         self._append_background_menu(menu)
-        menu.AppendSeparator()
-        night_id = wx.NewIdRef()
-        night_item = menu.AppendCheckItem(int(night_id), LEXLayerNightMode)
-        night_item.Check(bool(getattr(self, 'nightMode', False)))
-        menu.Bind(wx.EVT_MENU, self.OnToggleNightMode, id=int(night_id))
         if event is not None and hasattr(event.GetEventObject(), 'PopupMenu'):
             event.GetEventObject().PopupMenu(menu)
         else:
             self.PopupMenu(menu)
         menu.Destroy()
-
-    def OnToggleNightMode(self, event=None):
-        self.nightMode = not bool(getattr(self, 'nightMode', False))
-        if getattr(self, 's3DTexturesHolder', None) is not None:
-            try:
-                self.s3DTexturesHolder.SetNightMode(self.nightMode)
-            except Exception:
-                logger.exception('Failed to switch night-light mode')
-        self.SaveEditorState()
-        self.on_draw()
 
     def _ensure_s3d_shader_program(self):
         if self.s3d_shader_program is None:
@@ -2739,6 +2889,9 @@ class LotEditorWin(wx.Frame):
         self.lotSizeXOffset = self.exemplar.GetProp(2297284496)[0] * 8
         self.lotSizeYOffset = self.exemplar.GetProp(2297284496)[1] * 8
         self.virtualDAT = virtualDAT
+        self.nightBegin, self.nightEnd = effective_night_hours(virtualDAT)
+        self._apply_preview_night_mode()
+        self._update_temporal_controls()
         self.PreCache()
         self.posy = 0
         self.posx = 0
@@ -3332,6 +3485,13 @@ class LotEditorWin(wx.Frame):
             night_state = int(getattr(resource, 'night_state', 0) or 0)
             if 0 < night_state < len(resource.viewingData):
                 state_idx = night_state
+        # Two-state props with a Prop Time of Day / simulator-date schedule swap
+        # to their dormant state 1 model when out of window, matching the game's
+        # cSC4PropOccupant timer mask, instead of disappearing.
+        if state_idx == 0:
+            temporal = self._temporal_state_for_exemplar(
+                getattr(resource, 'lighting_exemplar', None))
+            state_idx = timer_state_index(temporal, len(resource.viewingData))
         what = resource.viewingData[state_idx]
         shader_program = self._ensure_s3d_shader_program()
         lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
@@ -3499,6 +3659,8 @@ class LotEditorWin(wx.Frame):
         afterViewers = []
         if self._is_layer_visible('3d', LAYER_PROPS):
             for prop, propViewer in zip(self.props, self.propViewers):
+                if not self._viewer_is_temporally_active(propViewer):
+                    continue
                 tempViewer = propViewer
                 if tempViewer is None:
                     tempViewer = self.LEAnimMissing
@@ -3525,6 +3687,8 @@ class LotEditorWin(wx.Frame):
 
         if self._is_layer_visible('3d', LAYER_FLORA):
             for prop, propViewer in zip(self.floras, self.floraViewers):
+                if not self._viewer_is_temporally_active(propViewer):
+                    continue
                 tempViewer = propViewer
                 if tempViewer is None:
                     tempViewer = self.LEAnimMissing
