@@ -840,7 +840,8 @@ class LotEditorWin(wx.Frame):
             lines.append('%s: %.1f x %.1f x %.1f m' % (LEXInspectorSize, size[0], size[1], size[2]))
         source = getattr(item, 'source', None)
         exemplar = getattr(source, 'exemplar', None)
-        state_count = len(getattr(source, 'viewingData', None) or []) or 1
+        state_count = getattr(source, 'stateCount',
+                              len(getattr(source, 'viewingData', None) or [])) or 1
         lines.extend(self._temporal_status_lines(exemplar, state_count))
         try:
             source = item.source
@@ -899,7 +900,8 @@ class LotEditorWin(wx.Frame):
         # A two-state ("semiseasonal") prop switches to its dormant state 1
         # model when out of season rather than disappearing, so it is always
         # rendered; only single-state timed props vanish when inactive.
-        state_count = len(getattr(viewer, 'viewingData', None) or [])
+        state_count = getattr(viewer, 'stateCount',
+                              len(getattr(viewer, 'viewingData', None) or []))
         exemplar = getattr(viewer, 'lighting_exemplar', None)
         state = self._temporal_state_for_exemplar(exemplar)
         return not timer_hides_prop(state, state_count)
@@ -1106,7 +1108,8 @@ class LotEditorWin(wx.Frame):
                 viewer = self._viewer_for_lot_values(values)
                 lines.extend(self._temporal_status_lines(
                     getattr(viewer, 'lighting_exemplar', None),
-                    len(getattr(viewer, 'viewingData', None) or []) or 1,
+                    getattr(viewer, 'stateCount',
+                            len(getattr(viewer, 'viewingData', None) or [])) or 1,
                 ))
                 lines.extend([
                     '%s: %.2f, %.2f' % (LEXInspectorPosition, cx, cy),
@@ -3480,10 +3483,11 @@ class LotEditorWin(wx.Frame):
         # render a different model state at night. The property's value is the
         # destination state index; fall through to state 0 if it points out
         # of range (e.g. an RKT0/1 prop with only one viewing entry).
+        state_count = getattr(resource, 'stateCount', len(resource.viewingData))
         state_idx = 0
         if getattr(self, 'nightMode', False):
             night_state = int(getattr(resource, 'night_state', 0) or 0)
-            if 0 < night_state < len(resource.viewingData):
+            if 0 < night_state < state_count:
                 state_idx = night_state
         # Two-state props with a Prop Time of Day / simulator-date schedule swap
         # to their dormant state 1 model when out of window, matching the game's
@@ -3491,16 +3495,36 @@ class LotEditorWin(wx.Frame):
         if state_idx == 0:
             temporal = self._temporal_state_for_exemplar(
                 getattr(resource, 'lighting_exemplar', None))
-            state_idx = timer_state_index(temporal, len(resource.viewingData))
-        what = resource.viewingData[state_idx]
+            state_idx = timer_state_index(temporal, state_count)
         shader_program = self._ensure_s3d_shader_program()
         lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
+        # A state can contain more than one model (e.g. a lamppost's night state
+        # is the pole plus its light cone). Draw every model of the state, each
+        # at its own per-record offset; props without grouped states fall back
+        # to the single representative model and the caller's rtk offset.
+        state_models = getattr(resource, 'stateModels', None)
+        if state_models is not None and state_idx < len(state_models):
+            members = state_models[state_idx]
+        else:
+            members = [(resource.viewingData[state_idx], None)]
+        for model, raw_offset in members:
+            if raw_offset is None:
+                offset = rtk
+            else:
+                offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]),
+                          ToCoord(raw_offset[2]))
+            self._draw_state_member(model, offset, rot2D, rot, rotFlag, zoom,
+                                    shader_program, lighting_state, model_batches)
+        return
+
+    def _draw_state_member(self, what, offset, rot2D, rot, rotFlag, zoom,
+                           shader_program, lighting_state, model_batches):
         render = self._render_context
         if what.__class__ == SC4Model:
             rotMapping = [180, -90, 0, 90]
             with render.pushed():
                 render.rotate(-rotMapping[rotFlag], 0, 1, 0)
-                render.translate(rtk[0], rtk[1], rtk[2])
+                render.translate(offset[0], offset[1], offset[2])
                 render.rotate(rotMapping[rotFlag], 0, 1, 0)
                 render.rotate(-rot2D, 0, 1, 0)
                 self._submit_s3d_model(
@@ -3514,6 +3538,7 @@ class LotEditorWin(wx.Frame):
             rotMapping = [180, -90, 0, 90]
             with render.pushed():
                 render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                render.translate(offset[0], offset[1], offset[2])
                 self._submit_s3d_model(
                     what.mainMesh, shader_program, lighting_state, model_batches,
                 )
