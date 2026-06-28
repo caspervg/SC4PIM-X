@@ -746,45 +746,51 @@ class ResourceViewer():
                 virtualDAT.otherModelsDict[rktData[0:3]] = what
                 self.viewingData.append(what)
         if self.rkType == 662775844:
+            # Each 8-value record is (stateIndex, offX, offY, offZ, innerRKType,
+            # T, G, I). data[0] is the model state index: the game's
+            # cSC4ModelMakerUtility::GetAllModelInstanceIDs selects the record
+            # whose first value matches the requested state, so records may be
+            # stored out of order (e.g. CP semiseasonal props list state 1
+            # before state 0). Collect (stateIndex, model) and sort, otherwise
+            # the dormant/winter model renders for state 0.
+            states = []
             for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
+                state_index = data[0]
                 if data[4] == 662775840:
                     if data[5] == 698733036:
                         if data[5:] in virtualDAT.atcsDict:
-                            self.viewingData.append(virtualDAT.atcsDict[data[5:]])
+                            states.append((state_index, virtualDAT.atcsDict[data[5:]]))
                     elif data[5:] in virtualDAT.otherModelsDict:
-                        self.viewingData.append(virtualDAT.otherModelsDict[data[5:]])
+                        states.append((state_index, virtualDAT.otherModelsDict[data[5:]]))
                     else:
                         what = SC4ModelMesh(data[6], data[7], virtualDAT)
-                        if not what.is_valid:
-                            continue
-                        else:
+                        if what.is_valid:
                             virtualDAT.otherModels.append(
-                                StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
+                                StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.otherModelsDict[data[5:]] = what
-                            self.viewingData.append(what)
+                            states.append((state_index, what))
                 if data[4] == 662775841:
                     if data[5:] in virtualDAT.standardModelsDict:
-                        self.viewingData.append(virtualDAT.standardModelsDict[data[5:]])
+                        states.append((state_index, virtualDAT.standardModelsDict[data[5:]]))
                     else:
                         what = SC4Model(data[6], data[7], virtualDAT)
-                        if not what.is_valid:
-                            pass
-                        else:
-                            virtualDAT.standardModelsDict.append(
-                                StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
+                        if what.is_valid:
+                            virtualDAT.standardModels.append(
+                                StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.standardModelsDict[data[5:]] = what
-                            self.viewingData.append(what)
+                            states.append((state_index, what))
+            states.sort(key=lambda s: s[0])
+            self.viewingData = [model for _, model in states]
 
         return None
 
     def PreLoad(self, virtualDAT, s3DTexturesHolder):
-        try:
-            what = self.viewingData[0]
-        except IndexError:
-            return None
-
-        what.PreLoad(virtualDAT, s3DTexturesHolder)
+        # Preload every state, not just state 0: two-state props (night change
+        # or a time/date timer) render state 1 when out of window, and its mesh
+        # must be GL-initialised too or it renders invisible.
+        for what in self.viewingData:
+            what.PreLoad(virtualDAT, s3DTexturesHolder)
         return None
 
     def draw(self, viewer, fileNameStatic, zoom, rot, state):
