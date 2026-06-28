@@ -2,29 +2,56 @@
 import logging
 import math
 import os
-from contextlib import contextmanager
 
 import numpy
 import wx
 import wx.lib.sized_controls as sc
-from OpenGL.GLU import gluUnProject
+from OpenGL.GL import (
+    GL_BLEND,
+    GL_CLAMP_TO_EDGE,
+    GL_COLOR_BUFFER_BIT,
+    GL_CULL_FACE,
+    GL_DEPTH_BUFFER_BIT,
+    GL_DEPTH_TEST,
+    GL_FRAMEBUFFER,
+    GL_LINEAR,
+    GL_LINES,
+    GL_MULTISAMPLE,
+    GL_NEAREST,
+    GL_ONE,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_REPEAT,
+    GL_SRC_ALPHA,
+    glBindFramebuffer,
+    glBlendFunc,
+    glClear,
+    glClearColor,
+    glClearDepth,
+    glDeleteTextures,
+    glDisable,
+    glEnable,
+    glViewport,
+)
 from PIL import Image
 
-from . import FSHConverter, SC4IconMakerDlg, treeDnD
-from .ATCReader import *
+from . import FSHConverter, SC4IconMakerDlg, SC4Matrix, treeDnD
+from .ATCReader import ATC
 from .config import load_lot_editor, save_lot_editor
-from .paths import asset_path, background_path, background_set_dir, background_sets
+from .paths import background_path, background_set_dir, background_sets
+from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
+from .S3DTexturesHolder import S3DTexturesHolder
+from .S3DViewer import S3DViewer
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
 from .SC4LETools import *
-from .SC4OpenGL import *
+from .SC4OpenGL import MyCanvasBase
 from .SC4PathReader import (
     SC4PATH_GIDS,
     SC4PATH_TYPE,
     SC4PathParseError,
     parse_sc4path,
 )
-from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
+from .SC4Renderer import RenderTarget, TransformStack, create_texture_2d
 from .SC4TransitLotTools import (
     DEFAULT_TRANSIT_SETTINGS,
     TRANSIT_OBJECT_TYPE,
@@ -41,8 +68,8 @@ from .SC4TransitLotTools import (
     network_label,
     quad_for_values,
     remove_cached_transit,
-    transit_path_status,
     tile_quad,
+    transit_path_status,
 )
 from .translation import *
 
@@ -124,17 +151,6 @@ def gl_texture_name(value):
 
 def delete_gl_texture(value):
     glDeleteTextures([gl_texture_name(value)])
-
-
-@contextmanager
-def pushed_modelview_matrix():
-    glMatrixMode(GL_MODELVIEW)
-    glPushMatrix()
-    try:
-        yield
-    finally:
-        glMatrixMode(GL_MODELVIEW)
-        glPopMatrix()
 
 
 def texture_coords_for_flag(flag):
@@ -1325,8 +1341,6 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def SetZoom(self, zoom):
-        zoomStrs = [
-         viewerZoom1, viewerZoom2, viewerZoom3, viewerZoom4, viewerZoom5, viewerZoom5]
         self.zoom = zoom
         self.viewScale = 1.0
         self.glCanvas2D.Refresh(False)
@@ -1574,7 +1588,6 @@ class LotEditorWin(wx.Frame):
         rot = self.rotation
         rot += 1
         rot %= 4
-        rotStrs = [viewerRotSouth, viewerRotEast, viewerRotNorth, viewerRotWest]
         self.rotation = rot
         self.glCanvas2D.Refresh(False)
 
@@ -1597,8 +1610,6 @@ class LotEditorWin(wx.Frame):
             rot -= 1
         else:
             rot = 3
-        rotStrs = [
-         viewerRotSouth, viewerRotEast, viewerRotNorth, viewerRotWest]
         self.rotation = rot
         self.glCanvas2D.Refresh(False)
 
@@ -2083,7 +2094,7 @@ class LotEditorWin(wx.Frame):
 
     def _ensure_s3d_shader_program(self):
         if self.s3d_shader_program is None:
-            self.s3d_shader_program = SC4LightingProgram()
+            self.s3d_shader_program = self.glCanvas2D.renderer.register(SC4LightingProgram())
         return self.s3d_shader_program
 
     def _lot_lighting_state(self, exemplar):
@@ -2144,7 +2155,6 @@ class LotEditorWin(wx.Frame):
             yS = 0 - snapSize
             yE = self.lotSizeYOver + snapSize
             snapGrids = []
-            glColor3f(0.5, 0, 0.2)
             yC = yS
             xC = xS
             while 1:
@@ -2162,7 +2172,7 @@ class LotEditorWin(wx.Frame):
                     break
 
             self.nbSnapLines = len(snapGrids)
-            self.snapGrids = numpy.asarray(snapGrids, 'f').tobytes()
+            self.snapGrids = numpy.asarray(snapGrids, dtype=numpy.float32)
         else:
             self.snapSize = 0
 
@@ -2212,6 +2222,9 @@ class LotEditorWin(wx.Frame):
         for k, tex in self.textures.items():
             for t in tex[0]:
                 delete_gl_texture(t)
+        for texture in getattr(self, 'BackTextures', ()):
+            if texture:
+                delete_gl_texture(texture)
 
         self.s3DTexturesHolder.Free()
         self.glCanvas2D.displayer = None
@@ -2224,23 +2237,17 @@ class LotEditorWin(wx.Frame):
             im = im.tobytes('raw', 'RGBA')
         else:
             im = im.tobytes('raw', 'RGB')
-        glEnable(GL_TEXTURE_2D)
-        texName = gl_texture_name(glGenTextures(1))
-        glBindTexture(GL_TEXTURE_2D, texName)
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-        if bAlpha:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, im)
-        else:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size[0], size[1], 0, GL_RGB, GL_UNSIGNED_BYTE, im)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        return texName
+        return create_texture_2d(
+            size[0], size[1], im, channels=4 if bAlpha else 3,
+            srgb=getattr(self.glCanvas2D, 'srgb', False),
+        )
 
     def Preload_Background_Tex2(self):
         texs = [
          'Back01.jpg', 'Back02.jpg', 'Back03.jpg', 'Back04.jpg', 'Back05.jpg']
+        for texture in getattr(self, 'BackTextures', ()):
+            if texture:
+                delete_gl_texture(texture)
         self.BackTextures = [None, None, None, None, None]
         self.BackTextureSizes = [None, None, None, None, None]
         set_dir = background_set_dir(getattr(self, 'backgroundSet', 'Default'))
@@ -2408,7 +2415,7 @@ class LotEditorWin(wx.Frame):
                 if propID in self.virtualDAT.categories:
                     bOk = False
                     for desc in self._family_members(propID):
-                        name = self.virtualDAT.categories[propID].Name
+                        self.virtualDAT.categories[propID].Name
                         bOk = True
                         selectedDesc = self._selected_family_desc(propID)
                         if propID not in self.lotFamiliesPropID:
@@ -2421,7 +2428,6 @@ class LotEditorWin(wx.Frame):
                     possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
                     for desc in possibles:
                         selectedDesc = desc
-                        name = selectedDesc.name
                         continue
                 if selectedDesc is None and values[0] == 1:
                     effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
@@ -2429,7 +2435,6 @@ class LotEditorWin(wx.Frame):
                         possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, effect_category.descriptors)
                         for desc in possibles:
                             selectedDesc = desc
-                            name = selectedDesc.name
                             continue
 
                 if selectedDesc is None:
@@ -2757,9 +2762,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetCurrent()
         glClearColor(0.5, 0.5, 0.5, 0.0)
         glClearDepth(1.0)
-        glShadeModel(GL_SMOOTH)
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
-        glMatrixMode(GL_MODELVIEW)
         glDisable(GL_CULL_FACE)
 
     def on_draw(self):
@@ -2800,23 +2803,16 @@ class LotEditorWin(wx.Frame):
         if self.panel == 3 or self.panel == 1:
             self.Draw3D()
         self.glCanvas2D.SwapBuffers()
-        # Self-rescheduling tick: keeps animated S3D meshes and ATCs ticking
-        # without requiring user interaction.
-        t2 = getattr(self, 't2', None)
-        if t2 is not None:
-            t2.Restart(100)
 
-    def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False):
-        glEnable(GL_TEXTURE_2D)
+    def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False,
+                 tint=(1.0, 1.0, 1.0, 1.0)):
         zoom = self.zoom
         if zoom == 5:
             zoom = 4
-        bTex = True
         try:
-            glBindTexture(GL_TEXTURE_2D, self.textures[texID][0][zoom])
+            texture = self.textures[texID][0][zoom]
         except Exception:
-            bTex = False
-
+            texture = None
         if bAlpha:
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -2825,132 +2821,82 @@ class LotEditorWin(wx.Frame):
         offsetX = x * 16 - self.lotSizeXOffset
         offsetY = y * 16 - self.lotSizeYOffset
         tex_coords = texture_coords_for_flag(flag)
-        with pushed_modelview_matrix():
-            glTranslate(offsetX, offsetY, 0)
-            glMatrixMode(GL_TEXTURE)
-            glLoadIdentity()
-            glMatrixMode(GL_MODELVIEW)
-            if bTex:
-                glBegin(GL_QUADS)
-                glTexCoord2f(*tex_coords[0])
-                glVertex3i(0, 16, 0)
-                glTexCoord2f(*tex_coords[1])
-                glVertex3i(0, 0, 0)
-                glTexCoord2f(*tex_coords[2])
-                glVertex3i(16, 0, 0)
-                glTexCoord2f(*tex_coords[3])
-                glVertex3i(16, 16, 0)
-                glEnd()
-            if bHighlighted:
-                glEnable(GL_BLEND)
-                glBlendFunc(GL_ONE, GL_ONE)
-                glDisable(GL_TEXTURE_2D)
-                glBegin(GL_QUADS)
-                glColor3f(1, 0, 0)
-                glVertex3i(0, 16, 0)
-                glColor3f(1, 0, 0)
-                glVertex3i(0, 0, 0)
-                glColor3f(1, 0, 0)
-                glVertex3i(16, 0, 0)
-                glColor3f(1, 0, 0)
-                glVertex3i(16, 16, 0)
-                glEnd()
-                glDisable(GL_BLEND)
-            glDisable(GL_TEXTURE_2D)
+        primitives = self.glCanvas2D.renderer.primitives
+        points = (
+            (offsetX, offsetY + 16, 0), (offsetX, offsetY, 0),
+            (offsetX + 16, offsetY, 0), (offsetX + 16, offsetY + 16, 0),
+        )
+        if texture is not None:
+            sampler = self.glCanvas2D.renderer.samplers.get(
+                GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+            )
+            primitives.quad(points, self._render_context.mvp, color=tint,
+                            uvs=tex_coords, texture=texture, sampler=sampler)
+        if bHighlighted:
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_ONE, GL_ONE)
+            primitives.quad(points, self._render_context.mvp, color=(1, 0, 0, 1))
             glDisable(GL_BLEND)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-            glColor3f(1, 1, 1)
 
     def DrawHighLight(self, minx, miny, maxx, maxy, color=(1, 0, 0)):
-        with pushed_modelview_matrix():
-            offsetX = -self.lotSizeXOffset
-            offsetY = -self.lotSizeYOffset
-            glTranslate(offsetX, offsetY, 0)
-            glDisable(GL_TEXTURE_2D)
-            glDisable(GL_BLEND)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            glColor3f(color[0], color[1], color[2])
-            glRectf(minx, miny, maxx, maxy)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        glDisable(GL_BLEND)
+        self.glCanvas2D.renderer.primitives.rect(
+            minx + offsetX, miny + offsetY, maxx + offsetX, maxy + offsetY,
+            self._render_context.mvp, color=(*color, 1.0), filled=False,
+        )
 
     def DrawQuadsHighLight(self, quads, color=(1, 0, 0)):
-        with pushed_modelview_matrix():
-            offsetX = -self.lotSizeXOffset
-            offsetY = -self.lotSizeYOffset
-            glTranslate(offsetX, offsetY, 0)
-            glDisable(GL_TEXTURE_2D)
-            glDisable(GL_BLEND)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            glColor3f(color[0], color[1], color[2])
-            for quad in quads:
-                glRectf(quad[0], quad[1], quad[2], quad[3])
-
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        glDisable(GL_BLEND)
+        for quad in quads:
+            self.glCanvas2D.renderer.primitives.rect(
+                quad[0] + offsetX, quad[1] + offsetY,
+                quad[2] + offsetX, quad[3] + offsetY,
+                self._render_context.mvp, color=(*color, 1.0), filled=False,
+            )
 
     def DrawQuadColor(self, flag, minx, miny, maxx, maxy, color, bMissing):
-        with pushed_modelview_matrix():
-            offsetX = -self.lotSizeXOffset
-            offsetY = -self.lotSizeYOffset
-            glTranslate(offsetX, offsetY, 0)
-            glDisable(GL_TEXTURE_2D)
-            glColor4f(color[0], color[1], color[2], color[3])
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        minx, maxx = minx + offsetX, maxx + offsetX
+        miny, maxy = miny + offsetY, maxy + offsetY
+        primitives = self.glCanvas2D.renderer.primitives
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        primitives.rect(minx, miny, maxx, maxy, self._render_context.mvp, color=color)
+        glDisable(GL_BLEND)
+        primitives.rect(
+            minx, miny, maxx, maxy, self._render_context.mvp,
+            color=(color[0], color[1], color[2], 1.0), filled=False,
+        )
+        try:
+            texture = self.textures[1802442183][0][0]
+        except Exception:
+            texture = None
+        if texture is not None:
+            points = ((minx, maxy, 0), (minx, miny, 0),
+                      (maxx, miny, 0), (maxx, maxy, 0))
+            sampler = self.glCanvas2D.renderer.samplers.get(
+                GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+            )
             glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glRectf(minx, miny, maxx, maxy)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            primitives.quad(
+                points, self._render_context.mvp,
+                uvs=texture_coords_for_flag(flag), texture=texture, sampler=sampler,
+            )
             glDisable(GL_BLEND)
-            glColor3f(color[0], color[1], color[2])
-            glRectf(minx, miny, maxx, maxy)
-            glColor4f(color[0], color[1], color[2], color[3])
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-            glEnable(GL_TEXTURE_2D)
-            tex_coords = texture_coords_for_flag(flag)
-            glMatrixMode(GL_TEXTURE)
-            glLoadIdentity()
-            glColor3f(1, 0, 1)
-            glMatrixMode(GL_MODELVIEW)
-            glDisable(GL_TEXTURE_2D)
-            try:
-                glEnable(GL_TEXTURE_2D)
-                glBindTexture(GL_TEXTURE_2D, self.textures[1802442183][0][0])
-                glBegin(GL_QUADS)
-                glTexCoord2f(*tex_coords[0])
-                glVertex3f(minx, maxy, 0)
-                glTexCoord2f(*tex_coords[1])
-                glVertex3f(minx, miny, 0)
-                glTexCoord2f(*tex_coords[2])
-                glVertex3f(maxx, miny, 0)
-                glTexCoord2f(*tex_coords[3])
-                glVertex3f(maxx, maxy, 0)
-                glEnd()
-            except Exception:
-                pass
-
-            glDisable(GL_TEXTURE_2D)
-            glDisable(GL_BLEND)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            if bMissing:
-                self.missingLines.append((minx, miny))
-                self.missingLines.append((maxx, maxy))
-                self.missingLines.append((minx, maxy))
-                self.missingLines.append((maxx, miny))
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-            glColor4f(1, 1, 1, 1)
+        if bMissing:
+            self.missingLines.extend(((minx, miny), (maxx, maxy),
+                                      (minx, maxy), (maxx, miny)))
 
     def Draw2D(self):
         self.missingLines = []
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glDisable(GL_ALPHA_TEST)
         glDisable(GL_DEPTH_TEST)
         glDisable(GL_BLEND)
-        glDisable(GL_TEXTURE_2D)
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        size = self.size = self.glCanvas2D.GetClientSize()
+        self.size = self.glCanvas2D.GetClientSize()
         scale = self.glCanvas2D.GetContentScaleFactor()
         if self.panel == 3:
             w = self.size[0] // 2
@@ -2963,23 +2909,23 @@ class LotEditorWin(wx.Frame):
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(int(s * scale), 0, int(w * scale), int(h * scale))
-        glOrtho(-valW, valW, -valH, valH, 40000, -40000)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
+        viewport = (int(s * scale), 0, int(w * scale), int(h * scale))
+        glViewport(*viewport)
+        projection = SC4Matrix.ortho(-valW, valW, -valH, valH, 40000, -40000)
         zoom = self.zoom
         scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
-        glScalef(scaling, -scaling, scaling)
         rot2D = -self.rotation * 90.0
-        glTranslate(-self.posx, -self.posy, -self.posz)
-        glRotatef(rot2D, 0, 0, 1)
+        model = SC4Matrix.scale(scaling, -scaling, scaling)
+        model = model @ SC4Matrix.translate(-self.posx, -self.posy, -self.posz)
+        model = model @ SC4Matrix.rotate_z(rot2D)
+        self._render_context = TransformStack(projection, model)
+        self._render_viewport = viewport
         px, py, pz = self.UnProject(self.glCanvas2D.mouseX, self.glCanvas2D.mouseY)
         lx = self.lotSizeXOffset
         ly = self.lotSizeYOffset
         px += lx
         py += ly
         bUnderMouse = False
-        glColor3f(1, 1, 1)
         self.highlighted = []
         self.quadHighs = []
         if self.modeDisplay & MODE_BASETEX_ONLY and self._is_layer_visible('2d', LAYER_BASE):
@@ -3038,11 +2984,9 @@ class LotEditorWin(wx.Frame):
                             self.SetStatusText(LEXConstraintWater if is_water else LEXConstraintLand, 5)
                             self.highlighted = [texData[4]]
                             self.quadHighs = [[minx, miny, maxx, maxy]]
-                    if is_water:
-                        glColor3f(0.2, 0.2, 0.8)
-                    else:
-                        glColor3f(0.8, 0.5, 0.2)
-                    self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True)
+                    tint = (0.2, 0.2, 0.8, 1.0) if is_water else (0.8, 0.5, 0.2, 1.0)
+                    self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True,
+                                  tint=tint)
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_TRANSIT):
             for texData in self.te:
@@ -3069,7 +3013,6 @@ class LotEditorWin(wx.Frame):
             for texData in self.te:
                 draw_sc4path_overlay_2d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
-        glColor3f(1, 1, 1)
         if self._is_layer_visible('2d', LAYER_ROAD_EDGES):
             if self.exemplar.GetProp(1246398704)[0] & 8:
                 for x in range(self.exemplar.GetProp(2297284496)[0]):
@@ -3084,13 +3027,13 @@ class LotEditorWin(wx.Frame):
                     self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
         if self.snapSize != 0 and self._is_layer_visible('2d', LAYER_SNAP_GRID):
-            with pushed_modelview_matrix():
-                glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
-                glColor3f(0.5, 0, 0.2)
-                glEnableClientState(GL_VERTEX_ARRAY)
-                glVertexPointer(2, GL_FLOAT, 0, self.snapGrids)
-                glDrawArrays(GL_LINES, 0, self.nbSnapLines)
-                glDisableClientState(GL_VERTEX_ARRAY)
+            positions = self.snapGrids + numpy.array(
+                (-self.lotSizeXOffset, -self.lotSizeYOffset), dtype=numpy.float32,
+            )
+            self.glCanvas2D.renderer.primitives.draw(
+                GL_LINES, positions, self._render_context.mvp,
+                color=(0.5, 0, 0.2, 1),
+            )
         if self.modeDisplay & MODE_BUILDING_ONLY and self._is_layer_visible('2d', LAYER_BUILDING):
             if self.building:
                 minx = ToCoord(self.building[6])
@@ -3111,7 +3054,8 @@ class LotEditorWin(wx.Frame):
                     alphaValue = 0.9
                 self.DrawQuadColor(self.building[2], minx, miny, maxx, maxy, (0, 0, 1, alphaValue), self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] is None)
                 if self.building[4] != 0 and self.building[11] in self.selected:
-                    self.glCanvas2D.text_2d(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly, '%.02f' % ToCoord(self.building[4]), rot2D, scaling)
+                    self._draw_text(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly,
+                                    '%.02f' % ToCoord(self.building[4]), rot2D)
         if self.modeDisplay & MODE_PROP_ONLY and self._is_layer_visible('2d', LAYER_PROPS):
             for prop, propViewer in zip(self.props, self.propViewers):
                 minx = ToCoord(prop[6])
@@ -3132,7 +3076,8 @@ class LotEditorWin(wx.Frame):
                     alphaValue = 0.5
                 self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (1, 1, 0, alphaValue), propViewer is None)
                 if prop[4] != 0 and prop[11] in self.selected:
-                    self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
+                    self._draw_text(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
+                                    '%.02f' % ToCoord(prop[4]), rot2D)
 
         if self.modeDisplay & MODE_FLORA_ONLY and self._is_layer_visible('2d', LAYER_FLORA):
             for prop in self.floras:
@@ -3151,7 +3096,8 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [prop[11]]
                 self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (0, 1.0, 0, 0.9), False)
                 if prop[4] != 0 and prop[11] in self.selected:
-                    self.glCanvas2D.text_2d(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, '%.02f' % ToCoord(prop[4]), rot2D, scaling)
+                    self._draw_text(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
+                                    '%.02f' % ToCoord(prop[4]), rot2D)
 
         if self._is_layer_visible('2d', LAYER_SELECTION):
             self.DrawQuadsHighLight(self.quadHighs)
@@ -3161,17 +3107,13 @@ class LotEditorWin(wx.Frame):
                                                                                                             1,
                                                                                                             1))
         if self._is_layer_visible('2d', LAYER_MISSING):
-            with pushed_modelview_matrix():
-                glTranslate(-self.lotSizeXOffset, -self.lotSizeYOffset, 0)
-                glColor3f(1, 0, 0)
-                glEnableClientState(GL_VERTEX_ARRAY)
-                glVertexPointer(2, GL_FLOAT, 0, numpy.asarray(self.missingLines, 'f').tobytes())
-                glDrawArrays(GL_LINES, 0, len(self.missingLines))
-                glDisableClientState(GL_VERTEX_ARRAY)
+            positions = numpy.asarray(self.missingLines, dtype=numpy.float32)
+            if len(positions):
+                self.glCanvas2D.renderer.primitives.draw(
+                    GL_LINES, positions, self._render_context.mvp, color=(1, 0, 0, 1),
+                )
         if self._is_layer_visible('2d', LAYER_CARDINALS):
             self.DrawCardinalLabels(rot2D, scaling)
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
         if not bUnderMouse:
             self.SetStatusText('', 5)
         return
@@ -3188,65 +3130,59 @@ class LotEditorWin(wx.Frame):
         if not x or not y:
             return
         margin = 6.0
-        glColor3f(1.0, 0.85, 0.2)
         for label, lx, ly in (
             (LEXFacingNorth, -1.0, y + margin),
             (LEXFacingSouth, -1.0, -y - margin),
             (LEXFacingEast, x + margin, -1.0),
             (LEXFacingWest, -x - margin, -1.0),
         ):
-            self.glCanvas2D.text_2d(lx, ly, label, rot2D, scaling)
+            self._draw_text(lx, ly, label, rot2D, color=(1.0, 0.85, 0.2, 1.0), scale=0.3)
+
+    def _draw_text(self, x, y, text, rot2D, color=(1.0, 1.0, 1.0, 1.0), scale=0.18):
+        # flip_y keeps text upright: the 2D model matrix negates Y (see Draw2D),
+        # which would otherwise render every glyph vertically mirrored.
+        self.glCanvas2D.renderer.primitives.text(
+            x, y, text, self._render_context.mvp,
+            color=color, scale=scale, rotation=-rot2D, flip_y=True,
+        )
 
     def DrawBackGround2(self, x=0, y=0):
         if not getattr(self, 'BackTextures', None):
             return
         zoom = self.zoom
-        scaling = LotEditorWin.zoomScale3D[zoom]
+        LotEditorWin.zoomScale3D[zoom]
         if zoom == 5:
             zoom = 4
         if self.BackTextures[zoom] is not None and self.BackTextureSizes[zoom] is not None:
             glDisable(GL_DEPTH_TEST)
-            glEnable(GL_TEXTURE_2D)
-            glBindTexture(GL_TEXTURE_2D, self.BackTextures[zoom])
             glDisable(GL_BLEND)
-            glDisable(GL_ALPHA_TEST)
             offsetX = x - self.lotSizeXOffset
             offsetY = y - self.lotSizeYOffset
-            with pushed_modelview_matrix():
-                env_light = self._lot_environment_light()
-                glColor3f(env_light[0], env_light[1], env_light[2])
-                glRotatef(-self.ry, 0.0, 1.0, 0.0)
-                glRotatef(self.rx, 1.0, 0.0, 0.0)
-                scales = [
-                 9.2, 4.6, 2.3, 1.0, 1.0 / 2.0]
-                scale = scales[zoom]
-                glScalef(scale, scale, -scale)
-                glTranslate(offsetX, 0, offsetY)
-                glMatrixMode(GL_TEXTURE)
-                glLoadIdentity()
-                glMatrixMode(GL_MODELVIEW)
-                glBegin(GL_QUADS)
-                w = self.BackTextureSizes[zoom][0] / 3.5
-                h = self.BackTextureSizes[zoom][1] / 3.5
-                glTexCoord2i(0, 1)
-                glVertex3f(0, -0.1, 0)
-                glTexCoord2i(0, 0)
-                glVertex3f(0, -0.1, h)
-                glTexCoord2i(1, 0)
-                glVertex3f(w, -0.1, h)
-                glTexCoord2i(1, 1)
-                glVertex3f(w, -0.1, 0)
-                glEnd()
-                glColor3f(1.0, 1.0, 1.0)
+            env_light = self._lot_environment_light()
+            scales = [9.2, 4.6, 2.3, 1.0, 1.0 / 2.0]
+            local = SC4Matrix.rotate_y(-self.ry) @ SC4Matrix.rotate_x(self.rx)
+            local = local @ SC4Matrix.scale(scales[zoom], scales[zoom], -scales[zoom])
+            local = local @ SC4Matrix.translate(offsetX, 0, offsetY)
+            w = self.BackTextureSizes[zoom][0] / 3.5
+            h = self.BackTextureSizes[zoom][1] / 3.5
+            sampler = self.glCanvas2D.renderer.samplers.get(
+                GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+            )
+            self.glCanvas2D.renderer.primitives.quad(
+                ((0, -0.1, 0), (0, -0.1, h), (w, -0.1, h), (w, -0.1, 0)),
+                self._render_context.projection @ self._render_context.model @ local,
+                color=(*env_light, 1.0),
+                uvs=((0, 1), (0, 0), (1, 0), (1, 1)),
+                texture=self.BackTextures[zoom], sampler=sampler,
+            )
         return
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
-        glEnable(GL_TEXTURE_2D)
         zoom = self.zoom
         if zoom == 5:
             zoom = 4
         try:
-            glBindTexture(GL_TEXTURE_2D, self.textures[texID][0][zoom])
+            texture = self.textures[texID][0][zoom]
         except Exception:
             return
 
@@ -3255,28 +3191,19 @@ class LotEditorWin(wx.Frame):
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         else:
             glDisable(GL_BLEND)
-        glDisable(GL_ALPHA_TEST)
         offsetX = x * 16 - self.lotSizeXOffset
         offsetY = y * 16 - self.lotSizeYOffset
         tex_coords = texture_coords_for_flag(flag)
-        with pushed_modelview_matrix():
-            env_light = self._lot_environment_light()
-            glColor3f(env_light[0], env_light[1], env_light[2])
-            glTranslate(offsetX, 0, offsetY)
-            glMatrixMode(GL_TEXTURE)
-            glLoadIdentity()
-            glMatrixMode(GL_MODELVIEW)
-            glBegin(GL_QUADS)
-            glTexCoord2f(*tex_coords[0])
-            glVertex3f(0, 0, 16)
-            glTexCoord2f(*tex_coords[1])
-            glVertex3f(0, 0, 0)
-            glTexCoord2f(*tex_coords[2])
-            glVertex3f(16, 0, 0)
-            glTexCoord2f(*tex_coords[3])
-            glVertex3f(16, 0, 16)
-            glEnd()
-            glColor3f(1.0, 1.0, 1.0)
+        env_light = self._lot_environment_light()
+        sampler = self.glCanvas2D.renderer.samplers.get(
+            GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+        )
+        self.glCanvas2D.renderer.primitives.quad(
+            ((offsetX, 0, offsetY + 16), (offsetX, 0, offsetY),
+             (offsetX + 16, 0, offsetY), (offsetX + 16, 0, offsetY + 16)),
+            self._render_context.mvp, color=(*env_light, 1.0),
+            uvs=tex_coords, texture=texture, sampler=sampler,
+        )
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None):
         if viewZoom is None:
@@ -3297,65 +3224,59 @@ class LotEditorWin(wx.Frame):
         what = resource.viewingData[state_idx]
         shader_program = self._ensure_s3d_shader_program()
         lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
+        render = self._render_context
         if what.__class__ == SC4Model:
-            rotMapping = [
-             180, -90, 0, 90]
-            glRotatef(-rotMapping[rotFlag], 0, 1, 0)
-            glTranslate(rtk[0], rtk[1], rtk[2])
-            glRotatef(rotMapping[rotFlag], 0, 1, 0)
-            glRotatef(-rot2D, 0, 1, 0)
-            what.s3dMeshes[zoom][rot].draw(self.s3DTexturesHolder, shader_program, lighting_state)
+            rotMapping = [180, -90, 0, 90]
+            with render.pushed():
+                render.rotate(-rotMapping[rotFlag], 0, 1, 0)
+                render.translate(rtk[0], rtk[1], rtk[2])
+                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                render.rotate(-rot2D, 0, 1, 0)
+                what.s3dMeshes[zoom][rot].draw(
+                    self.s3DTexturesHolder, shader_program, lighting_state,
+                    render.mvp, render.normal_matrix,
+                )
         elif what.__class__ == SC4Model1MeshPerZoom:
-            what.s3dMeshes[zoom].draw(self.s3DTexturesHolder, shader_program, lighting_state)
+            what.s3dMeshes[zoom].draw(
+                self.s3DTexturesHolder, shader_program, lighting_state,
+                render.mvp, render.normal_matrix,
+            )
         elif what.__class__ == SC4ModelMesh:
-            rotMapping = [
-             180, -90, 0, 90]
-            glRotatef(rotMapping[rotFlag], 0, 1, 0)
-            what.mainMesh.draw(self.s3DTexturesHolder, shader_program, lighting_state)
+            rotMapping = [180, -90, 0, 90]
+            with render.pushed():
+                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                what.mainMesh.draw(
+                    self.s3DTexturesHolder, shader_program, lighting_state,
+                    render.mvp, render.normal_matrix,
+                )
         elif what.__class__ == ATC:
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
-            scaleATC = LotEditorWin.zoomScaleATC[viewZoom]
-            modelview = numpy.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=numpy.float32).reshape(16)
-            modelview[0] = 1
-            modelview[1] = 0
-            modelview[2] = 0
-            modelview[4] = 0
-            modelview[5] = 1
-            modelview[6] = 0
-            modelview[8] = 0
-            modelview[9] = 0
-            modelview[10] = -1
-            glLoadMatrixf(modelview)
-            glScalef(1 / 7.0, 1 / 7.0, 1 / 7.0)
-            glScalef(0.5, 0.5, 0.5)
             if what.draw_le(zoom, rotMapping[rot]):
-                what.DrawGL(self.s3DTexturesHolder)
+                billboard = render.model.copy()
+                billboard[0:3, 0:3] = numpy.diag((1.0, 1.0, -1.0))
+                billboard = billboard @ SC4Matrix.scale(1 / 14.0, 1 / 14.0, 1 / 14.0)
+                what.DrawGL(
+                    self.s3DTexturesHolder, self.glCanvas2D.renderer,
+                    render.projection, billboard,
+                )
             glEnable(GL_DEPTH_TEST)
         return
 
     def Draw3DBackdrop(self, valW, valH):
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-        glDisable(GL_ALPHA_TEST)
         glDisable(GL_DEPTH_TEST)
-        glDisable(GL_TEXTURE_2D)
         glDisable(GL_BLEND)
         env_light = self._lot_environment_light()
-        glBegin(GL_QUADS)
-        glColor3f(0.15 * env_light[0], 0.17 * env_light[1], 0.20 * env_light[2])
-        glVertex3f(-valW, -valH, 0)
-        glVertex3f(valW, -valH, 0)
-        glColor3f(0.36 * env_light[0], 0.39 * env_light[1], 0.42 * env_light[2])
-        glVertex3f(valW, valH, 0)
-        glVertex3f(-valW, valH, 0)
-        glEnd()
-        glColor3f(1.0, 1.0, 1.0)
+        low = (0.15 * env_light[0], 0.17 * env_light[1], 0.20 * env_light[2], 1)
+        high = (0.36 * env_light[0], 0.39 * env_light[1], 0.42 * env_light[2], 1)
+        self.glCanvas2D.renderer.primitives.quad(
+            ((-valW, -valH, 0), (valW, -valH, 0),
+             (valW, valH, 0), (-valW, valH, 0)),
+            self._render_context.projection,
+            colors=(low, low, high, high),
+        )
 
     def Draw3D(self):
-        self.glCanvas2D.SetCurrent()
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
         viewZoom = self.zoom
         assetZoom = min(viewZoom, 4)
         if assetZoom == 4 or assetZoom == 3:
@@ -3366,7 +3287,7 @@ class LotEditorWin(wx.Frame):
             angleX = 35
         else:
             angleX = 30
-        size = self.size = self.glCanvas2D.GetClientSize()
+        self.size = self.glCanvas2D.GetClientSize()
         scale = self.glCanvas2D.GetContentScaleFactor()
         full_w = self.size[0]
         if self.panel == 3:
@@ -3385,8 +3306,11 @@ class LotEditorWin(wx.Frame):
         # pane view full_w == w, so this is identical to the old formula.
         valW = full_w * 2.0 / 60.0
         valH = valW * h / w
-        glViewport(0, 0, int(w * scale), int(h * scale))
-        glOrtho(-valW, valW, -valH, valH, 40000, -40000)
+        viewport = (0, 0, int(w * scale), int(h * scale))
+        glViewport(*viewport)
+        projection = SC4Matrix.ortho(-valW, valW, -valH, valH, 40000, -40000)
+        self._render_context = TransformStack(projection)
+        self._render_viewport = viewport
         if os.environ.get('SC4PIM_GL_DEBUG') and getattr(self, '_gl_dbg_3d', None) != self.panel:
             self._gl_dbg_3d = self.panel
             from OpenGL.GL import GL_VIEWPORT, glGetIntegerv
@@ -3397,20 +3321,17 @@ class LotEditorWin(wx.Frame):
                          vp[2] / (2 * valW) if valW else 0,
                          vp[3] / (2 * valH) if valH else 0)
         self.Draw3DBackdrop(valW, valH)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
         rotation = self.rotation
         rot2D = rotation * 90.0
         self.rx = angleX
         self.ry = rot2D - 22.5
         self.rz = 0
         scaling = LotEditorWin.zoomScale3D[viewZoom]
-        glScalef(scaling, scaling, -scaling)
-        glTranslate(-self.pos3Dx, -self.pos3Dy, -self.pos3Dz)
-        glRotatef(self.rx, 1.0, 0.0, 0.0)
-        glRotatef(self.ry, 0.0, 1.0, 0.0)
-        glColor3f(1.0, 1.0, 1.0)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        model = SC4Matrix.scale(scaling, scaling, -scaling)
+        model = model @ SC4Matrix.translate(-self.pos3Dx, -self.pos3Dy, -self.pos3Dz)
+        model = model @ SC4Matrix.rotate_x(self.rx)
+        model = model @ SC4Matrix.rotate_y(self.ry)
+        self._render_context.model = model
         # Draw the optional ground background (offset by the user's Shift+drag
         # position), then re-enable depth testing -- DrawBackGround2 disables
         # it -- for the lot's own texture quads.
@@ -3441,20 +3362,14 @@ class LotEditorWin(wx.Frame):
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
                     self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
 
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
         glEnable(GL_DEPTH_TEST)
-        glMatrixMode(GL_MODELVIEW)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
         rotMapping = [2, 1, 0, 3]
         lotSizeXOver = self.lotSizeXOver
         lotSizeYOver = self.lotSizeYOver
         if self._is_layer_visible('3d', LAYER_BUILDING):
             try:
                 if self.buildingViewer[self.currentBuilding] is not None:
-                    with pushed_modelview_matrix():
+                    with self._render_context.pushed():
                         offsetX = ToCoord(self.building[3]) - lotSizeXOver / 2
                         offsetZ = ToCoord(self.building[5]) - lotSizeYOver / 2
                         offsetY = 0
@@ -3462,7 +3377,9 @@ class LotEditorWin(wx.Frame):
                             rtk4 = self.rtk4Offsets[self.building[12]]
                         else:
                             rtk4 = (0, 0, 0)
-                        glTranslate(offsetX, offsetY + ToCoord(self.building[4]), offsetZ)
+                        self._render_context.translate(
+                            offsetX, offsetY + ToCoord(self.building[4]), offsetZ,
+                        )
                         self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], assetZoom, viewZoom)
             except IndexError:
                 pass
@@ -3482,7 +3399,7 @@ class LotEditorWin(wx.Frame):
                         afters.append(prop)
                         afterViewers.append(tempViewer)
                     else:
-                        with pushed_modelview_matrix():
+                        with self._render_context.pushed():
                             offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
                             offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
                             offsetY = 0
@@ -3490,7 +3407,9 @@ class LotEditorWin(wx.Frame):
                                 rtk4 = self.rtk4Offsets[prop[12]]
                             else:
                                 rtk4 = (0, 0, 0)
-                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                            self._render_context.translate(
+                                offsetX, offsetY + ToCoord(prop[4]), offsetZ,
+                            )
                             self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         if self._is_layer_visible('3d', LAYER_FLORA):
@@ -3506,7 +3425,7 @@ class LotEditorWin(wx.Frame):
                         afters.append(prop)
                         afterViewers.append(tempViewer)
                     else:
-                        with pushed_modelview_matrix():
+                        with self._render_context.pushed():
                             offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
                             offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
                             offsetY = 0
@@ -3514,11 +3433,13 @@ class LotEditorWin(wx.Frame):
                                 rtk4 = self.rtk4Offsets[prop[12]]
                             else:
                                 rtk4 = (0, 0, 0)
-                            glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                            self._render_context.translate(
+                                offsetX, offsetY + ToCoord(prop[4]), offsetZ,
+                            )
                             self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         for prop, propViewer in zip(afters, afterViewers):
-            with pushed_modelview_matrix():
+            with self._render_context.pushed():
                 offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2
                 offsetY = 0
@@ -3526,7 +3447,7 @@ class LotEditorWin(wx.Frame):
                     rtk4 = self.rtk4Offsets[prop[12]]
                 else:
                     rtk4 = (0, 0, 0)
-                glTranslate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
+                self._render_context.translate(offsetX, offsetY + ToCoord(prop[4]), offsetZ)
                 self.DrawModel(rtk4, propViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('3d', LAYER_SC4PATHS):
@@ -3536,29 +3457,32 @@ class LotEditorWin(wx.Frame):
             for texData in self.te:
                 draw_sc4path_overlay_3d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
-        glColor3f(1.0, 1.0, 1.0)
         return
 
     def Save(self):
         pw, ph = self.glCanvas2D.GetPhysicalSize()
-        glReadBuffer(GL_FRONT)
-        w = (pw // 2) & 0xFFFFFFF0
-        h = ph & 0xFFFFFFF0
-        data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
-        decal = len(data) - w * h * 3
-        if decal == h * 2:
-            data = data[3:]
+        self.glCanvas2D.SetCurrent()
+        # Register any not-yet-seen lot textures, then block until their async
+        # decode + GL upload completes so the capture is never of an untextured
+        # (red) model. See S3DTexturesHolder.flush_pending.
+        self.Draw3D()
+        self.s3DTexturesHolder.flush_pending()
+        target = RenderTarget(pw, ph, srgb=getattr(self.glCanvas2D, 'srgb', False))
+        try:
+            with target.bound():
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+                self.Draw3D()
+                w, h = pw // 2 if self.panel == 3 else pw, ph
+                data = target.read_rgb(0, 0, w, h)
+        finally:
+            target.release_gl()
         image = Image.frombytes('RGB', (w, h), data)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.resize((44, 44))
         return image
 
     def SetMatForUnproj(self):
-        glMatrixMode(GL_TEXTURE)
-        glLoadIdentity()
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        size = self.size = self.glCanvas2D.GetClientSize()
+        self.size = self.glCanvas2D.GetClientSize()
         scale = self.glCanvas2D.GetContentScaleFactor()
         if self.panel == 3:
             w = self.size[0] // 2
@@ -3571,30 +3495,32 @@ class LotEditorWin(wx.Frame):
         h = self.size[1]
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
-        glViewport(int(s * scale), 0, int(w * scale), int(h * scale))
-        glOrtho(-valW, valW, -valH, valH, 40000, -40000)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
+        viewport = (int(s * scale), 0, int(w * scale), int(h * scale))
         zoom = self.zoom
         scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
-        glScalef(scaling, -scaling, scaling)
         rot2D = -self.rotation * 90.0
-        glTranslate(-self.posx, -self.posy, -self.posz)
-        glRotatef(rot2D, 0, 0, 1)
+        projection = SC4Matrix.ortho(-valW, valW, -valH, valH, 40000, -40000)
+        model = SC4Matrix.scale(scaling, -scaling, scaling)
+        model = model @ SC4Matrix.translate(-self.posx, -self.posy, -self.posz)
+        model = model @ SC4Matrix.rotate_z(rot2D)
+        self._render_context = TransformStack(projection, model)
+        self._render_viewport = viewport
         return None
 
     def UnProject(self, x, y):
         """World coords under a logical (top-left origin) window point.
 
-        gluUnProject works in the GL_VIEWPORT's coordinate space, which is in
-        *device* pixels (the framebuffer is 2x logical on a Retina display).
+        Picking uses the same explicit CPU matrices as rendering. Window
+        coordinates are converted to device pixels for HiDPI framebuffers.
         Mouse and drop events arrive in *logical* pixels, so scale them up and
         flip Y against the device-pixel framebuffer height before unprojecting.
         The caller must have set the matrices (Draw2D / SetMatForUnproj) first.
         """
         scale = self.glCanvas2D.GetContentScaleFactor()
         h = self.size[1]
-        return gluUnProject(x * scale, (h - y) * scale, 0)
+        return self._render_context.unproject(
+            x * scale, (h - y) * scale, 0, self._render_viewport,
+        )
 
     def OnKeyMove(self, evt):
         if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING]:
@@ -4301,6 +4227,11 @@ class ImageDBBuilder(wx.Frame):
         self.glCanvas = MyCanvasBase(panel, size=(256, 256))
         self.glCanvas.displayer = self
         self.viewer = S3DViewer(None, self.glCanvas)
+        # Batch thumbnail prerender: each model texture is uploaded, rendered
+        # once into a tiny downscaled capture and freed, so mipmap generation +
+        # anisotropic filtering are wasted work. Skip them for this dedicated
+        # (never interactively shown) holder to speed up large plugin folders.
+        self.viewer.s3d_textures_holder.mipmaps = False
         sizer = wx.BoxSizer(wx.VERTICAL)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         hsizer.Add(self.glCanvas, 1, wx.ALL | wx.EXPAND, 5)
@@ -4316,14 +4247,25 @@ class ImageDBBuilder(wx.Frame):
         self.viewer.refresh(False)
         self.viewer.use_best_fit = True
         self.viewer.drawAxis = False
+        # First draw registers the model's textures (kicks off async FSH
+        # decode); flush_pending then blocks until they are decoded and
+        # uploaded so the capture below is never of an untextured (red) model.
         sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
-        wx.Yield()
-        self.viewer.drawAxis = False
-        sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
-        wx.Yield()
+        self.viewer.s3d_textures_holder.flush_pending()
         w, h = self.viewer.openGLCanvas.GetPhysicalSize()
-        glReadBuffer(GL_FRONT)
-        data = glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE)
+        self.viewer.openGLCanvas.SetCurrent()
+        target = RenderTarget(w, h, srgb=getattr(self.viewer.openGLCanvas, 'srgb', False))
+        try:
+            with target.bound():
+                self.viewer.render_frame()
+                data = target.read_rgb()
+            # Mirror the just-captured thumbnail into the on-screen preview so
+            # the window shows live progress instead of staying blank. read_rgb
+            # already resolved MSAA into target.color; a single textured quad is
+            # near-free, so batch throughput is unaffected.
+            self._present_thumbnail(target.color)
+        finally:
+            target.release_gl()
         image = Image.frombytes('RGB', (w, h), data)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image.resize((128, 128)).save(os.path.join(os.path.split(sc4data[0])[0] + 'Large', os.path.split(sc4data[0])[1]))
@@ -4333,4 +4275,33 @@ class ImageDBBuilder(wx.Frame):
         del data
         self.viewer.s3d_mesh.FreeAll(self.viewer.s3d_textures_holder)
         return
+
+    def _present_thumbnail(self, color_texture):
+        """Blit a captured thumbnail texture to the on-screen preview canvas.
+
+        Drawn as one textured fullscreen quad (not glBlitFramebuffer, which
+        rejects a single-sample source into the canvas's multisampled default
+        framebuffer). Identity MVP maps the quad to the full viewport; the
+        texture's bottom-left GL origin lines up with clip-space (-1, -1), so
+        no vertical flip is needed here (unlike the saved PIL image).
+        """
+        canvas = self.viewer.openGLCanvas
+        cw, ch = canvas.GetPhysicalSize()
+        if cw <= 0 or ch <= 0:
+            return
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glViewport(0, 0, cw, ch)
+        glDisable(GL_DEPTH_TEST)
+        glClearColor(0.5, 0.5, 0.5, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        sampler = canvas.renderer.samplers.get(
+            GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE,
+        )
+        canvas.renderer.primitives.quad(
+            ((-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)),
+            SC4Matrix.identity(),
+            uvs=((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+            texture=color_texture, sampler=sampler,
+        )
+        canvas.SwapBuffers()
 

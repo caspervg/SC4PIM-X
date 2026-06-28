@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import FSHConverter
 from .paths import asset_path, image_db_path
-from .S3DReader import *
+from .S3DReader import S3D
 from .SC4DataFunctions import ToTile
 from .SC4DatTools import *
 from .translation import *
