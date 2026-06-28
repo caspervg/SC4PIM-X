@@ -96,6 +96,7 @@ uniform vec3 u_sky_color;
 uniform vec3 u_terrain_normal;
 uniform float u_terrain_shadow_amount;
 uniform float u_prelit;
+uniform float u_emissive;
 uniform int u_alpha_func;
 uniform float u_alpha_threshold;
 uniform int u_textured;
@@ -138,7 +139,11 @@ void main(void)
     vec4 texel = u_textured != 0 ? texture(u_texture, v_texcoord) : vec4(1.0, 0.0, 0.0, 1.0);
     if (!alpha_passes(texel.a))
         discard;
-    vec3 lighting = mix(sc4_getmodellight(), vec3(1.0, 1.0, 1.0), u_prelit);
+    // Framebuffer-blended materials (light flares / lit windows) are
+    // self-illuminated: keep them full-bright so their glow is not dimmed by
+    // night lighting and washed out under additive blending.
+    float unlit = max(u_prelit, u_emissive);
+    vec3 lighting = mix(sc4_getmodellight(), vec3(1.0, 1.0, 1.0), unlit);
     out_color = vec4(texel.rgb * lighting, texel.a);
 }
 """
@@ -165,6 +170,7 @@ class SC4LightingProgram:
             'terrain_normal': glGetUniformLocation(self.program, 'u_terrain_normal'),
             'terrain_shadow_amount': glGetUniformLocation(self.program, 'u_terrain_shadow_amount'),
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
+            'emissive': glGetUniformLocation(self.program, 'u_emissive'),
             'mvp': glGetUniformLocation(self.program, 'u_mvp'),
             'normal_matrix': glGetUniformLocation(self.program, 'u_normal_matrix'),
             'instanced': glGetUniformLocation(self.program, 'u_instanced'),
@@ -204,10 +210,12 @@ class SC4LightingProgram:
         glUniformMatrix4fv(self._uniforms['instance_mvp'], len(mvps), GL_TRUE, mvp_data)
         glUniformMatrix3fv(self._uniforms['instance_normal'], len(normal_matrices), GL_TRUE, normal_data)
 
-    def set_material(self, alpha_func=7, alpha_threshold=0.0, textured=True):
+    def set_material(self, alpha_func=7, alpha_threshold=0.0, textured=True,
+                     emissive=False):
         glUniform1i(self._uniforms['alpha_func'], int(alpha_func))
         glUniform1f(self._uniforms['alpha_threshold'], float(alpha_threshold))
         glUniform1i(self._uniforms['textured'], 1 if textured else 0)
+        glUniform1f(self._uniforms['emissive'], 1.0 if emissive else 0.0)
 
     def _upload_explicit_matrices(self, mvp, normal_matrix):
         """Upload caller-computed math matrices (row-major -> transpose=GL_TRUE)."""
