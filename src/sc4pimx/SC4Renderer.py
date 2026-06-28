@@ -474,6 +474,24 @@ class PrimitiveRenderer:
             uvs=expanded_uvs, texture=texture, sampler=sampler,
         )
 
+    def quad_batch(self, quads, mvp, *, color=(1.0, 1.0, 1.0, 1.0),
+                   uv_quads=None, texture=0, sampler=0):
+        """Submit multiple quads sharing one texture/render state in one draw."""
+        quads = numpy.asarray(quads, dtype=numpy.float32)
+        if quads.size == 0:
+            return
+        quads = quads.reshape(-1, 4, 3)
+        order = numpy.asarray((0, 1, 2, 0, 2, 3), dtype=numpy.intp)
+        positions = quads[:, order, :].reshape(-1, 3)
+        uvs = None
+        if uv_quads is not None:
+            uv_quads = numpy.asarray(uv_quads, dtype=numpy.float32).reshape(-1, 4, 2)
+            uvs = uv_quads[:, order, :].reshape(-1, 2)
+        self.draw(
+            GL_TRIANGLES, positions, mvp, color=color, uvs=uvs,
+            texture=texture, sampler=sampler,
+        )
+
     def rect(self, minx, miny, maxx, maxy, mvp, *, z=0.0,
              color=(1.0, 1.0, 1.0, 1.0), filled=True, width=1.0):
         points = (

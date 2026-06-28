@@ -65,15 +65,20 @@ layout(location = 2) in vec2 a_texcoord;
 
 uniform mat4 u_mvp;
 uniform mat3 u_normal_matrix;
+uniform int u_instanced;
+uniform mat4 u_instance_mvp[32];
+uniform mat3 u_instance_normal[32];
 
 out vec2 v_texcoord;
 out vec3 v_normal;
 
 void main(void)
 {
+    mat4 model_mvp = u_instanced != 0 ? u_instance_mvp[gl_InstanceID] : u_mvp;
+    mat3 model_normal = u_instanced != 0 ? u_instance_normal[gl_InstanceID] : u_normal_matrix;
     v_texcoord = a_texcoord;
-    v_normal = normalize(u_normal_matrix * a_normal);
-    gl_Position = u_mvp * vec4(a_position, 1.0);
+    v_normal = normalize(model_normal * a_normal);
+    gl_Position = model_mvp * vec4(a_position, 1.0);
 }
 """
 
@@ -162,6 +167,9 @@ class SC4LightingProgram:
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
             'mvp': glGetUniformLocation(self.program, 'u_mvp'),
             'normal_matrix': glGetUniformLocation(self.program, 'u_normal_matrix'),
+            'instanced': glGetUniformLocation(self.program, 'u_instanced'),
+            'instance_mvp': glGetUniformLocation(self.program, 'u_instance_mvp[0]'),
+            'instance_normal': glGetUniformLocation(self.program, 'u_instance_normal[0]'),
             'alpha_func': glGetUniformLocation(self.program, 'u_alpha_func'),
             'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
             'textured': glGetUniformLocation(self.program, 'u_textured'),
@@ -182,7 +190,19 @@ class SC4LightingProgram:
             float(lighting_state['terrain_shadow_amount']),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
+        glUniform1i(self._uniforms['instanced'], 0)
         self._upload_explicit_matrices(mvp, normal_matrix)
+
+    def bind_instanced(self, lighting_state, mvps, normal_matrices):
+        """Bind lighting plus up to 32 per-instance transforms."""
+        if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
+            raise ValueError('S3D instance batch must contain 1..32 matching transforms')
+        self.bind(lighting_state, mvps[0], normal_matrices[0])
+        glUniform1i(self._uniforms['instanced'], 1)
+        mvp_data = numpy.ascontiguousarray(mvps, dtype=numpy.float32)
+        normal_data = numpy.ascontiguousarray(normal_matrices, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['instance_mvp'], len(mvps), GL_TRUE, mvp_data)
+        glUniformMatrix3fv(self._uniforms['instance_normal'], len(normal_matrices), GL_TRUE, normal_data)
 
     def set_material(self, alpha_func=7, alpha_threshold=0.0, textured=True):
         glUniform1i(self._uniforms['alpha_func'], int(alpha_func))
