@@ -709,6 +709,12 @@ class ResourceViewer():
         self.rkType = rkType
         self.rktData = rktData
         self.viewingData = []
+        # For RKT4 only: viewingData holds one representative model per state
+        # (so len(viewingData) == number of states), while stateModels groups
+        # every model belonging to each state as (model, rawOffsetXYZ). A single
+        # state can contain several models -- e.g. a Maxis lamppost's night
+        # state is the pole plus its light cone(s). None for other RK types.
+        self.stateModels = None
         if self.rkType == 662775840:
             if rktData[0] == 698733036:
                 if rktData in virtualDAT.atcsDict:
@@ -753,42 +759,61 @@ class ResourceViewer():
             # stored out of order (e.g. CP semiseasonal props list state 1
             # before state 0). Collect (stateIndex, model) and sort, otherwise
             # the dormant/winter model renders for state 0.
-            states = []
+            groups = {}
+            flat = []
             for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
                 state_index = data[0]
+                offset = (data[1], data[2], data[3])
+                model = None
                 if data[4] == 662775840:
                     if data[5] == 698733036:
                         if data[5:] in virtualDAT.atcsDict:
-                            states.append((state_index, virtualDAT.atcsDict[data[5:]]))
+                            model = virtualDAT.atcsDict[data[5:]]
                     elif data[5:] in virtualDAT.otherModelsDict:
-                        states.append((state_index, virtualDAT.otherModelsDict[data[5:]]))
+                        model = virtualDAT.otherModelsDict[data[5:]]
                     else:
                         what = SC4ModelMesh(data[6], data[7], virtualDAT)
                         if what.is_valid:
                             virtualDAT.otherModels.append(
                                 StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.otherModelsDict[data[5:]] = what
-                            states.append((state_index, what))
+                            model = what
                 if data[4] == 662775841:
                     if data[5:] in virtualDAT.standardModelsDict:
-                        states.append((state_index, virtualDAT.standardModelsDict[data[5:]]))
+                        model = virtualDAT.standardModelsDict[data[5:]]
                     else:
                         what = SC4Model(data[6], data[7], virtualDAT)
                         if what.is_valid:
                             virtualDAT.standardModels.append(
                                 StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.standardModelsDict[data[5:]] = what
-                            states.append((state_index, what))
-            states.sort(key=lambda s: s[0])
-            self.viewingData = [model for _, model in states]
+                            model = what
+                if model is not None:
+                    flat.append(model)
+                    groups.setdefault(state_index, []).append((model, offset))
+            # viewingData stays a flat per-record list (every model, in authored
+            # order) for the per-model state browser and PreLoad; stateModels
+            # groups the models by their state index for the lot renderer, which
+            # draws all of a state's models together (e.g. a lamppost's night
+            # pole + light cone).
+            self.viewingData = flat
+            self.stateModels = [groups[idx] for idx in sorted(groups)]
 
         return None
 
+    @property
+    def stateCount(self):
+        # Number of distinct model states (not records). For RKT4 this is the
+        # grouped state count; otherwise the flat viewingData length.
+        if self.stateModels is not None:
+            return len(self.stateModels)
+        return len(self.viewingData)
+
     def PreLoad(self, virtualDAT, s3DTexturesHolder):
-        # Preload every state, not just state 0: two-state props (night change
-        # or a time/date timer) render state 1 when out of window, and its mesh
-        # must be GL-initialised too or it renders invisible.
+        # Preload every model, not just state 0: alternate states (night change
+        # or a time/date timer) and extra per-state models (e.g. a lamppost's
+        # night light cone) must each be GL-initialised or they render invisible.
         for what in self.viewingData:
             what.PreLoad(virtualDAT, s3DTexturesHolder)
         return None
