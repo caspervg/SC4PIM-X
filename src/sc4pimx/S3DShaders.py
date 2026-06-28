@@ -2,17 +2,12 @@
 import math
 
 import numpy
-
 from OpenGL.GL import (
-    GL_FALSE,
     GL_FRAGMENT_SHADER,
     GL_LINK_STATUS,
-    GL_MODELVIEW_MATRIX,
-    GL_PROJECTION_MATRIX,
     GL_TRUE,
     GL_VERTEX_SHADER,
-    glGetAttribLocation,
-    glGetFloatv,
+    glDeleteProgram,
     glGetProgramInfoLog,
     glGetProgramiv,
     glGetUniformLocation,
@@ -60,24 +55,19 @@ NIGHT_PRESET = {
 
 
 VERTEX_SHADER = """
-#version 120
+#version 330 core
 
-// Generic vertex attributes (fed from VBOs via glVertexAttribPointer) and
-// explicit matrix uniforms instead of the deprecated fixed-function built-ins
-// (gl_Vertex / gl_Normal / ftransform / gl_NormalMatrix). macOS' legacy GL
-// drops shaders that touch those built-ins to software vertex processing, and
-// that SW path then ignores a partial glViewport -- which is what skewed the
-// split-screen preview models. Staying on generic attributes keeps the model
-// draw on the hardware path so it honours whatever viewport we set.
-attribute vec3 a_position;
-attribute vec3 a_normal;
-attribute vec2 a_texcoord;
+// Explicit core-profile attributes and CPU-computed matrices keep all model
+// draws on the same hardware path on Windows, Linux and macOS.
+layout(location = 0) in vec3 a_position;
+layout(location = 1) in vec3 a_normal;
+layout(location = 2) in vec2 a_texcoord;
 
 uniform mat4 u_mvp;
 uniform mat3 u_normal_matrix;
 
-varying vec2 v_texcoord;
-varying vec3 v_normal;
+out vec2 v_texcoord;
+out vec3 v_normal;
 
 void main(void)
 {
@@ -89,7 +79,7 @@ void main(void)
 
 
 FRAGMENT_SHADER = """
-#version 120
+#version 330 core
 
 uniform sampler2D u_texture;
 uniform vec3 u_global_color;
@@ -101,9 +91,25 @@ uniform vec3 u_sky_color;
 uniform vec3 u_terrain_normal;
 uniform float u_terrain_shadow_amount;
 uniform float u_prelit;
+uniform int u_alpha_func;
+uniform float u_alpha_threshold;
+uniform int u_textured;
 
-varying vec2 v_texcoord;
-varying vec3 v_normal;
+in vec2 v_texcoord;
+in vec3 v_normal;
+out vec4 out_color;
+
+bool alpha_passes(float alpha)
+{
+    if (u_alpha_func == 0) return false;
+    if (u_alpha_func == 1) return alpha < u_alpha_threshold;
+    if (u_alpha_func == 2) return abs(alpha - u_alpha_threshold) <= (1.0 / 255.0);
+    if (u_alpha_func == 3) return alpha <= u_alpha_threshold;
+    if (u_alpha_func == 4) return alpha > u_alpha_threshold;
+    if (u_alpha_func == 5) return abs(alpha - u_alpha_threshold) > (1.0 / 255.0);
+    if (u_alpha_func == 6) return alpha >= u_alpha_threshold;
+    return true;
+}
 
 vec3 sc4_getcolor(vec3 normal)
 {
@@ -124,9 +130,11 @@ vec3 sc4_getmodellight()
 
 void main(void)
 {
-    vec4 texel = texture2D(u_texture, v_texcoord);
+    vec4 texel = u_textured != 0 ? texture(u_texture, v_texcoord) : vec4(1.0, 0.0, 0.0, 1.0);
+    if (!alpha_passes(texel.a))
+        discard;
     vec3 lighting = mix(sc4_getmodellight(), vec3(1.0, 1.0, 1.0), u_prelit);
-    gl_FragColor = vec4(texel.rgb * lighting, texel.a);
+    out_color = vec4(texel.rgb * lighting, texel.a);
 }
 """
 
@@ -154,15 +162,12 @@ class SC4LightingProgram:
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
             'mvp': glGetUniformLocation(self.program, 'u_mvp'),
             'normal_matrix': glGetUniformLocation(self.program, 'u_normal_matrix'),
-        }
-        # Generic attribute slots, read by S3D.draw() to wire up the VBOs.
-        self.attribs = {
-            'position': int(glGetAttribLocation(self.program, 'a_position')),
-            'normal': int(glGetAttribLocation(self.program, 'a_normal')),
-            'texcoord': int(glGetAttribLocation(self.program, 'a_texcoord')),
+            'alpha_func': glGetUniformLocation(self.program, 'u_alpha_func'),
+            'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
+            'textured': glGetUniformLocation(self.program, 'u_textured'),
         }
 
-    def bind(self, lighting_state):
+    def bind(self, lighting_state, mvp, normal_matrix):
         glUseProgram(self.program)
         glUniform1i(self._uniforms['texture'], 0)
         self._set_vec3('global_color', lighting_state['global_color'])
@@ -177,36 +182,27 @@ class SC4LightingProgram:
             float(lighting_state['terrain_shadow_amount']),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
-        self._upload_matrices()
+        self._upload_explicit_matrices(mvp, normal_matrix)
 
-    def _upload_matrices(self):
-        """Snapshot the current fixed-function MVP and push it as a uniform.
+    def set_material(self, alpha_func=7, alpha_threshold=0.0, textured=True):
+        glUniform1i(self._uniforms['alpha_func'], int(alpha_func))
+        glUniform1f(self._uniforms['alpha_threshold'], float(alpha_threshold))
+        glUniform1i(self._uniforms['textured'], 1 if textured else 0)
 
-        Callers still set the camera and per-model placement with the legacy
-        glMatrixMode/glOrtho/glScalef/glTranslate/glRotate calls; we read that
-        state here (bind() runs after it is fully set up) so the shader sees
-        exactly the same transform the fixed-function texture quads use.
-
-        PyOpenGL returns GL matrices as 4x4 arrays whose C-order memory is the
-        column-major GL data, i.e. the transpose of the maths matrix. So the
-        upload value for u_mvp (= P*MV applied as U*v) is mv @ proj, and the
-        normal matrix value (inverse-transpose of the modelview 3x3, to stay
-        correct under the preview's non-uniform/negative scale) is inv(mv3).T.
-        """
-        mv = numpy.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=numpy.float64).reshape(4, 4)
-        proj = numpy.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=numpy.float64).reshape(4, 4)
-        mvp = numpy.ascontiguousarray(mv @ proj, dtype=numpy.float32)
-        glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_FALSE, mvp)
-        mv3 = mv[0:3, 0:3]
-        try:
-            normal_value = numpy.linalg.inv(mv3).T
-        except numpy.linalg.LinAlgError:
-            normal_value = mv3
-        normal_value = numpy.ascontiguousarray(normal_value, dtype=numpy.float32)
-        glUniformMatrix3fv(self._uniforms['normal_matrix'], 1, GL_FALSE, normal_value)
+    def _upload_explicit_matrices(self, mvp, normal_matrix):
+        """Upload caller-computed math matrices (row-major -> transpose=GL_TRUE)."""
+        mvp = numpy.ascontiguousarray(mvp, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_TRUE, mvp)
+        normal_matrix = numpy.ascontiguousarray(normal_matrix, dtype=numpy.float32)
+        glUniformMatrix3fv(self._uniforms['normal_matrix'], 1, GL_TRUE, normal_matrix)
 
     def unbind(self):
         glUseProgram(0)
+
+    def release_gl(self):
+        if self.program:
+            glDeleteProgram(self.program)
+            self.program = 0
 
     def _set_vec3(self, name, value):
         glUniform3f(self._uniforms[name], float(value[0]), float(value[1]), float(value[2]))

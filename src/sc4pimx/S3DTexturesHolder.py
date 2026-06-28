@@ -1,48 +1,47 @@
 """S3D textures holder for OpenGL rendering."""
+import ctypes
 import logging
-import os
+import time
 import weakref
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from OpenGL.GL import (
     GL_ARRAY_BUFFER,
     GL_CLAMP_TO_EDGE,
     GL_ELEMENT_ARRAY_BUFFER,
+    GL_FALSE,
+    GL_FLOAT,
     GL_LINEAR,
     GL_MIRRORED_REPEAT,
     GL_NEAREST,
     GL_REPEAT,
-    GL_RGBA,
     GL_STATIC_DRAW,
     GL_TEXTURE_2D,
-    GL_TEXTURE_MAG_FILTER,
-    GL_TEXTURE_MIN_FILTER,
-    GL_TEXTURE_WRAP_S,
-    GL_TEXTURE_WRAP_T,
-    GL_UNPACK_ALIGNMENT,
-    GL_UNSIGNED_BYTE,
-    GL_VIEWPORT,
     glBindBuffer,
+    glBindSampler,
     glBindTexture,
+    glBindVertexArray,
     glBufferData,
-    glColor3f,
     glDeleteBuffers,
     glDeleteTextures,
-    glDisable,
-    glEnable,
+    glDeleteVertexArrays,
+    glEnableVertexAttribArray,
     glGenBuffers,
-    glGenTextures,
-    glGetIntegerv,
-    glPixelStorei,
-    glTexParameterf,
-    glTexImage2D,
-    glViewport,
+    glGenVertexArrays,
+    glVertexAttribPointer,
 )
 from PIL import Image
 
 from . import FSHConverter
+from .SC4Renderer import create_texture_2d
 
 logger = logging.getLogger(__name__)
+
+# DBPF entries can share an underlying file handle. A single decode worker
+# keeps reads serialized while moving FSH decompression/composition off the UI
+# thread. GL uploads remain on the context-owning UI thread.
+_decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sc4-fsh-decode")
 
 
 class _MeshGLBuffers(object):
@@ -55,9 +54,9 @@ class _MeshGLBuffers(object):
     """
 
     def __init__(self):
-        self._arrays = {}   # key -> array buffer name
-        self._indices = {}  # key -> element buffer name
-        self._ids = []
+        self._meshes = {}  # key -> (vao, interleaved_vbo, index_ibo)
+        self._buffer_ids = []
+        self._vao_ids = []
 
     def _make(self, target, data):
         size = len(data) if isinstance(data, (bytes, bytearray)) else data.nbytes
@@ -65,32 +64,52 @@ class _MeshGLBuffers(object):
         glBindBuffer(target, name)
         glBufferData(target, size, data, GL_STATIC_DRAW)
         glBindBuffer(target, 0)
-        self._ids.append(name)
+        self._buffer_ids.append(name)
         return name
 
-    def array_vbo(self, key, data):
-        vbo = self._arrays.get(key)
-        if vbo is None:
-            vbo = self._make(GL_ARRAY_BUFFER, data)
-            self._arrays[key] = vbo
-        return vbo
-
-    def index_ibo(self, key, data):
-        ibo = self._indices.get(key)
-        if ibo is None:
-            ibo = self._make(GL_ELEMENT_ARRAY_BUFFER, data)
-            self._indices[key] = ibo
-        return ibo
+    def mesh_vao(self, key, positions, normals, uvs, indices):
+        cached = self._meshes.get(key)
+        if cached is not None:
+            return cached[0]
+        vertices = np.ascontiguousarray(
+            np.column_stack((positions, normals, uvs)), dtype=np.float32,
+        )
+        vao = int(glGenVertexArrays(1))
+        self._vao_ids.append(vao)
+        glBindVertexArray(vao)
+        vbo = self._make(GL_ARRAY_BUFFER, vertices)
+        ibo = self._make(GL_ELEMENT_ARRAY_BUFFER, indices)
+        # Vertex attribute bindings capture the currently bound array buffer
+        # in the VAO. _make() unbinds after upload, so restore both buffers
+        # before describing the interleaved layout.
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)
+        stride = 8 * 4
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
+        glEnableVertexAttribArray(2)
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(24))
+        glBindVertexArray(0)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        self._meshes[key] = (vao, vbo, ibo)
+        return vao
 
     def delete(self):
-        if self._ids:
+        if self._buffer_ids:
             try:
-                glDeleteBuffers(len(self._ids), self._ids)
+                glDeleteBuffers(len(self._buffer_ids), self._buffer_ids)
             except Exception:
                 pass
-        self._ids = []
-        self._arrays.clear()
-        self._indices.clear()
+        if self._vao_ids:
+            try:
+                glDeleteVertexArrays(len(self._vao_ids), self._vao_ids)
+            except Exception:
+                pass
+        self._buffer_ids = []
+        self._vao_ids = []
+        self._meshes.clear()
 
 
 def _texture_name(value):
@@ -101,22 +120,25 @@ def _delete_texture(value):
     glDeleteTextures([_texture_name(value)])
 
 
-def _decode_layers(entry):
-    """Decode an FSH entry into a list of (size, rgba_bytes) per layer.
-
-    Returns None on any failure. Reads entry.content in place and clears it.
-    """
-    try:
-        entry.read_file(None, True, True)
-        nbrLayers, _trueAlpha, img, alpha, size = FSHConverter.decodeFSH(entry.content)
-    except Exception:
-        try:
-            entry.content = None
-            entry.rawContent = None
-        except Exception:
-            pass
+def _snapshot_content(entry):
+    if entry is None:
         return None
     try:
+        entry.read_file(None, True, True)
+        return bytes(entry.content)
+    except Exception:
+        return None
+    finally:
+        entry.content = None
+        entry.rawContent = None
+
+
+def _decode_layers(content):
+    """Decode a snapped FSH byte string into (size, RGBA bytes) layers."""
+    if content is None:
+        return None
+    try:
+        nbrLayers, _trueAlpha, img, alpha, size = FSHConverter.decodeFSH(content)
         nbOfBytes = size[0] * size[1]
         expected_img = nbOfBytes * 3 * nbrLayers
         expected_alpha = nbOfBytes * nbrLayers
@@ -131,9 +153,8 @@ def _decode_layers(entry):
             im = Image.merge('RGBA', imBmp.split() + imAlpha.split())
             layers.append((size, im.tobytes('raw', 'RGBA')))
         return layers
-    finally:
-        entry.content = None
-        entry.rawContent = None
+    except Exception:
+        return None
 
 
 def _blend_night_over_day(day_rgba, night_rgba):
@@ -158,55 +179,60 @@ def _blend_night_over_day(day_rgba, night_rgba):
     return out.astype(np.uint8).tobytes()
 
 
+def _prepare_layers(day_content, night_content, night_mode):
+    day_layers = _decode_layers(day_content)
+    night_layers = _decode_layers(night_content) if night_mode else None
+    if night_mode and day_layers and night_layers:
+        chosen = []
+        for index, (size, day_rgba) in enumerate(day_layers):
+            if index < len(night_layers):
+                night_size, night_rgba = night_layers[index]
+                if night_size == size:
+                    chosen.append((size, _blend_night_over_day(day_rgba, night_rgba)))
+                    continue
+            chosen.append((size, day_rgba))
+        return chosen
+    if night_mode and night_layers and not day_layers:
+        return night_layers
+    return day_layers or []
+
+
 class S3DTexturesHolder(object):
     __module__ = __name__
 
     def __init__(self, glCanvas):
-        # textures[key] = {'day': entry|None, 'night': entry|None, 'gl_layers': None|list}
+        # textures[key] = decoded source entries, worker future and GL layers.
         # gl_layers is the uploaded GL texture names for the current night_mode.
         self.textures = {}
         self.glCanvas = glCanvas
         self.night_mode = False
+        # Generate mipmaps + sample model textures trilinearly/anisotropically.
+        # Worth it for interactive views; the asset-thumbnail prerender turns it
+        # off (set on its dedicated holder) since every texture is uploaded,
+        # rendered once into a tiny downscaled capture and freed -- mipmap
+        # generation there is pure overhead with no visible benefit.
+        self.mipmaps = True
+        self.max_texture_bytes = 256 * 1024 * 1024
+        self._texture_bytes = 0
+        self._use_serial = 0
         # Per-mesh VBO/IBO sets, keyed by id(mesh). A weakref guards against
         # id() reuse after a mesh is garbage-collected (a recycled id maps to a
         # different object, so we rebuild instead of handing back stale buffers).
         self._mesh_buffers = {}
-        self._vp_logged = False
-
-    def _set_current_preserving_viewport(self):
-        """SetCurrent() without losing the active glViewport.
-
-        On macOS, wx's GLCanvas.SetCurrent() (via NSOpenGLContext) resets the
-        GL viewport to the full drawable. The split-screen preview sets a
-        half-pane viewport once per frame and then draws both textures and
-        models into it -- but models reach this holder mid-frame (texture bind
-        / VBO upload), so a naked SetCurrent here silently reverts the viewport
-        and the models render into the whole canvas (stretched + recentered)
-        while the textures, which never call SetCurrent, stay correct. Saving
-        and restoring the viewport around the call keeps the pane intact and is
-        a harmless no-op on platforms that don't reset it.
-        """
-        try:
-            saved = glGetIntegerv(GL_VIEWPORT)
-        except Exception:
-            saved = None
-        self.glCanvas.SetCurrent()
-        if saved is None:
-            return
-        if os.environ.get('SC4PIM_GL_DEBUG') and not self._vp_logged:
-            self._vp_logged = True
-            try:
-                after = tuple(int(v) for v in glGetIntegerv(GL_VIEWPORT))
-            except Exception:
-                after = None
-            logger.debug('S3DTexturesHolder SetCurrent viewport before=%s after=%s',
-                         tuple(int(v) for v in saved), after)
-        if int(saved[2]) > 0 and int(saved[3]) > 0:
-            glViewport(int(saved[0]), int(saved[1]), int(saved[2]), int(saved[3]))
 
     def get_mesh_buffers(self, mesh):
-        """Return this context's _MeshGLBuffers for mesh, creating it lazily."""
-        self._set_current_preserving_viewport()
+        """Return this context's _MeshGLBuffers for mesh, creating it lazily.
+
+        The caller is responsible for having made this canvas's GL context
+        current (every draw entry point does so once at frame start). We must
+        NOT SetCurrent here: on macOS wx's GLCanvas.SetCurrent() resets the GL
+        viewport to the full drawable, and this runs mid-frame -- per sub-mesh
+        -- after the split-screen preview has installed its half-pane viewport.
+        A make-current here both clobbered that viewport (models rendered into
+        the whole canvas) and cost a context switch on every sub-mesh. Relying
+        on the frame-start make-current avoids both; it's the same contract the
+        texture path has always used.
+        """
         key = id(mesh)
         entry = self._mesh_buffers.get(key)
         if entry is not None:
@@ -249,6 +275,7 @@ class S3DTexturesHolder(object):
         self.glCanvas.SetCurrent()
         for cached in self.textures.values():
             self._free_gl_layers(cached)
+            self._schedule_decode(cached)
         return True
 
     def _free_gl_layers(self, cached):
@@ -256,11 +283,17 @@ class S3DTexturesHolder(object):
         if layers:
             for name in layers:
                 _delete_texture(name)
+        self._texture_bytes -= int(cached.get('gl_bytes', 0))
+        self._texture_bytes = max(0, self._texture_bytes)
+        cached['gl_bytes'] = 0
         cached['gl_layers'] = None
 
     def Free(self):
         self.glCanvas.SetCurrent()
         for cached in self.textures.values():
+            future = cached.get('future')
+            if future is not None:
+                future.cancel()
             self._free_gl_layers(cached)
         self._free_mesh_buffers()
 
@@ -277,72 +310,148 @@ class S3DTexturesHolder(object):
             self._free_gl_layers(old)
         except Exception:
             pass
-        self.textures[textureID] = {'day': entry, 'night': night_entry, 'gl_layers': None}
+        cached = {
+            'day': entry,
+            'night': night_entry,
+            'gl_layers': None,
+            'future': None,
+            'generation': 0,
+            'gl_bytes': 0,
+            'last_used': 0,
+        }
+        self.textures[textureID] = cached
+        self._schedule_decode(cached)
+
+    def _schedule_decode(self, cached):
+        cached['generation'] = int(cached.get('generation', 0)) + 1
+        generation = cached['generation']
+        old_future = cached.get('future')
+        if old_future is not None:
+            old_future.cancel()
+        future = _decode_executor.submit(
+            _prepare_layers,
+            _snapshot_content(cached.get('day')),
+            _snapshot_content(cached.get('night')) if self.night_mode else None,
+            self.night_mode,
+        )
+        cached['future'] = future
+        holder_ref = weakref.ref(self)
+
+        def decoded(_future):
+            holder = holder_ref()
+            if holder is None or cached.get('generation') != generation:
+                return
+            try:
+                import wx
+                wx.CallAfter(holder.glCanvas.Refresh, False)
+            except Exception:
+                pass
+
+        future.add_done_callback(decoded)
 
     def _upload_layers(self, cached):
         """Decode + (optionally) blend + upload GL textures for this cache entry.
 
         Populates cached['gl_layers'] in place (empty list on full failure).
         """
-        day = cached.get('day')
-        night = cached.get('night')
-        day_layers = _decode_layers(day) if day is not None else None
-        night_layers = None
-        if self.night_mode and night is not None:
-            night_layers = _decode_layers(night)
-
-        if self.night_mode and day_layers and night_layers:
+        future = cached.get('future')
+        if future is None:
+            self._schedule_decode(cached)
+            return False
+        if not future.done():
+            return False
+        try:
+            chosen = future.result()
+        except Exception:
+            logger.exception("Failed to decode S3D texture")
             chosen = []
-            for i, (size, day_rgba) in enumerate(day_layers):
-                if i < len(night_layers):
-                    n_size, night_rgba = night_layers[i]
-                    if n_size == size:
-                        chosen.append((size, _blend_night_over_day(day_rgba, night_rgba)))
-                        continue
-                chosen.append((size, day_rgba))
-        elif self.night_mode and night_layers and not day_layers:
-            # Pathological: night exists, day missing. Render night as-is.
-            chosen = night_layers
-        else:
-            chosen = day_layers or []
+        cached['future'] = None
 
         cached['gl_layers'] = []
+        uploaded_bytes = 0
         for size, rgba in chosen:
             try:
-                texName = _texture_name(glGenTextures(1))
+                texName = create_texture_2d(
+                    size[0], size[1], rgba, channels=4,
+                    srgb=getattr(self.glCanvas, 'srgb', False),
+                    mipmaps=self.mipmaps,
+                )
                 cached['gl_layers'].append(texName)
-                glBindTexture(GL_TEXTURE_2D, texName)
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-                # S3D buildings are often split across several FSH tiles.
-                # Per-tile mipmaps can average dark padding into tile edges.
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size[0], size[1],
-                             0, GL_RGBA, GL_UNSIGNED_BYTE, rgba)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                uploaded_bytes += int(size[0]) * int(size[1]) * 4
             except Exception:
                 continue
+        cached['gl_bytes'] = uploaded_bytes
+        self._texture_bytes += uploaded_bytes
+        self._evict_texture_layers(cached)
+        return True
+
+    def flush_pending(self, timeout=15.0):
+        """Block until every scheduled texture decode has finished and uploaded.
+
+        Normal rendering is lazy: FSH decoding runs on a background worker and
+        the GL upload is deferred to the first :meth:`SetCurrentTex` after the
+        future resolves. A *synchronous* prerender (asset thumbnails) can reach
+        the capture before that happens, so the model draws with no texture and
+        the shader paints it solid red (the untextured marker colour). Here the
+        decodes are awaited, then the uploads run on this thread (which owns the
+        GL context). Returns True if everything is ready, False on timeout.
+        """
+        self.glCanvas.SetCurrent()
+        deadline = time.monotonic() + max(0.0, timeout)
+        ready = True
+        for cached in list(self.textures.values()):
+            future = cached.get('future')
+            if future is None:
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning("flush_pending timed out waiting for texture decode")
+                ready = False
+                break
+            try:
+                future.result(timeout=remaining)
+            except Exception:
+                logger.exception("Texture decode failed during flush_pending")
+                ready = False
+        # Uploads must happen on the context-owning thread, so do them here
+        # rather than inside the decode worker.
+        for cached in list(self.textures.values()):
+            if cached.get('gl_layers') is None and cached.get('future') is not None:
+                if not self._upload_layers(cached):
+                    ready = False
+        return ready
+
+    def _evict_texture_layers(self, exclude):
+        if self._texture_bytes <= self.max_texture_bytes:
+            return
+        candidates = sorted(
+            (value for value in self.textures.values()
+             if value is not exclude and value.get('gl_layers')),
+            key=lambda value: value.get('last_used', 0),
+        )
+        for cached in candidates:
+            self._free_gl_layers(cached)
+            if self._texture_bytes <= self.max_texture_bytes:
+                break
 
     def SetCurrentTex(self, textureID, layer=0, min_filter=None, mag_filter=None,
                       wrap_s=None, wrap_t=None):
-        glEnable(GL_TEXTURE_2D)
         cached = self.textures.get(textureID)
         if cached is None:
-            glDisable(GL_TEXTURE_2D)
-            return
-        self._set_current_preserving_viewport()
+            return False
+        self._use_serial += 1
+        cached['last_used'] = self._use_serial
+        # No SetCurrent here -- the context is already current for the frame
+        # (see get_mesh_buffers). A mid-frame make-current would reset the
+        # split-pane viewport on macOS and cost a context switch per mesh.
         if cached.get('day') is None and cached.get('night') is None:
-            glColor3f(1, 0, 0)
-            glDisable(GL_TEXTURE_2D)
-            return
+            return False
         if cached.get('gl_layers') is None:
-            self._upload_layers(cached)
+            if not self._upload_layers(cached):
+                return False
         layers = cached.get('gl_layers') or []
         if not layers:
-            glDisable(GL_TEXTURE_2D)
-            glColor3f(1, 1, 1)
-            return
+            return False
         # The requested layer (e.g. an ATC animation plane) can run past the
         # number of decoded layers; clamp instead of raising IndexError.
         if layer >= len(layers):
@@ -353,18 +462,14 @@ class S3DTexturesHolder(object):
         # Maxis default per S3D Mats wiki is NEAREST; bilinear is the special
         # case (mainly road textures). Caller passes 0 for nearest, >0 for
         # linear; None preserves the upload-time default.
-        if min_filter is not None:
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                            GL_LINEAR if min_filter > 0 else GL_NEAREST)
-        if mag_filter is not None:
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                            GL_LINEAR if mag_filter > 0 else GL_NEAREST)
+        min_value = GL_LINEAR if min_filter is None or min_filter > 0 else GL_NEAREST
+        mag_value = GL_LINEAR if mag_filter is None or mag_filter > 0 else GL_NEAREST
         # S3D Mats wrap values: 0 = repeat, 1 = "clamb" (Maxis-speak for
         # mirrored repeat per the wiki). None preserves upload-time default.
-        if wrap_s is not None:
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
-                            GL_MIRRORED_REPEAT if wrap_s == 1 else GL_REPEAT)
-        if wrap_t is not None:
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
-                            GL_MIRRORED_REPEAT if wrap_t == 1 else GL_REPEAT)
-        return
+        wrap_s_value = GL_CLAMP_TO_EDGE if wrap_s is None else (GL_MIRRORED_REPEAT if wrap_s == 1 else GL_REPEAT)
+        wrap_t_value = GL_CLAMP_TO_EDGE if wrap_t is None else (GL_MIRRORED_REPEAT if wrap_t == 1 else GL_REPEAT)
+        sampler = self.glCanvas.renderer.samplers.get(
+            min_value, mag_value, wrap_s_value, wrap_t_value, mipmapped=self.mipmaps,
+        )
+        glBindSampler(0, sampler)
+        return layers[layer], sampler
