@@ -615,6 +615,40 @@ def _enable_faulthandler():
         faulthandler.dump_traceback_later(60, repeat=True)
 
 
+def _enable_high_dpi():
+    """Mark the process DPI-aware on Windows so text renders crisp on 4K/HiDPI.
+
+    Without this Windows treats the app as DPI-unaware and bitmap-stretches the
+    whole window on a high-DPI display, blurring all text and controls. We ask
+    for Per-Monitor-v2 (controls re-scale when dragged between monitors of
+    different DPI), falling back to the older system-DPI APIs on pre-1703
+    Windows. Must run before any window -- including the splash -- is created.
+
+    A bundled manifest (see SC4PIMX.spec) declares the same awareness for the
+    frozen exe; this runtime call additionally covers running from source.
+    """
+    if not sys.platform.startswith('win'):
+        return
+    import ctypes
+
+    # PER_MONITOR_AWARE_V2 (Windows 10 1703+).
+    try:
+        ctx = ctypes.c_void_p(-4)  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctx):
+            return
+    except (AttributeError, OSError):
+        pass
+    # Per-Monitor aware (Windows 8.1+): shcore.SetProcessDpiAwareness(2).
+    try:
+        if ctypes.windll.shcore.SetProcessDpiAwareness(2) == 0:
+            return
+    except (AttributeError, OSError):
+        pass
+    # System-DPI aware (Windows Vista+).
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
 
 
 class ProcessDlg(wx.Dialog):
@@ -5387,18 +5421,33 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
     finally:
         fsh_entry.content = None
         fsh_entry.rawContent = None
-    pil = Image.frombytes('RGB', size, img[:size[0] * size[1] * 3])
+    # Each animation frame is tiled within an FSH layer, and frame 0 of the
+    # chosen view lives on a specific layer -- the AVP chunk's "plane". decodeFSH
+    # returns every equal-sized layer concatenated, so slice out the plane's
+    # layer rather than always using layer 0. The live renderer does the same
+    # (ATCReader.draw_le feeds the chunk plane to SetCurrentTex as the GL layer).
+    # Cropping a fixed layer 0 with a higher-zoom frame size (w/h) is what tiled
+    # several grid cells into one image -- the "whole framesheet" thumbnail.
+    layer = plane if 0 <= plane < nbrLayers else 0
+    layer_pixels = size[0] * size[1]
+    rgb_start = layer * layer_pixels * 3
+    pil = Image.frombytes('RGB', size, img[rgb_start:rgb_start + layer_pixels * 3])
     if trueAlpha:
         # Match the mid-gray background of S3D thumbnails (rendered against
         # glClearColor(0.5, 0.5, 0.5)) for a consistent asset-browser look.
+        a_start = layer * layer_pixels
         blank = Image.new('RGB', size, (128, 128, 128))
-        alpha_layer = Image.frombytes('L', size, alpha[:size[0] * size[1]])
+        alpha_layer = Image.frombytes('L', size, alpha[a_start:a_start + layer_pixels])
         pil = Image.composite(pil, blank, alpha_layer)
-    # Clamp the crop region to the atlas bounds so a malformed AVP doesn't
-    # propagate to a PIL.crop with an out-of-bounds box.
-    x_end = min(size[0], x_start + w)
-    y_end = min(size[1], y_start + h)
-    cropped = pil.crop((max(0, x_start), max(0, y_start), x_end, y_end))
+    # AVP coordinates are pixel coordinates within the layer. Clamp to the layer
+    # bounds so a malformed AVP can't crop out of range.
+    x0 = max(0, min(size[0], x_start))
+    y0 = max(0, min(size[1], y_start))
+    x_end = max(x0, min(size[0], x_start + w))
+    y_end = max(y0, min(size[1], y_start + h))
+    if x_end <= x0 or y_end <= y0:
+        return
+    cropped = pil.crop((x0, y0, x_end, y_end))
     head, name = os.path.split(dest_path)
     large_dir = head + 'Large'
     os.makedirs(large_dir, exist_ok=True)
@@ -5409,6 +5458,7 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
 def main() -> None:
     configure_logging()
     logger.info('SC4PIM-X %s starting', get_version())
+    _enable_high_dpi()
     _enable_faulthandler()
     image_db = image_db_dir()
     image_db_large = image_db_dir(large=True)

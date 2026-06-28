@@ -9,6 +9,10 @@ _ver_tuple = (
     else (0, 0, 0, 0)
 )
 
+# DPI-awareness manifest so Windows renders at native resolution on 4K/HiDPI
+# screens instead of blurring a bitmap-stretched window. Only applied on win32.
+_win_manifest = 'SC4PIMX.manifest' if _sys.platform == 'win32' else None
+
 _win_ver_file = None
 if _sys.platform == 'win32':
     _os.makedirs('build', exist_ok=True)
@@ -115,6 +119,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=_win_ver_file,
+    manifest=_win_manifest,
 )
 coll = COLLECT(
     exe,
