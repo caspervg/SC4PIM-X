@@ -42,7 +42,7 @@ from OpenGL.GL import (
     glDepthFunc,
     glDepthMask,
     glDisable,
-    glDrawElements,
+    glDrawElementsInstanced,
     glEnable,
     glFrontFace,
 )
@@ -339,6 +339,14 @@ class S3D(object):
         return buffer
 
     def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix):
+        return self.draw_instanced(
+            s3DTexturesHolder, shader_program, lighting_state, [mvp], [normal_matrix],
+        )
+
+    def draw_instanced(self, s3DTexturesHolder, shader_program, lighting_state,
+                       mvps, normal_matrices):
+        if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
+            raise ValueError('S3D instance batch must contain 1..32 matching transforms')
         if self.entry is None:
             return
         try:
@@ -370,7 +378,8 @@ class S3D(object):
          GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS]
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
         mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
-        shader_program.bind(lighting_state, mvp, normal_matrix)
+        shader_program.bind_instanced(lighting_state, mvps, normal_matrices)
+        instance_count = len(mvps)
 
         def pass_order(item):
             _index, candidate = item
@@ -486,17 +495,17 @@ class S3D(object):
                 if length == 0 or first + length > idx_count:
                     continue
                 if typePrim == 0:
-                    glDrawElements(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
-                                   ctypes.c_void_p(first * 2))
+                    glDrawElementsInstanced(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
+                                            ctypes.c_void_p(first * 2), instance_count)
                 elif typePrim == 1:
-                    glDrawElements(GL_TRIANGLE_STRIP, length, GL_UNSIGNED_SHORT,
-                                   ctypes.c_void_p(first * 2))
+                    glDrawElementsInstanced(GL_TRIANGLE_STRIP, length, GL_UNSIGNED_SHORT,
+                                            ctypes.c_void_p(first * 2), instance_count)
                 elif typePrim == 2:
                     # GL_QUADS is absent from core profiles; each source quad
                     # is equivalent to a four-index triangle fan.
                     for quad_first in range(first, first + length - 3, 4):
-                        glDrawElements(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT,
-                                       ctypes.c_void_p(quad_first * 2))
+                        glDrawElementsInstanced(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT,
+                                                ctypes.c_void_p(quad_first * 2), instance_count)
                 else:
                     logger.debug('S3D PRIM type %d not supported (first=%d length=%d) tgi=%r',
                                  typePrim, first, length, getattr(self, 'tgi', None))

@@ -1992,7 +1992,7 @@ class LotEditorWin(wx.Frame):
         func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraint,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
-            self.on_draw()
+            self._request_draw()
             return True
         return False
 
@@ -2020,8 +2020,6 @@ class LotEditorWin(wx.Frame):
     def OnUpdateIcon(self, event):
         if not self.CanUpdateIcon():
             return
-        self.on_draw()
-        self.on_draw()
         img = self.Save()
         self.descPage.OnUpdateIcon(img)
         self.UpdatePIM()
@@ -2029,8 +2027,6 @@ class LotEditorWin(wx.Frame):
 
     def OnPreviewIcon(self, event=None):
         """Show the icon the lot would generate, with an option to apply it."""
-        self.on_draw()
-        self.on_draw()
         icon = SC4IconMakerDlg.compose_lot_icon(self.Save())
         dlg = LotIconPreviewDlg(self, icon, self.CanUpdateIcon())
         dlg.ShowModal()
@@ -2765,6 +2761,19 @@ class LotEditorWin(wx.Frame):
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
         glDisable(GL_CULL_FACE)
 
+    def _request_draw(self):
+        """Queue a frame and let wx coalesce bursts of UI events.
+
+        Rendering both lot views synchronously from mouse/key handlers blocks
+        delivery of subsequent input.  During drags it also duplicates work:
+        MyCanvasBase already invalidates the canvas, so the direct draw was
+        followed by another EVT_PAINT frame.  Invalidating here keeps updates
+        responsive while guaranteeing at most one pending paint per canvas.
+        """
+        canvas = self.glCanvas2D
+        if canvas:
+            canvas.Refresh(False)
+
     def on_draw(self):
         # on_draw can be invoked by a pending wx.CallLater (see Display) after
         # the window/canvas has already been destroyed; bail out cleanly
@@ -2837,6 +2846,71 @@ class LotEditorWin(wx.Frame):
             glBlendFunc(GL_ONE, GL_ONE)
             primitives.quad(points, self._render_context.mvp, color=(1, 0, 0, 1))
             glDisable(GL_BLEND)
+
+    def DrawQuads(self, records, bAlpha, tint=(1.0, 1.0, 1.0, 1.0)):
+        """Batch 2D lot tiles by texture when their order is interchangeable."""
+        self._draw_tile_batches(records, bAlpha, tint, three_d=False)
+
+    def DrawQuads3D(self, records, bAlpha):
+        """Batch coplanar 3D lot tiles by texture."""
+        self._draw_tile_batches(records, bAlpha, (*self._lot_environment_light(), 1.0),
+                                three_d=True)
+
+    def _draw_tile_batches(self, records, bAlpha, tint, three_d):
+        if not records:
+            return
+        zoom = min(self.zoom, 4)
+        sampler = self.glCanvas2D.renderer.samplers.get(
+            GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+        )
+        # Reordering opaque tiles is always safe. Alpha tiles are safe when no
+        # two occupy the same cell; overlapping overlays retain source order.
+        cells = [(record[0], record[1]) for record in records]
+        can_reorder = not bAlpha or len(cells) == len(set(cells))
+        groups = []
+        by_texture = {}
+        for record in records:
+            x, y, flag, tex_id = record[:4]
+            try:
+                texture = self.textures[tex_id][0][zoom]
+            except Exception:
+                continue
+            key = gl_texture_name(texture)
+            if can_reorder:
+                group = by_texture.get(key)
+                if group is None:
+                    group = [texture, [], []]
+                    by_texture[key] = group
+                    groups.append(group)
+            elif groups and gl_texture_name(groups[-1][0]) == key:
+                group = groups[-1]
+            else:
+                group = [texture, [], []]
+                groups.append(group)
+            offset_x = x * 16 - self.lotSizeXOffset
+            offset_y = y * 16 - self.lotSizeYOffset
+            if three_d:
+                points = (
+                    (offset_x, 0, offset_y + 16), (offset_x, 0, offset_y),
+                    (offset_x + 16, 0, offset_y), (offset_x + 16, 0, offset_y + 16),
+                )
+            else:
+                points = (
+                    (offset_x, offset_y + 16, 0), (offset_x, offset_y, 0),
+                    (offset_x + 16, offset_y, 0), (offset_x + 16, offset_y + 16, 0),
+                )
+            group[1].append(points)
+            group[2].append(texture_coords_for_flag(flag))
+        if bAlpha:
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        else:
+            glDisable(GL_BLEND)
+        for texture, quads, uv_quads in groups:
+            self.glCanvas2D.renderer.primitives.quad_batch(
+                quads, self._render_context.mvp, color=tint,
+                uv_quads=uv_quads, texture=texture, sampler=sampler,
+            )
 
     def DrawHighLight(self, minx, miny, maxx, maxy, color=(1, 0, 0)):
         offsetX = -self.lotSizeXOffset
@@ -2943,7 +3017,7 @@ class LotEditorWin(wx.Frame):
                         self.SetStatusText(hex2str(texData[3]), 5)
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                         self.highlighted = [texData[4]]
-                self.DrawQuad(texData[0], texData[1], texData[2], texData[3], False)
+            self.DrawQuads(self.texBases, False)
 
         if self.modeDisplay & MODE_OVERTEX_ONLY and self._is_layer_visible('2d', LAYER_OVERLAY):
             for texData in self.texOverlays:
@@ -2960,7 +3034,7 @@ class LotEditorWin(wx.Frame):
                         self.SetStatusText(hex2str(texData[3]), 5)
                         self.highlighted = [texData[4]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
-                self.DrawQuad(texData[0], texData[1], texData[2], texData[3], True)
+            self.DrawQuads(self.texOverlays, True)
 
         if self.modeDisplay & MODE_CONSTRAINT_ONLY:
             constraint_layers = (
@@ -2970,6 +3044,7 @@ class LotEditorWin(wx.Frame):
             for is_water, constraints, layer_key in constraint_layers:
                 if not self._is_layer_visible('2d', layer_key):
                     continue
+                tint = (0.2, 0.2, 0.8, 1.0) if is_water else (0.8, 0.5, 0.2, 1.0)
                 for texData in constraints:
                     if self.modeEdit == MODE_EDIT_CONSTRAINT:
                         minx = texData[0] * 16
@@ -2984,9 +3059,8 @@ class LotEditorWin(wx.Frame):
                             self.SetStatusText(LEXConstraintWater if is_water else LEXConstraintLand, 5)
                             self.highlighted = [texData[4]]
                             self.quadHighs = [[minx, miny, maxx, maxy]]
-                    tint = (0.2, 0.2, 0.8, 1.0) if is_water else (0.8, 0.5, 0.2, 1.0)
-                    self.DrawQuad(texData[0], texData[1], texData[2], 1802442183, True,
-                                  tint=tint)
+                records = [(item[0], item[1], item[2], 1802442183) for item in constraints]
+                self.DrawQuads(records, True, tint=tint)
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_TRANSIT):
             for texData in self.te:
@@ -3014,17 +3088,19 @@ class LotEditorWin(wx.Frame):
                 draw_sc4path_overlay_2d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         if self._is_layer_visible('2d', LAYER_ROAD_EDGES):
+            road_edges = []
             if self.exemplar.GetProp(1246398704)[0] & 8:
                 for x in range(self.exemplar.GetProp(2297284496)[0]):
-                    self.DrawQuad(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
+                    road_edges.append((x, self.exemplar.GetProp(2297284496)[1], 1, 641146880))
 
             if self.exemplar.GetProp(1246398704)[0] & 1:
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    self.DrawQuad(-1, y, 0, 641146880, True)
+                    road_edges.append((-1, y, 0, 641146880))
 
             if self.exemplar.GetProp(1246398704)[0] & 4:
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    self.DrawQuad(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+                    road_edges.append((self.exemplar.GetProp(2297284496)[0], y, 0, 641146880))
+            self.DrawQuads(road_edges, True)
 
         if self.snapSize != 0 and self._is_layer_visible('2d', LAYER_SNAP_GRID):
             positions = self.snapGrids + numpy.array(
@@ -3205,7 +3281,42 @@ class LotEditorWin(wx.Frame):
             uvs=tex_coords, texture=texture, sampler=sampler,
         )
 
-    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None):
+    def _flush_model_batches(self, batches):
+        if not batches:
+            return
+        for (mesh, _prelit), batch in list(batches.items()):
+            lighting_state, mvps, normals = batch
+            for start in range(0, len(mvps), 32):
+                mesh.draw_instanced(
+                    self.s3DTexturesHolder, self._ensure_s3d_shader_program(), lighting_state,
+                    mvps[start:start + 32], normals[start:start + 32],
+                )
+        batches.clear()
+
+    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches):
+        # Blended meshes depend on source order. Treat them as barriers while
+        # batching opaque and alpha-tested repetitions around them.
+        batchable = batches is not None and not any(
+            material.get('flags', 0) & 16 for material in getattr(mesh, 'matBlocks', ())
+        )
+        if batchable:
+            key = (mesh, bool(lighting_state.get('prelit')))
+            batch = batches.get(key)
+            if batch is None:
+                batch = [lighting_state, [], []]
+                batches[key] = batch
+            batch[1].append(self._render_context.mvp.copy())
+            batch[2].append(self._render_context.normal_matrix.copy())
+            return
+        if batches is not None:
+            self._flush_model_batches(batches)
+        mesh.draw(
+            self.s3DTexturesHolder, shader_program, lighting_state,
+            self._render_context.mvp, self._render_context.normal_matrix,
+        )
+
+    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
+                  model_batches=None):
         if viewZoom is None:
             viewZoom = zoom
         if resource is None:
@@ -3232,24 +3343,23 @@ class LotEditorWin(wx.Frame):
                 render.translate(rtk[0], rtk[1], rtk[2])
                 render.rotate(rotMapping[rotFlag], 0, 1, 0)
                 render.rotate(-rot2D, 0, 1, 0)
-                what.s3dMeshes[zoom][rot].draw(
-                    self.s3DTexturesHolder, shader_program, lighting_state,
-                    render.mvp, render.normal_matrix,
+                self._submit_s3d_model(
+                    what.s3dMeshes[zoom][rot], shader_program, lighting_state, model_batches,
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
-            what.s3dMeshes[zoom].draw(
-                self.s3DTexturesHolder, shader_program, lighting_state,
-                render.mvp, render.normal_matrix,
+            self._submit_s3d_model(
+                what.s3dMeshes[zoom], shader_program, lighting_state, model_batches,
             )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
             with render.pushed():
                 render.rotate(rotMapping[rotFlag], 0, 1, 0)
-                what.mainMesh.draw(
-                    self.s3DTexturesHolder, shader_program, lighting_state,
-                    render.mvp, render.normal_matrix,
+                self._submit_s3d_model(
+                    what.mainMesh, shader_program, lighting_state, model_batches,
                 )
         elif what.__class__ == ATC:
+            if model_batches is not None:
+                self._flush_model_batches(model_batches)
             glDisable(GL_DEPTH_TEST)
             rotMapping = [1, 0, 3, 2]
             if what.draw_le(zoom, rotMapping[rot]):
@@ -3340,32 +3450,33 @@ class LotEditorWin(wx.Frame):
             self.DrawBackGround2(self.BackPosx, self.BackPosy)
         glEnable(GL_DEPTH_TEST)
         if self._is_layer_visible('3d', LAYER_BASE):
-            for texData in self.texBases:
-                self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], False)
+            self.DrawQuads3D(self.texBases, False)
 
         if self._is_layer_visible('3d', LAYER_OVERLAY):
-            for texData in self.texOverlays:
-                self.DrawQuad3D(texData[0], texData[1], texData[2], texData[3], True)
+            self.DrawQuads3D(self.texOverlays, True)
 
         # Road edge overlays clash with a custom ground background, so skip
         # drawing them while background mode is on.
         if self._is_layer_visible('3d', LAYER_ROAD_EDGES) and not background_drawn:
+            road_edges = []
             if self.exemplar.GetProp(1246398704)[0] & 8:
                 for x in range(self.exemplar.GetProp(2297284496)[0]):
-                    self.DrawQuad3D(x, self.exemplar.GetProp(2297284496)[1], 1, 641146880, True)
+                    road_edges.append((x, self.exemplar.GetProp(2297284496)[1], 1, 641146880))
 
             if self.exemplar.GetProp(1246398704)[0] & 1:
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    self.DrawQuad3D(-1, y, 0, 641146880, True)
+                    road_edges.append((-1, y, 0, 641146880))
 
             if self.exemplar.GetProp(1246398704)[0] & 4:
                 for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    self.DrawQuad3D(self.exemplar.GetProp(2297284496)[0], y, 0, 641146880, True)
+                    road_edges.append((self.exemplar.GetProp(2297284496)[0], y, 0, 641146880))
+            self.DrawQuads3D(road_edges, True)
 
         glEnable(GL_DEPTH_TEST)
         rotMapping = [2, 1, 0, 3]
         lotSizeXOver = self.lotSizeXOver
         lotSizeYOver = self.lotSizeYOver
+        model_batches = {}
         if self._is_layer_visible('3d', LAYER_BUILDING):
             try:
                 if self.buildingViewer[self.currentBuilding] is not None:
@@ -3380,7 +3491,7 @@ class LotEditorWin(wx.Frame):
                         self._render_context.translate(
                             offsetX, offsetY + ToCoord(self.building[4]), offsetZ,
                         )
-                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], assetZoom, viewZoom)
+                        self.DrawModel(rtk4, self.buildingViewer[self.currentBuilding], rot2D, (rotation + rotMapping[self.building[2]]) % 4, self.building[2], assetZoom, viewZoom, model_batches)
             except IndexError:
                 pass
 
@@ -3410,7 +3521,7 @@ class LotEditorWin(wx.Frame):
                             self._render_context.translate(
                                 offsetX, offsetY + ToCoord(prop[4]), offsetZ,
                             )
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom, model_batches)
 
         if self._is_layer_visible('3d', LAYER_FLORA):
             for prop, propViewer in zip(self.floras, self.floraViewers):
@@ -3436,8 +3547,9 @@ class LotEditorWin(wx.Frame):
                             self._render_context.translate(
                                 offsetX, offsetY + ToCoord(prop[4]), offsetZ,
                             )
-                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom)
+                            self.DrawModel(rtk4, tempViewer, rot2D, (rotation + rotMapping[prop[2]]) % 4, prop[2], assetZoom, viewZoom, model_batches)
 
+        self._flush_model_batches(model_batches)
         for prop, propViewer in zip(afters, afterViewers):
             with self._render_context.pushed():
                 offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
@@ -3832,7 +3944,7 @@ class LotEditorWin(wx.Frame):
                     self.BackPosy -= self.glCanvas2D.dy * 0.25
                 self.glCanvas2D.dx = 0
                 self.glCanvas2D.dy = 0
-                self.on_draw()
+                self._request_draw()
                 return
             if self.modeEdit not in [MODE_EDIT_BASETEX, MODE_EDIT_OVERTEX, MODE_EDIT_PROP, MODE_EDIT_FLORA, MODE_EDIT_BUILDING, MODE_EDIT_TRANSIT]:
                 return
@@ -3867,7 +3979,7 @@ class LotEditorWin(wx.Frame):
                     self._push_undo()
                     self._drag_undo_pending = True
                 self.MoveByAmount(dx, dy, 0)
-        self.on_draw()
+        self._request_draw()
 
     def OnMouseDown(self, evt):
         self.glCanvas2D.on_mouse_down(evt)

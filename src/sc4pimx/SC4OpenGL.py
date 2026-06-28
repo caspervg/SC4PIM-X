@@ -247,8 +247,12 @@ class MyCanvasBase(glcanvas.GLCanvas):
         if evt.Dragging() and evt.LeftIsDown():
             self.last_x, self.last_y = self.x, self.y
             self.x, self.y = evt.GetPosition()
-            self.dx = self.x - self.last_x
-            self.dy = self.y - self.last_y
+            # Paint events are deliberately coalesced by wx.  Preserve all
+            # motion that arrived between frames so panning does not lose
+            # distance when the scene takes longer to render than the mouse
+            # event interval.
+            self.dx += self.x - self.last_x
+            self.dy += self.y - self.last_y
             self.Refresh(False)
 
 

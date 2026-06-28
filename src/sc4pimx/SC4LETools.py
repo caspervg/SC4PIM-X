@@ -7,7 +7,7 @@ import random
 
 import wx
 import wx.lib.agw.balloontip as BT
-from PIL import Image, ImageDraw, ImageSequence
+from PIL import Image, ImageDraw
 
 logger = logging.getLogger(__name__)
 
@@ -785,6 +785,13 @@ class LEAssetItem(object):
 
 class LEAssetThumbnailProvider(object):
 
+    # ATC previews may contain up to 120 source frames.  Keeping a wx.Bitmap
+    # for every frame of every asset quickly consumes hundreds of MB.  Sample
+    # the visual frames while retaining repeated references in the playback
+    # list, which preserves the original 10 fps duration.
+    MAX_ANIM_BITMAPS = 30
+    MAX_CACHED_ANIMATIONS = 32
+
     def __init__(self):
         self.cache = {}
         self.state_counts = {}
@@ -840,16 +847,29 @@ class LEAssetThumbnailProvider(object):
         if not path:
             return None
         cache_key = (path, self.thumb_size)
-        frames = self.anim_cache.get(cache_key)
+        frames = self.anim_cache.pop(cache_key, None)
         if frames is None:
             frames = []
             try:
                 with Image.open(path) as gif:
-                    for frame in ImageSequence.Iterator(gif):
-                        frames.append(self._bitmap_from_pil(frame.convert('RGB')))
+                    frame_count = max(1, int(getattr(gif, 'n_frames', 1)))
+                    step = max(1, (frame_count + self.MAX_ANIM_BITMAPS - 1) // self.MAX_ANIM_BITMAPS)
+                    sampled = {}
+                    for frame_idx in range(0, frame_count, step):
+                        gif.seek(frame_idx)
+                        sampled[frame_idx] = self._bitmap_from_pil(gif.convert('RGB'))
+                    # Reuse each sampled bitmap for the source frames it
+                    # represents. Playback length and speed remain unchanged.
+                    frames = [sampled[(idx // step) * step] for idx in range(frame_count)]
             except Exception:
                 logger.exception('Failed to load prop preview GIF %s', path)
                 frames = []
+            self.anim_cache[cache_key] = frames
+            while len(self.anim_cache) > self.MAX_CACHED_ANIMATIONS:
+                oldest = next(iter(self.anim_cache))
+                self.anim_cache.pop(oldest, None)
+        else:
+            # Dict insertion order provides a small dependency-free LRU.
             self.anim_cache[cache_key] = frames
         return frames or None
 
@@ -1126,8 +1146,10 @@ class LEAssetGrid(wx.ScrolledWindow):
         self._anim_timer = wx.Timer(self)
         self._anim_tick = 0
         self._any_anim = False
+        self._animated_visible = []
         self.Bind(wx.EVT_TIMER, self.OnAnimTick, self._anim_timer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
+        self.Bind(wx.EVT_SHOW, self.OnShow)
         self.Bind(wx.EVT_PAINT, self.OnPaint)
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
@@ -1138,6 +1160,9 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.Bind(wx.EVT_LEFT_DCLICK, self.OnDoubleClick)
 
     def SetItems(self, items):
+        if self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
+        self._animated_visible = []
         self.items = items
         self.selected = -1
         self.hovered = -1
@@ -1183,8 +1208,23 @@ class LEAssetGrid(wx.ScrolledWindow):
 
     def OnAnimTick(self, event):
         """Advance every on-screen animated card to its next GIF frame."""
+        if not self.IsShownOnScreen() or not self._animated_visible:
+            self._anim_timer.Stop()
+            return
         self._anim_tick += 1
-        self.Refresh(False)
+        # Animation changes only the thumbnail inside these cards.  Invalidating
+        # their client rectangles avoids repainting every static card at 10 Hz.
+        for idx in self._animated_visible:
+            virtual_rect = self._item_rect(idx)
+            x, y = self.CalcScrolledPosition(virtual_rect.x, virtual_rect.y)
+            self.RefreshRect(wx.Rect(x, y, virtual_rect.width, virtual_rect.height), False)
+
+    def OnShow(self, event):
+        if not event.IsShown() and self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
+        elif event.IsShown():
+            self.Refresh(False)
+        event.Skip()
 
     def OnDestroy(self, event):
         if event.GetEventObject() is self and self._anim_timer.IsRunning():
@@ -1231,16 +1271,24 @@ class LEAssetGrid(wx.ScrolledWindow):
         view_y = self.CalcUnscrolledPosition(0, 0)[1]
         end_y = view_y + self.GetClientSize()[1]
         cols = self._columns()
+        rows = (len(self.items) + cols - 1) // cols
+        stride = self.CARD_H + self.GAP
         start_row = max(0, view_y // (self.CARD_H + self.GAP))
-        end_row = min((len(self.items) + cols - 1) // cols, end_y // (self.CARD_H + self.GAP) + 2)
+        end_row = min(rows, end_y // stride + 1)
+        viewport = wx.Rect(0, view_y, self.GetClientSize()[0], self.GetClientSize()[1])
         visible = []
         self._any_anim = False
+        self._animated_visible = []
         for row in range(int(start_row), int(end_row)):
             for col in range(cols):
                 idx = row * cols + col
                 if idx >= len(self.items):
                     break
-                self._draw_card(dc, idx, self._item_rect(idx))
+                rect = self._item_rect(idx)
+                if not rect.Intersects(viewport):
+                    continue
+                if self._draw_card(dc, idx, rect):
+                    self._animated_visible.append(idx)
                 visible.append(self.items[idx])
         # Drop thumbnail loads for cards no longer on screen so the cards we
         # scrolled TO decode immediately instead of behind a stale backlog.
@@ -1299,7 +1347,7 @@ class LEAssetGrid(wx.ScrolledWindow):
             dc.DrawLabel(self._shorten(dc, item.label, rect.width - 10),
                          wx.Rect(rect.x + 5, rect.y + 19 + self.THUMB, rect.width - 10, 16),
                          wx.ALIGN_CENTER)
-            return
+            return bool(frames)
         badge_rect = wx.Rect(rect.x + 10, rect.y + 19 + self.THUMB, rect.width - 20, 18)
         dc.SetBrush(wx.Brush(wx.Colour(238, 241, 244)))
         dc.SetPen(wx.Pen(wx.Colour(220, 224, 228)))
@@ -1313,6 +1361,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         dc.SetTextForeground(wx.Colour(96, 104, 112))
         dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.DrawLabel(self._shorten(dc, item.sublabel, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 65 + self.THUMB, rect.width - 18, 18), wx.ALIGN_CENTER)
+        return bool(frames)
 
     def OnLeftDown(self, event):
         self._hide_state_popup()
