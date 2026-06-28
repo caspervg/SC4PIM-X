@@ -22,7 +22,7 @@ from OpenGL.GL import (
 from wx import glcanvas
 from wx.glcanvas import GLContext
 
-from .SC4Renderer import RenderDevice
+from .SC4Renderer import RenderDevice, quality_summary, rendering_settings
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +49,38 @@ class MyCanvasBase(glcanvas.GLCanvas):
         attribs.EndList()
         return attribs
 
+    @staticmethod
+    def _attribute_candidates():
+        """Ordered (samples, depth, srgb) configs to probe, best first.
+
+        Driven by the ``[Rendering]`` config: the requested MSAA sample count
+        and sRGB preference are tried first, then progressively plainer configs
+        so the canvas still comes up on limited displays.
+        """
+        settings = rendering_settings()
+        want_samples = settings.samples if settings.samples > 1 else 0
+        want_srgb = settings.srgb
+        srgb_order = (True, False) if want_srgb else (False,)
+        # sRGB-major: keep gamma-correct blending before giving up MSAA, then
+        # drop the sample count, and only fall back to a 16-bit depth buffer
+        # as a last resort.
+        candidates = []
+        for try_srgb in srgb_order:
+            for try_samples in (want_samples, 0):
+                for try_depth in (24, 16):
+                    combo = (try_samples, try_depth, try_srgb)
+                    if combo not in candidates:
+                        candidates.append(combo)
+        return candidates
+
     def __init__(self, parent, size=(256, 256)):
-        # Prefer a 4x-multisampled, 24-bit depth context: smooth (anti-aliased)
-        # model edges and far less z-fighting. Fall back through plainer
-        # configs if the display cannot supply it.
+        # Prefer a multisampled, 24-bit depth, sRGB context: smooth (anti-
+        # aliased) model edges, far less z-fighting and gamma-correct blending.
+        # Fall back through plainer configs if the display cannot supply it.
         samples = 0
         attribs = None
         srgb = False
-        for try_samples, try_depth, try_srgb in (
-            (4, 24, True), (0, 24, True),
-            (4, 24, False), (0, 24, False), (0, 16, False),
-        ):
+        for try_samples, try_depth, try_srgb in self._attribute_candidates():
             candidate = self._gl_attributes(try_samples, try_depth, try_srgb)
             if glcanvas.GLCanvas.IsDisplaySupported(candidate):
                 attribs, samples, srgb = candidate, try_samples, try_srgb
@@ -115,6 +136,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
                 "OpenGL core context: vendor=%s renderer=%s version=%s GLSL=%s",
                 values["vendor"], values["renderer"], values["version"], values["glsl"],
             )
+            logger.info("OpenGL quality: %s", quality_summary(self.samples, self.srgb))
             if self.srgb:
                 glEnable(GL_FRAMEBUFFER_SRGB)
             self._install_debug_output()

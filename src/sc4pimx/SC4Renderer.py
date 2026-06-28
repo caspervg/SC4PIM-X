@@ -17,8 +17,10 @@ from OpenGL.GL import (
     GL_ARRAY_BUFFER,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_ATTACHMENT0,
+    GL_COLOR_BUFFER_BIT,
     GL_DEPTH24_STENCIL8,
     GL_DEPTH_STENCIL_ATTACHMENT,
+    GL_DRAW_FRAMEBUFFER,
     GL_DYNAMIC_DRAW,
     GL_FALSE,
     GL_FLOAT,
@@ -29,9 +31,14 @@ from OpenGL.GL import (
     GL_LINE_LOOP,
     GL_LINE_STRIP,
     GL_LINEAR,
+    GL_LINEAR_MIPMAP_LINEAR,
     GL_LINES,
+    GL_MAX_SAMPLES,
+    GL_NEAREST,
+    GL_NEAREST_MIPMAP_NEAREST,
     GL_PACK_ALIGNMENT,
     GL_R8,
+    GL_READ_FRAMEBUFFER,
     GL_RED,
     GL_RENDERBUFFER,
     GL_RGB,
@@ -59,6 +66,7 @@ from OpenGL.GL import (
     glBindSampler,
     glBindTexture,
     glBindVertexArray,
+    glBlitFramebuffer,
     glBufferData,
     glBufferSubData,
     glCheckFramebufferStatus,
@@ -79,11 +87,14 @@ from OpenGL.GL import (
     glGenSamplers,
     glGenTextures,
     glGenVertexArrays,
+    glGenerateMipmap,
     glGetIntegerv,
     glGetUniformLocation,
     glPixelStorei,
     glReadPixels,
     glRenderbufferStorage,
+    glRenderbufferStorageMultisample,
+    glSamplerParameterf,
     glSamplerParameteri,
     glTexImage2D,
     glTexParameteri,
@@ -99,6 +110,92 @@ from PIL import Image, ImageDraw, ImageFont
 from . import SC4Matrix
 
 logger = logging.getLogger(__name__)
+
+
+# GL_EXT_texture_filter_anisotropic is an OpenGL 3.3 extension (core since 4.6).
+# Probe for it lazily so a missing extension degrades to plain trilinear.
+try:
+    from OpenGL.GL.EXT.texture_filter_anisotropic import (
+        GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT,
+        GL_TEXTURE_MAX_ANISOTROPY_EXT,
+    )
+except ImportError:  # pragma: no cover - depends on the PyOpenGL build
+    GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT = None
+    GL_TEXTURE_MAX_ANISOTROPY_EXT = None
+
+
+@dataclass(frozen=True)
+class RenderingSettings:
+    """Resolved graphics-quality knobs from ``[Rendering]`` in config.toml."""
+
+    samples: int = 4
+    srgb: bool = True
+    mipmaps: bool = True
+    anisotropy: float = 8.0
+
+
+_RENDERING_SETTINGS: RenderingSettings | None = None
+_MAX_ANISOTROPY: float | None = None
+
+
+def rendering_settings() -> RenderingSettings:
+    """Load and cache the rendering settings (config.toml is read once)."""
+    global _RENDERING_SETTINGS
+    if _RENDERING_SETTINGS is None:
+        raw: dict = {}
+        try:
+            from . import config
+
+            raw = config.load_rendering()
+        except Exception:
+            logger.exception("Failed to load [Rendering] config; using defaults")
+        _RENDERING_SETTINGS = RenderingSettings(
+            samples=max(0, int(raw.get("Samples", 4))),
+            srgb=bool(raw.get("SRGB", True)),
+            mipmaps=bool(raw.get("Mipmaps", True)),
+            anisotropy=max(1.0, float(raw.get("Anisotropy", 8.0))),
+        )
+    return _RENDERING_SETTINGS
+
+
+def quality_summary(samples, srgb) -> str:
+    """One-line description of the *effective* rendering quality, for logging.
+
+    ``samples`` / ``srgb`` come from the live canvas (already clamped to what
+    the display actually granted, which may be less than requested); mipmaps
+    and anisotropy come from config clamped to the GPU limits. Must be called
+    with a current GL context (the anisotropy maximum is queried).
+    """
+    settings = rendering_settings()
+    msaa = f"{int(samples)}x" if int(samples) > 1 else "off"
+    aniso = _effective_anisotropy()
+    if aniso > 1.0:
+        maximum = _MAX_ANISOTROPY or aniso
+        aniso_text = f"{aniso:.0f}x(max={maximum:.0f})"
+    elif settings.anisotropy > 1.0:
+        aniso_text = "off(unsupported)"
+    else:
+        aniso_text = "off"
+    return (
+        f"msaa={msaa} srgb={'on' if srgb else 'off'} "
+        f"mipmaps={'on' if settings.mipmaps else 'off'} anisotropy={aniso_text}"
+    )
+
+
+def _effective_anisotropy() -> float:
+    """Configured anisotropy clamped to the current GPU's maximum (1.0 = off)."""
+    requested = rendering_settings().anisotropy
+    if requested <= 1.0 or GL_TEXTURE_MAX_ANISOTROPY_EXT is None:
+        return 1.0
+    global _MAX_ANISOTROPY
+    if _MAX_ANISOTROPY is None:
+        try:
+            from OpenGL.GL import glGetFloatv
+
+            _MAX_ANISOTROPY = float(glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT))
+        except Exception:
+            _MAX_ANISOTROPY = 1.0
+    return max(1.0, min(requested, _MAX_ANISOTROPY))
 
 
 PRIMITIVE_VERTEX_SHADER = """#version 330 core
@@ -211,8 +308,23 @@ class SamplerCache:
         self._samplers = {}
 
     def get(self, min_filter=GL_LINEAR, mag_filter=GL_LINEAR,
-            wrap_s=GL_CLAMP_TO_EDGE, wrap_t=GL_CLAMP_TO_EDGE):
-        key = (int(min_filter), int(mag_filter), int(wrap_s), int(wrap_t))
+            wrap_s=GL_CLAMP_TO_EDGE, wrap_t=GL_CLAMP_TO_EDGE, *, mipmapped=False):
+        """Return a cached immutable sampler.
+
+        When ``mipmapped`` is set and mipmaps are enabled the minification
+        filter is promoted to a trilinear/mipmapped variant and anisotropic
+        filtering is applied. Only pass ``mipmapped=True`` for textures that
+        were actually uploaded with mipmaps (see :func:`create_texture_2d`).
+        """
+        anisotropy = 1.0
+        if mipmapped and rendering_settings().mipmaps:
+            if int(min_filter) == int(GL_NEAREST):
+                min_filter = GL_NEAREST_MIPMAP_NEAREST
+            else:
+                min_filter = GL_LINEAR_MIPMAP_LINEAR
+            anisotropy = _effective_anisotropy()
+        key = (int(min_filter), int(mag_filter), int(wrap_s), int(wrap_t),
+               round(anisotropy, 3))
         sampler = self._samplers.get(key)
         if sampler is not None:
             return sampler
@@ -221,6 +333,8 @@ class SamplerCache:
         glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, key[1])
         glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, key[2])
         glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, key[3])
+        if anisotropy > 1.0 and GL_TEXTURE_MAX_ANISOTROPY_EXT is not None:
+            glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy)
         self._samplers[key] = sampler
         return sampler
 
@@ -231,12 +345,17 @@ class SamplerCache:
             self._samplers.clear()
 
 
-def create_texture_2d(width, height, pixels, *, channels=4, srgb=True):
+def create_texture_2d(width, height, pixels, *, channels=4, srgb=True, mipmaps=False):
     """Create a fully initialized core-profile 2D texture.
 
     Texture filtering and wrapping intentionally live in sampler objects.
     OpenGL 3.3 does not guarantee immutable texture storage, so allocation uses
     glTexImage2D while all subsequent sampling state remains immutable.
+
+    When ``mipmaps`` is requested *and* mipmaps are enabled in config a full
+    mipmap chain is generated (no-op for empty/``None`` pixel data). Callers
+    that opt in must request the texture through a sampler created with
+    ``mipmapped=True`` to actually sample the chain.
     """
     formats = {
         1: (GL_R8, GL_RED),
@@ -251,8 +370,14 @@ def create_texture_2d(width, height, pixels, *, channels=4, srgb=True):
         GL_TEXTURE_2D, 0, internal_format, int(width), int(height), 0,
         data_format, GL_UNSIGNED_BYTE, pixels,
     )
+    want_mipmaps = bool(mipmaps) and pixels is not None and rendering_settings().mipmaps
+    if want_mipmaps:
+        glGenerateMipmap(GL_TEXTURE_2D)
     # A texture must remain complete even when no sampler is bound.
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(
+        GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR_MIPMAP_LINEAR if want_mipmaps else GL_LINEAR,
+    )
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
@@ -473,33 +598,88 @@ class PrimitiveRenderer:
             self.program = 0
 
 
-class RenderTarget:
-    """Exact-size offscreen color/depth target for previews and thumbnails."""
+def _clamp_samples(samples):
+    """Clamp a requested MSAA sample count to what the driver supports."""
+    samples = int(samples)
+    if samples <= 1:
+        return 0
+    try:
+        maximum = int(glGetIntegerv(GL_MAX_SAMPLES))
+    except Exception:
+        maximum = 0
+    return max(0, min(samples, maximum))
 
-    def __init__(self, width, height, *, srgb=True):
+
+class RenderTarget:
+    """Exact-size offscreen color/depth target for previews and thumbnails.
+
+    When MSAA is enabled the scene is rendered into a multisampled colour and
+    depth renderbuffer, then resolved (blitted) into a single-sample colour
+    texture on :meth:`read_rgb` so antialiased thumbnails and exports come out
+    smooth. The on-screen path is unchanged; this only affects offscreen
+    captures, which previously had no antialiasing at all.
+    """
+
+    def __init__(self, width, height, *, srgb=True, samples=None):
         self.width = max(1, int(width))
         self.height = max(1, int(height))
+        if samples is None:
+            samples = rendering_settings().samples
+        self.samples = _clamp_samples(samples)
+        internal_format = GL_SRGB8_ALPHA8 if srgb else GL_RGBA8
+
+        # Single-sample resolve target: the texture glReadPixels reads from.
         self.framebuffer = int(glGenFramebuffers(1))
         self.color = create_texture_2d(self.width, self.height, None, channels=4, srgb=srgb)
-        self.depth = int(glGenRenderbuffers(1))
-        glBindRenderbuffer(GL_RENDERBUFFER, self.depth)
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, self.width, self.height)
         glBindFramebuffer(GL_FRAMEBUFFER, self.framebuffer)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self.color, 0)
-        glFramebufferRenderbuffer(
-            GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, self.depth,
-        )
+
+        self._ms_fbo = 0
+        self._ms_color = 0
+        self.depth = int(glGenRenderbuffers(1))
+        if self.samples:
+            # Multisampled colour + depth live in their own framebuffer; the
+            # resolve framebuffer above only carries the single-sample texture.
+            self._ms_color = int(glGenRenderbuffers(1))
+            glBindRenderbuffer(GL_RENDERBUFFER, self._ms_color)
+            glRenderbufferStorageMultisample(
+                GL_RENDERBUFFER, self.samples, internal_format, self.width, self.height,
+            )
+            glBindRenderbuffer(GL_RENDERBUFFER, self.depth)
+            glRenderbufferStorageMultisample(
+                GL_RENDERBUFFER, self.samples, GL_DEPTH24_STENCIL8, self.width, self.height,
+            )
+            self._ms_fbo = int(glGenFramebuffers(1))
+            glBindFramebuffer(GL_FRAMEBUFFER, self._ms_fbo)
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, self._ms_color,
+            )
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, self.depth,
+            )
+        else:
+            glBindRenderbuffer(GL_RENDERBUFFER, self.depth)
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, self.width, self.height)
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, self.depth,
+            )
+
         status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         if status != GL_FRAMEBUFFER_COMPLETE:
             self.release_gl()
             raise RuntimeError(f"Incomplete OpenGL framebuffer: 0x{status:04X}")
 
+    @property
+    def _draw_framebuffer(self):
+        """The framebuffer the scene is rendered into."""
+        return self._ms_fbo or self.framebuffer
+
     @contextmanager
     def bound(self):
         old_framebuffer = int(glGetIntegerv(GL_FRAMEBUFFER_BINDING))
         old_viewport = tuple(int(value) for value in glGetIntegerv(GL_VIEWPORT))
-        glBindFramebuffer(GL_FRAMEBUFFER, self.framebuffer)
+        glBindFramebuffer(GL_FRAMEBUFFER, self._draw_framebuffer)
         glViewport(0, 0, self.width, self.height)
         try:
             yield self
@@ -507,13 +687,33 @@ class RenderTarget:
             glBindFramebuffer(GL_FRAMEBUFFER, old_framebuffer)
             glViewport(*old_viewport)
 
+    def _resolve(self):
+        """Blit the multisampled buffer down into the single-sample texture."""
+        if not self._ms_fbo:
+            return
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, self._ms_fbo)
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.framebuffer)
+        glBlitFramebuffer(
+            0, 0, self.width, self.height,
+            0, 0, self.width, self.height,
+            GL_COLOR_BUFFER_BIT, GL_NEAREST,
+        )
+
     def read_rgb(self, x=0, y=0, width=None, height=None):
         width = self.width if width is None else int(width)
         height = self.height if height is None else int(height)
+        self._resolve()
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, self.framebuffer)
         glPixelStorei(GL_PACK_ALIGNMENT, 1)
         return glReadPixels(int(x), int(y), width, height, GL_RGB, GL_UNSIGNED_BYTE)
 
     def release_gl(self):
+        if getattr(self, "_ms_fbo", 0):
+            glDeleteFramebuffers(1, [self._ms_fbo])
+            self._ms_fbo = 0
+        if getattr(self, "_ms_color", 0):
+            glDeleteRenderbuffers(1, [self._ms_color])
+            self._ms_color = 0
         if getattr(self, "depth", 0):
             glDeleteRenderbuffers(1, [self.depth])
             self.depth = 0

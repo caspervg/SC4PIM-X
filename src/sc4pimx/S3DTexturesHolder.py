@@ -1,6 +1,7 @@
 """S3D textures holder for OpenGL rendering."""
 import ctypes
 import logging
+import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 
@@ -205,6 +206,12 @@ class S3DTexturesHolder(object):
         self.textures = {}
         self.glCanvas = glCanvas
         self.night_mode = False
+        # Generate mipmaps + sample model textures trilinearly/anisotropically.
+        # Worth it for interactive views; the asset-thumbnail prerender turns it
+        # off (set on its dedicated holder) since every texture is uploaded,
+        # rendered once into a tiny downscaled capture and freed -- mipmap
+        # generation there is pure overhead with no visible benefit.
+        self.mipmaps = True
         self.max_texture_bytes = 256 * 1024 * 1024
         self._texture_bytes = 0
         self._use_serial = 0
@@ -367,6 +374,7 @@ class S3DTexturesHolder(object):
                 texName = create_texture_2d(
                     size[0], size[1], rgba, channels=4,
                     srgb=getattr(self.glCanvas, 'srgb', False),
+                    mipmaps=self.mipmaps,
                 )
                 cached['gl_layers'].append(texName)
                 uploaded_bytes += int(size[0]) * int(size[1]) * 4
@@ -376,6 +384,42 @@ class S3DTexturesHolder(object):
         self._texture_bytes += uploaded_bytes
         self._evict_texture_layers(cached)
         return True
+
+    def flush_pending(self, timeout=15.0):
+        """Block until every scheduled texture decode has finished and uploaded.
+
+        Normal rendering is lazy: FSH decoding runs on a background worker and
+        the GL upload is deferred to the first :meth:`SetCurrentTex` after the
+        future resolves. A *synchronous* prerender (asset thumbnails) can reach
+        the capture before that happens, so the model draws with no texture and
+        the shader paints it solid red (the untextured marker colour). Here the
+        decodes are awaited, then the uploads run on this thread (which owns the
+        GL context). Returns True if everything is ready, False on timeout.
+        """
+        self.glCanvas.SetCurrent()
+        deadline = time.monotonic() + max(0.0, timeout)
+        ready = True
+        for cached in list(self.textures.values()):
+            future = cached.get('future')
+            if future is None:
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning("flush_pending timed out waiting for texture decode")
+                ready = False
+                break
+            try:
+                future.result(timeout=remaining)
+            except Exception:
+                logger.exception("Texture decode failed during flush_pending")
+                ready = False
+        # Uploads must happen on the context-owning thread, so do them here
+        # rather than inside the decode worker.
+        for cached in list(self.textures.values()):
+            if cached.get('gl_layers') is None and cached.get('future') is not None:
+                if not self._upload_layers(cached):
+                    ready = False
+        return ready
 
     def _evict_texture_layers(self, exclude):
         if self._texture_bytes <= self.max_texture_bytes:
@@ -425,7 +469,7 @@ class S3DTexturesHolder(object):
         wrap_s_value = GL_CLAMP_TO_EDGE if wrap_s is None else (GL_MIRRORED_REPEAT if wrap_s == 1 else GL_REPEAT)
         wrap_t_value = GL_CLAMP_TO_EDGE if wrap_t is None else (GL_MIRRORED_REPEAT if wrap_t == 1 else GL_REPEAT)
         sampler = self.glCanvas.renderer.samplers.get(
-            min_value, mag_value, wrap_s_value, wrap_t_value,
+            min_value, mag_value, wrap_s_value, wrap_t_value, mipmapped=self.mipmaps,
         )
         glBindSampler(0, sampler)
         return layers[layer], sampler

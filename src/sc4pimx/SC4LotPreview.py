@@ -8,10 +8,13 @@ import wx
 import wx.lib.sized_controls as sc
 from OpenGL.GL import (
     GL_BLEND,
+    GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
     GL_DEPTH_TEST,
+    GL_FRAMEBUFFER,
+    GL_LINEAR,
     GL_LINES,
     GL_MULTISAMPLE,
     GL_NEAREST,
@@ -19,6 +22,7 @@ from OpenGL.GL import (
     GL_ONE_MINUS_SRC_ALPHA,
     GL_REPEAT,
     GL_SRC_ALPHA,
+    glBindFramebuffer,
     glBlendFunc,
     glClear,
     glClearColor,
@@ -3456,6 +3460,11 @@ class LotEditorWin(wx.Frame):
     def Save(self):
         pw, ph = self.glCanvas2D.GetPhysicalSize()
         self.glCanvas2D.SetCurrent()
+        # Register any not-yet-seen lot textures, then block until their async
+        # decode + GL upload completes so the capture is never of an untextured
+        # (red) model. See S3DTexturesHolder.flush_pending.
+        self.Draw3D()
+        self.s3DTexturesHolder.flush_pending()
         target = RenderTarget(pw, ph, srgb=getattr(self.glCanvas2D, 'srgb', False))
         try:
             with target.bound():
@@ -4216,6 +4225,11 @@ class ImageDBBuilder(wx.Frame):
         self.glCanvas = MyCanvasBase(panel, size=(256, 256))
         self.glCanvas.displayer = self
         self.viewer = S3DViewer(None, self.glCanvas)
+        # Batch thumbnail prerender: each model texture is uploaded, rendered
+        # once into a tiny downscaled capture and freed, so mipmap generation +
+        # anisotropic filtering are wasted work. Skip them for this dedicated
+        # (never interactively shown) holder to speed up large plugin folders.
+        self.viewer.s3d_textures_holder.mipmaps = False
         sizer = wx.BoxSizer(wx.VERTICAL)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         hsizer.Add(self.glCanvas, 1, wx.ALL | wx.EXPAND, 5)
@@ -4231,11 +4245,11 @@ class ImageDBBuilder(wx.Frame):
         self.viewer.refresh(False)
         self.viewer.use_best_fit = True
         self.viewer.drawAxis = False
+        # First draw registers the model's textures (kicks off async FSH
+        # decode); flush_pending then blocks until they are decoded and
+        # uploaded so the capture below is never of an untextured (red) model.
         sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
-        wx.Yield()
-        self.viewer.drawAxis = False
-        sc4data[1].sc4Model.draw(self.viewer, None, -1, 0)
-        wx.Yield()
+        self.viewer.s3d_textures_holder.flush_pending()
         w, h = self.viewer.openGLCanvas.GetPhysicalSize()
         self.viewer.openGLCanvas.SetCurrent()
         target = RenderTarget(w, h, srgb=getattr(self.viewer.openGLCanvas, 'srgb', False))
@@ -4243,6 +4257,11 @@ class ImageDBBuilder(wx.Frame):
             with target.bound():
                 self.viewer.render_frame()
                 data = target.read_rgb()
+            # Mirror the just-captured thumbnail into the on-screen preview so
+            # the window shows live progress instead of staying blank. read_rgb
+            # already resolved MSAA into target.color; a single textured quad is
+            # near-free, so batch throughput is unaffected.
+            self._present_thumbnail(target.color)
         finally:
             target.release_gl()
         image = Image.frombytes('RGB', (w, h), data)
@@ -4254,4 +4273,33 @@ class ImageDBBuilder(wx.Frame):
         del data
         self.viewer.s3d_mesh.FreeAll(self.viewer.s3d_textures_holder)
         return
+
+    def _present_thumbnail(self, color_texture):
+        """Blit a captured thumbnail texture to the on-screen preview canvas.
+
+        Drawn as one textured fullscreen quad (not glBlitFramebuffer, which
+        rejects a single-sample source into the canvas's multisampled default
+        framebuffer). Identity MVP maps the quad to the full viewport; the
+        texture's bottom-left GL origin lines up with clip-space (-1, -1), so
+        no vertical flip is needed here (unlike the saved PIL image).
+        """
+        canvas = self.viewer.openGLCanvas
+        cw, ch = canvas.GetPhysicalSize()
+        if cw <= 0 or ch <= 0:
+            return
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glViewport(0, 0, cw, ch)
+        glDisable(GL_DEPTH_TEST)
+        glClearColor(0.5, 0.5, 0.5, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        sampler = canvas.renderer.samplers.get(
+            GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE,
+        )
+        canvas.renderer.primitives.quad(
+            ((-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)),
+            SC4Matrix.identity(),
+            uvs=((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+            texture=color_texture, sampler=sampler,
+        )
+        canvas.SwapBuffers()
 
