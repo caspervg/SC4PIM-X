@@ -117,6 +117,12 @@ def _can_create_growable_lot(category_matches, entry_type):
     )
 
 
+def _cohort_choice_sort_key(choice):
+    """Sort cohort choices without comparing the SC4Entry objects themselves."""
+    name, entry = choice
+    return name, entry.tgi
+
+
 def _non_building_lot_object_rows(props, row_offset=3):
     """Return property-table rows for non-building lot-config objects."""
     return [
@@ -2121,7 +2127,7 @@ class NoteBookPanel(wx.Panel):
 
             lst2 = [[CohortName(c), c] for c in self.virtual_dat.cohorts]
 
-            lst2.sort(key=functools.cmp_to_key(basic_cmp))
+            lst2.sort(key=_cohort_choice_sort_key)
             lst = lst + lst2
             dlg = wx.SingleChoiceDialog(self, chooseParentCohortMsg, appTitle, [l[0] for l in lst])
             if dlg.ShowModal() == wx.ID_OK:
