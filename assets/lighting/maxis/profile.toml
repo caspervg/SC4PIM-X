@@ -1,0 +1,44 @@
+schema_version = 1
+id = "maxis"
+display_name = "Maxis"
+source_package = "SimCity_1.dat"
+lighting_exemplar_tgi = "6534284A-A9189CF0-00000001"
+global_light_map = "global_light_map_0917660E.png"
+global_light_map_tgi = "856DDBAC-A9179251-0917660E"
+graphical_night_rule = "global_light_red_lte_threshold"
+
+[clock]
+source = "maxis_main_simulator"
+night_begin_hour = 20
+night_end_hour = 1
+
+[global_light]
+# Fallback curve endpoints; the PNG map takes precedence when available.
+day_color = [1.0, 1.0, 1.0]
+night_color = [0.5, 0.5, 0.78]
+night_threshold = 0.8
+update_delta = 0.0001
+texture_floor = 0.1
+use_environment_map = true
+
+[terrain_shading]
+terrain_amount = 0.8
+flora_amount = 0.9
+model_amount = 0.4
+automata_amount = 0.7
+
+[atmosphere]
+scattering_color = [0.875, 0.949, 1.0]
+scattering_strength = 0.15
+
+[shadow]
+texture_instance = 0x69D3A23B
+size = 12.0
+color = [0.08, 0.06, 0.23]
+strength = 0.4
+threshold = 0.55
+sun_direction_degrees = 67.5
+sun_pitch_degrees = 45.0
+hill_strength = 2.0
+hill_warp = 0.7
+hill_fade_distance = 50.0

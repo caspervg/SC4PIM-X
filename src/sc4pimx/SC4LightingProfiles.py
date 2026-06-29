@@ -1,0 +1,124 @@
+"""Bundled SC4 lighting profiles and global-light-map sampling."""
+from __future__ import annotations
+
+import math
+import tomllib
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+from PIL import Image
+
+from .paths import asset_path
+
+
+@dataclass(frozen=True)
+class LightingProfile:
+    profile_id: str
+    display_name: str
+    directory: Path
+    night_begin_hour: int
+    night_end_hour: int
+    day_color: tuple[float, float, float]
+    night_color: tuple[float, float, float]
+    night_threshold: float
+    terrain_shadow_amount: float
+    model_shadow_amount: float
+    shadow_color: tuple[float, float, float]
+    shadow_strength: float
+    map_width: int
+    map_height: int
+    map_pixels: tuple[tuple[int, int, int], ...]
+
+    def sample_global_light(self, minutes: int, month: int) -> tuple[float, float, float]:
+        """Sample the profile's time/month map using SC4's horizontal lerp.
+
+        SC4 maps time to X as ``width * time / 24`` and selects the nearest
+        month row from ``height * (month_index + 0.5) / 12``. The original
+        routine only interpolates horizontally.
+        """
+        if not self.map_pixels or self.map_width <= 0 or self.map_height <= 0:
+            return self.night_color if self.is_clock_night(minutes) else self.day_color
+
+        time_fraction = (int(minutes) % 1440) / 1440.0
+        x = self.map_width * time_fraction
+        left = min(self.map_width - 1, max(0, int(math.floor(x))))
+        right = min(self.map_width - 1, left + 1)
+        amount = min(1.0, max(0.0, x - left))
+
+        month_index = min(11, max(0, int(month) - 1))
+        y = int(math.floor(self.map_height * ((month_index + 0.5) / 12.0) + 0.5))
+        y = min(self.map_height - 1, max(0, y))
+
+        a = self.map_pixels[y * self.map_width + left]
+        b = self.map_pixels[y * self.map_width + right]
+        return tuple(
+            ((1.0 - amount) * a[channel] + amount * b[channel]) / 255.0
+            for channel in range(3)
+        )
+
+    def is_clock_night(self, minutes: int) -> bool:
+        hour = (int(minutes) // 60) % 24
+        span = (self.night_end_hour - self.night_begin_hour) % 24
+        return ((hour - self.night_begin_hour) % 24) < span
+
+
+def _float3(value, default) -> tuple[float, float, float]:
+    try:
+        if len(value) == 3:
+            return tuple(float(component) for component in value)
+    except (TypeError, ValueError):
+        pass
+    return tuple(float(component) for component in default)
+
+
+def _load_map(path: Path) -> tuple[int, int, tuple[tuple[int, int, int], ...]]:
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+        return image.width, image.height, tuple(image.get_flattened_data())
+
+
+def _load_profile(path: Path) -> LightingProfile:
+    with open(path, "rb") as handle:
+        data = tomllib.load(handle)
+
+    clock = data.get("clock", {})
+    global_light = data.get("global_light", {})
+    terrain = data.get("terrain_shading", {})
+    shadow = data.get("shadow", {})
+    directory = path.parent
+    map_path = directory / str(data.get("global_light_map", ""))
+    width, height, pixels = _load_map(map_path)
+
+    return LightingProfile(
+        profile_id=str(data.get("id", directory.name)),
+        display_name=str(data.get("display_name", directory.name)),
+        directory=directory,
+        night_begin_hour=int(clock.get("night_begin_hour", 20)) % 24,
+        night_end_hour=int(clock.get("night_end_hour", 1)) % 24,
+        day_color=_float3(global_light.get("day_color"), (1.0, 1.0, 1.0)),
+        night_color=_float3(global_light.get("night_color"), (0.5, 0.5, 0.5)),
+        night_threshold=float(global_light.get("night_threshold", 0.8)),
+        terrain_shadow_amount=float(terrain.get("terrain_amount", 0.8)),
+        model_shadow_amount=float(terrain.get("model_amount", 0.4)),
+        shadow_color=_float3(shadow.get("color"), (0.08, 0.06, 0.23)),
+        shadow_strength=float(shadow.get("strength", 0.4)),
+        map_width=width,
+        map_height=height,
+        map_pixels=pixels,
+    )
+
+
+@lru_cache(maxsize=1)
+def lighting_profiles() -> tuple[LightingProfile, ...]:
+    root = asset_path("lighting")
+    profiles = tuple(_load_profile(path) for path in sorted(root.glob("*/profile.toml")))
+    if not profiles:
+        raise FileNotFoundError("No bundled lighting profiles were found")
+    return profiles
+
+
+def lighting_profile(profile_id: str, fallback: str = "maxis") -> LightingProfile:
+    profiles = lighting_profiles()
+    by_id = {profile.profile_id: profile for profile in profiles}
+    return by_id.get(str(profile_id), by_id.get(fallback, profiles[0]))

@@ -56,6 +56,7 @@ from .S3DTexturesHolder import S3DTexturesHolder
 from .S3DViewer import S3DViewer
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
+from .SC4LightingProfiles import lighting_profile, lighting_profiles
 from .SC4LETools import *
 from .SC4OpenGL import MyCanvasBase
 from .SC4PathReader import (
@@ -66,7 +67,6 @@ from .SC4PathReader import (
 )
 from .SC4PropTiming import (
     clamp_date,
-    effective_night_hours,
     is_night,
     prop_temporal_state,
     timer_hides_prop,
@@ -567,9 +567,13 @@ class LotEditorWin(wx.Frame):
         )
         self.previewMinutes = max(0, min(1439, int(settings.get('PreviewMinutes', 720))))
         self.showInactiveProps = bool(settings.get('ShowInactiveProps', False))
+        self.lightingProfiles = lighting_profiles()
+        self.lightingProfile = lighting_profile(settings.get('LightingProfile', 'maxis'))
+        self.lightingProfileId = self.lightingProfile.profile_id
         # SC4 shadows are view-locked (sun azimuth fixed on screen); default on.
         self.shadowLockToView = bool(settings.get('ShadowLockToView', True))
-        self.nightBegin, self.nightEnd = 20, 1
+        self.nightBegin = self.lightingProfile.night_begin_hour
+        self.nightEnd = self.lightingProfile.night_end_hour
         self.nightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
         self.s3DTexturesHolder.SetNightMode(self.nightMode)
         self._layer_menu_ids = {}
@@ -704,6 +708,17 @@ class LotEditorWin(wx.Frame):
         row.Add(wx.StaticText(bar, -1, LEXTemporalPreview), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 8)
 
+        row.Add(wx.StaticText(bar, -1, LEXLightingProfile), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.lightingProfileCtrl = wx.Choice(
+            bar, -1, choices=[profile.display_name for profile in self.lightingProfiles],
+        )
+        self._lightingProfileIds = [profile.profile_id for profile in self.lightingProfiles]
+        self.lightingProfileCtrl.SetSelection(
+            self._lightingProfileIds.index(self.lightingProfileId)
+        )
+        row.Add(self.lightingProfileCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
         row.Add(wx.StaticText(bar, -1, LEXTemporalDayField), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.previewDayCtrl = wx.SpinCtrl(bar, -1, min=1, max=31,
@@ -738,6 +753,7 @@ class LotEditorWin(wx.Frame):
         self.previewDayCtrl.Bind(wx.EVT_TEXT, self.OnTemporalChange)
         self.previewTimeSlider.Bind(wx.EVT_SLIDER, self.OnTemporalChange)
         self.showInactiveCheck.Bind(wx.EVT_CHECKBOX, self.OnTemporalChange)
+        self.lightingProfileCtrl.Bind(wx.EVT_CHOICE, self.OnLightingProfileChange)
         self._update_temporal_controls()
         return bar
 
@@ -773,6 +789,19 @@ class LotEditorWin(wx.Frame):
         finally:
             self._updatingTemporalControls = False
 
+    def OnLightingProfileChange(self, event=None):
+        selection = self.lightingProfileCtrl.GetSelection()
+        if selection < 0 or selection >= len(self._lightingProfileIds):
+            return
+        self.lightingProfile = lighting_profile(self._lightingProfileIds[selection])
+        self.lightingProfileId = self.lightingProfile.profile_id
+        self.nightBegin = self.lightingProfile.night_begin_hour
+        self.nightEnd = self.lightingProfile.night_end_hour
+        self._apply_preview_night_mode()
+        self._update_temporal_controls()
+        self.SaveEditorState()
+        self._request_draw()
+
     def _apply_preview_night_mode(self):
         night = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
         self.nightMode = night
@@ -797,6 +826,7 @@ class LotEditorWin(wx.Frame):
         state['PreviewMinutes'] = int(self.previewMinutes)
         state['ShowInactiveProps'] = bool(self.showInactiveProps)
         state['ShadowLockToView'] = bool(getattr(self, 'shadowLockToView', True))
+        state['LightingProfile'] = str(getattr(self, 'lightingProfileId', 'maxis'))
         return state
 
     def _default_visible_layers(self):
@@ -2291,7 +2321,6 @@ class LotEditorWin(wx.Frame):
     SHADOW_STRENGTH = 0.4                 # "Shadow strength" / "Model terrain shadow amount"
     SHADOW_SUN_AZIMUTH = 67.5             # "Sun direction" (degrees)
     SHADOW_SUN_PITCH = 45.0               # "Sun pitch" (degrees); shadow length = cot(pitch)
-    SHADOW_NIGHT_SCALE = 0.5              # "Nighttime global colour" dims night shadows
     # On-screen shadow angle. The shadow lives in the lot ground plane at
     # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
     # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
@@ -2341,11 +2370,21 @@ class LotEditorWin(wx.Frame):
 
     def _lot_lighting_state(self, exemplar):
         state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
+        profile = getattr(self, 'lightingProfile', None)
+        if profile is not None:
+            state['global_color'] = profile.sample_global_light(
+                self.previewMinutes, self.previewDate.month,
+            )
+            state['terrain_shadow_amount'] = profile.model_shadow_amount
         state['prelit'] = model_is_prelit(exemplar)
         return state
 
     def _lot_environment_light(self):
-        return approximate_model_light(self._lot_lighting_state(None))
+        state = self._lot_lighting_state(None)
+        profile = getattr(self, 'lightingProfile', None)
+        if profile is not None:
+            state['terrain_shadow_amount'] = profile.terrain_shadow_amount
+        return approximate_model_light(state)
 
     def OnToggleLayerVisibility(self, event):
         view_key, layer_key = self._layer_menu_ids.get(event.GetId(), (None, None))
@@ -2990,7 +3029,6 @@ class LotEditorWin(wx.Frame):
         self.lotSizeXOffset = self.exemplar.GetProp(2297284496)[0] * 8
         self.lotSizeYOffset = self.exemplar.GetProp(2297284496)[1] * 8
         self.virtualDAT = virtualDAT
-        self.nightBegin, self.nightEnd = effective_night_hours(virtualDAT)
         self._apply_preview_night_mode()
         self._update_temporal_controls()
         self.PreCache()
@@ -3683,11 +3721,11 @@ class LotEditorWin(wx.Frame):
         models' real S3D geometry + texture alpha; see
         .claude/docs/sc4-shadow-rendering.md."""
         prog = self._ensure_shadow_program()
-        prog.shadow_color = self.SHADOW_COLOR
-        strength = self.SHADOW_STRENGTH
-        if getattr(self, 'nightMode', False):
-            strength *= self.SHADOW_NIGHT_SCALE
-        prog.shadow_strength = strength
+        profile = getattr(self, 'lightingProfile', None)
+        prog.shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
+        prog.shadow_strength = (
+            profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
+        )
         flatten = self._shadow_flatten_matrix()
         render = self._render_context
 
