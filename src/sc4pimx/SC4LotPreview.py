@@ -780,7 +780,7 @@ class LotEditorWin(wx.Frame):
     #                  wrap bumps the date forward one day.
     PLAYBACK_STEP_MINUTES = 5
     PLAYBACK_STEP_BOTH_MINUTES = 60
-    PLAYBACK_INTERVAL_MS = 50
+    PLAYBACK_INTERVAL_MS = 25
     LOOP_MODE_TIME = 0
     LOOP_MODE_DATE = 1
     LOOP_MODE_BOTH = 2
@@ -2770,67 +2770,83 @@ class LotEditorWin(wx.Frame):
 
         return name
 
+    def _resolve_lot_desc(self, type_flag, propID, families_seen):
+        """Resolve a lot prop/flora object to its descriptor.
+
+        Returns None when the object should be skipped (unknown, or a family
+        with no members). type_flag is the lot-config object type (1=prop,
+        4=flora). families_seen tracks which family IIDs were already recorded
+        in lotFamiliesPropID so that side effect runs once per family.
+        """
+        if propID in self.virtualDAT.categories:
+            if not self._family_members(propID):
+                return None
+            if propID not in families_seen:
+                families_seen.add(propID)
+                self.lotFamiliesPropID.append(propID)
+            return self._selected_family_desc(propID)
+        cat = 210746660 if type_flag == 1 else 1830116951
+        category = self.virtualDAT.categories.get(cat)
+        if category is not None:
+            for desc in category.descriptors:
+                if desc.exemplar.entry.tgi[2] == propID:
+                    return desc
+        if type_flag == 1:
+            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+            if effect_category is not None:
+                for desc in effect_category.descriptors:
+                    if desc.exemplar.entry.tgi[2] == propID:
+                        return desc
+        return None
+
     def RebuildVars(self):
         self.lotFamiliesPropID = []
         self.lotPropDescs = []
         self.lotEffectDescs = []
         self.lotFloraDescs = []
-        ids = [ tex[3] for tex in self.texBases ]
-        for id in self.lotBaseTextures:
-            if ids.count(id - 3) == 0:
-                self.lotBaseTextures.remove(id)
+        # Drop stale layer entries whose tile no longer exists. Rebuild the
+        # lists rather than removing in place: mutating a list while iterating
+        # it skips elements (the old code's bug), and the membership test is a
+        # set lookup instead of an O(n) list scan per element.
+        base_ids = {tex[3] for tex in self.texBases}
+        self.lotBaseTextures = [t for t in self.lotBaseTextures if (t - 3) in base_ids]
+        over_ids = {tex[3] for tex in self.texOverlays}
+        self.lotOverTextures = [t for t in self.lotOverTextures if (t - 3) in over_ids]
 
-        ids = [ tex[3] for tex in self.texOverlays ]
-        for id in self.lotOverTextures:
-            if ids.count(id - 3) == 0:
-                self.lotOverTextures.remove(id)
-
+        # A lot repeats the same prop/flora model many times. Resolve each
+        # (type, model) to its descriptor once, and dedup the output lists with
+        # parallel sets so membership is O(1) instead of an O(n) list scan.
+        families_seen = set()
+        desc_memo = {}
+        effect_seen, prop_seen, flora_seen = set(), set(), set()
+        lcp_props = self.exemplar.GetPropRange(2297284864, 2297286144)
         for lcp in range(2297284864, 2297286144):
-            values = self.exemplar.GetProp(lcp)
+            values = lcp_props.get(lcp)
             if values is None:
                 break
-            values = values[:]
-            if values[0] == 1 or values[0] == 4:
-                propID = values[12]
-                selectedDesc = None
-                cat = 1830116951
-                if values[0] == 1:
-                    cat = 210746660
-                if propID in self.virtualDAT.categories:
-                    bOk = False
-                    for desc in self._family_members(propID):
-                        self.virtualDAT.categories[propID].Name
-                        bOk = True
-                        selectedDesc = self._selected_family_desc(propID)
-                        if propID not in self.lotFamiliesPropID:
-                            self.lotFamiliesPropID.append(propID)
-                        break
-
-                    if not bOk:
-                        continue
-                if selectedDesc is None:
-                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
-                    for desc in possibles:
-                        selectedDesc = desc
-                        continue
-                if selectedDesc is None and values[0] == 1:
-                    effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
-                    if effect_category is not None:
-                        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, effect_category.descriptors)
-                        for desc in possibles:
-                            selectedDesc = desc
-                            continue
-
-                if selectedDesc is None:
-                    continue
-                if values[0] == 1 and IsEffectDesc(selectedDesc):
-                    if selectedDesc not in self.lotEffectDescs:
-                        self.lotEffectDescs.append(selectedDesc)
-                elif values[0] == 1:
-                    if selectedDesc not in self.lotPropDescs:
-                        self.lotPropDescs.append(selectedDesc)
-                elif selectedDesc not in self.lotFloraDescs:
-                    self.lotFloraDescs.append(selectedDesc)
+            type_flag = values[0]
+            if type_flag != 1 and type_flag != 4:
+                continue
+            propID = values[12]
+            memo_key = (type_flag, propID)
+            if memo_key in desc_memo:
+                selectedDesc = desc_memo[memo_key]
+            else:
+                selectedDesc = self._resolve_lot_desc(type_flag, propID, families_seen)
+                desc_memo[memo_key] = selectedDesc
+            if selectedDesc is None:
+                continue
+            if type_flag == 1 and IsEffectDesc(selectedDesc):
+                if selectedDesc not in effect_seen:
+                    effect_seen.add(selectedDesc)
+                    self.lotEffectDescs.append(selectedDesc)
+            elif type_flag == 1:
+                if selectedDesc not in prop_seen:
+                    prop_seen.add(selectedDesc)
+                    self.lotPropDescs.append(selectedDesc)
+            elif selectedDesc not in flora_seen:
+                flora_seen.add(selectedDesc)
+                self.lotFloraDescs.append(selectedDesc)
 
         if self.LETools:
             self.LETools.ReBuildLot()
@@ -3061,8 +3077,9 @@ class LotEditorWin(wx.Frame):
         self.lotBaseTextures = []
         self.Preload_TE_Tex()
         self.Preload_Background_Tex2()
+        lcp_props = self.exemplar.GetPropRange(2297284864, 2297286144)
         for lcp in range(2297284864, 2297286144):
-            values = self.exemplar.GetProp(lcp)
+            values = lcp_props.get(lcp)
             if values is None:
                 break
             values = values[:]
