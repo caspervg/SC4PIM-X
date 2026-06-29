@@ -13,23 +13,30 @@ from OpenGL.GL import (
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
     GL_DEPTH_TEST,
+    GL_FALSE,
     GL_FRAMEBUFFER,
+    GL_LEQUAL,
     GL_LINEAR,
     GL_LINES,
     GL_MULTISAMPLE,
     GL_NEAREST,
     GL_ONE,
     GL_ONE_MINUS_SRC_ALPHA,
+    GL_POLYGON_OFFSET_FILL,
     GL_REPEAT,
     GL_SRC_ALPHA,
+    GL_TRUE,
     glBindFramebuffer,
     glBlendFunc,
     glClear,
     glClearColor,
     glClearDepth,
     glDeleteTextures,
+    glDepthFunc,
+    glDepthMask,
     glDisable,
     glEnable,
+    glPolygonOffset,
     glViewport,
 )
 from PIL import Image
@@ -38,7 +45,13 @@ from . import FSHConverter, SC4IconMakerDlg, SC4Matrix, treeDnD
 from .ATCReader import ATC
 from .config import load_lot_editor, save_lot_editor
 from .paths import background_path, background_set_dir, background_sets
-from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
+from .S3DShaders import (
+    DAY_PRESET,
+    NIGHT_PRESET,
+    SC4LightingProgram,
+    SC4ShadowProgram,
+    approximate_model_light,
+)
 from .S3DTexturesHolder import S3DTexturesHolder
 from .S3DViewer import S3DViewer
 from .SC4Data import *
@@ -117,6 +130,7 @@ LAYER_SELECTION = 'selection'
 LAYER_MISSING = 'missing_markers'
 LAYER_CARDINALS = 'cardinal_labels'
 LAYER_BACKGROUND = 'terrain_background'
+LAYER_SHADOWS = 'shadows'
 LAYER_SPECS = [
     (LAYER_BASE, LEXLayerBaseTextures),
     (LAYER_OVERLAY, LEXLayerOverlayTextures),
@@ -128,12 +142,15 @@ LAYER_SPECS = [
     (LAYER_BUILDING, LEXLayerBuilding),
     (LAYER_PROPS, LEXLayerProps),
     (LAYER_FLORA, LEXLayerFlora),
+    (LAYER_SHADOWS, LEXLayerShadows),
     (LAYER_SNAP_GRID, LEXLayerSnapGrid),
     (LAYER_SELECTION, LEXLayerSelection),
     (LAYER_MISSING, LEXLayerMissingMarkers),
     (LAYER_CARDINALS, LEXLayerCardinalLabels),
     (LAYER_BACKGROUND, LEXLayerTerrainBackground),
 ]
+# Layers that only make sense in the 3D preview; hidden from the 2D submenu.
+LAYER_3D_ONLY = {LAYER_SHADOWS}
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -493,6 +510,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetDropTarget(dt)
         self.s3DTexturesHolder = S3DTexturesHolder(self.glCanvas2D)
         self.s3d_shader_program = None
+        self.s3d_shadow_program = None
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.zoom = 3
         # Continuous multiplier on top of the discrete zoom level, so Fit view
@@ -549,6 +567,8 @@ class LotEditorWin(wx.Frame):
         )
         self.previewMinutes = max(0, min(1439, int(settings.get('PreviewMinutes', 720))))
         self.showInactiveProps = bool(settings.get('ShowInactiveProps', False))
+        # SC4 shadows are view-locked (sun azimuth fixed on screen); default on.
+        self.shadowLockToView = bool(settings.get('ShadowLockToView', True))
         self.nightBegin, self.nightEnd = 20, 1
         self.nightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
         self.s3DTexturesHolder.SetNightMode(self.nightMode)
@@ -776,10 +796,12 @@ class LotEditorWin(wx.Frame):
         state['PreviewDay'] = int(self.previewDate.day)
         state['PreviewMinutes'] = int(self.previewMinutes)
         state['ShowInactiveProps'] = bool(self.showInactiveProps)
+        state['ShadowLockToView'] = bool(getattr(self, 'shadowLockToView', True))
         return state
 
     def _default_visible_layers(self):
-        return {key: True for key, _label in LAYER_SPECS}
+        # Shadows are an opt-in extra; everything else defaults on.
+        return {key: (key != LAYER_SHADOWS) for key, _label in LAYER_SPECS}
 
     def _load_visible_layers(self, settings):
         layers = self._default_visible_layers()
@@ -2210,6 +2232,8 @@ class LotEditorWin(wx.Frame):
         submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, True), id=all_on)
         submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, False), id=all_off)
         for key, label in LAYER_SPECS:
+            if key in LAYER_3D_ONLY and view_key != '3d':
+                continue
             menu_id = wx.NewIdRef()
             item = submenu.AppendCheckItem(menu_id, label)
             item.Check(bool(layers.get(key, True)))
@@ -2234,6 +2258,11 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, '2d', LEXLayer2D, self.visibleLayers2D)
         self._append_layer_menu(menu, '3d', LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
+        shadow_lock_id = wx.NewIdRef()
+        shadow_lock_item = menu.AppendCheckItem(shadow_lock_id, LEXShadowLockView)
+        shadow_lock_item.Check(bool(getattr(self, 'shadowLockToView', True)))
+        menu.Bind(wx.EVT_MENU, self.OnToggleShadowLockView, id=shadow_lock_id)
+        menu.AppendSeparator()
         self._append_background_menu(menu)
         if event is not None and hasattr(event.GetEventObject(), 'PopupMenu'):
             event.GetEventObject().PopupMenu(menu)
@@ -2245,6 +2274,70 @@ class LotEditorWin(wx.Frame):
         if self.s3d_shader_program is None:
             self.s3d_shader_program = self.glCanvas2D.renderer.register(SC4LightingProgram())
         return self.s3d_shader_program
+
+    def _ensure_shadow_program(self):
+        if self.s3d_shadow_program is None:
+            self.s3d_shadow_program = self.glCanvas2D.renderer.register(SC4ShadowProgram())
+        return self.s3d_shadow_program
+
+    # Authoritative SC4 shadow params, from the VANILLA type-0x13 graphics
+    # exemplar 6534284A-A9189CF0-00000001 in SimCity_1.dat ("Shadow colour" /
+    # "Shadow strength" / "Sun direction" / "Sun pitch"; see
+    # .claude/docs/sc4-shadow-rendering.md). NOTE: vanilla shadow colour is a
+    # dark blue-purple, not black -- Gizmo's Day-Night mod flattens it to black.
+    # "Model terrain shadow amount" (0.4) is the building/prop value and matches
+    # "Shadow strength".
+    SHADOW_COLOR = (0.08, 0.06, 0.23)     # "Shadow colour" (vanilla)
+    SHADOW_STRENGTH = 0.4                 # "Shadow strength" / "Model terrain shadow amount"
+    SHADOW_SUN_AZIMUTH = 67.5             # "Sun direction" (degrees)
+    SHADOW_SUN_PITCH = 45.0               # "Sun pitch" (degrees); shadow length = cot(pitch)
+    SHADOW_NIGHT_SCALE = 0.5              # "Nighttime global colour" dims night shadows
+    # On-screen shadow angle. The shadow lives in the lot ground plane at
+    # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
+    # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
+    # screen-vertical, so a shadow runs horizontal across the monitor only when
+    # its post-yaw Z component vanishes: az + ry = 90 deg. With the view-lock
+    # already removing rotation*90, az = (67.5 + offset) - rot2D, which solves to
+    # offset = 45 -> shadows lie flat (matching SC4, whose shadows are ~horizontal
+    # on screen). The old +90 left a large lot-Z share, so shadows climbed
+    # up-screen. Nudge +/-10 to taste.
+    SHADOW_AZIMUTH_OFFSET = 45.0
+
+    def _shadow_light_dir(self):
+        """Lot-space sun direction (points from sun toward ground; -y is down).
+
+        SC4's shadow is view-locked: the sun azimuth is fixed on screen, so when
+        locked we counter-rotate the lot-space azimuth by the camera yaw (the
+        ``-viewYaw`` term in cSC4ModelMaker::CreateOccupantShadow). When unlocked
+        the azimuth is world-fixed and shadows rotate with the lot."""
+        pitch = math.radians(self.SHADOW_SUN_PITCH)
+        length = 1.0 / max(math.tan(pitch), 1.0e-3)   # cot(pitch): horizontal per unit height
+        azimuth = self.SHADOW_SUN_AZIMUTH + self.SHADOW_AZIMUTH_OFFSET
+        if getattr(self, 'shadowLockToView', True):
+            # Counter-rotate by the 90-degree view steps only. The camera's fixed
+            # -22.5 iso tilt applies equally to world mode (which looks correct),
+            # so it must NOT enter the lock: including it lands the lock on
+            # degenerate pure-axis shears (lot azimuth 90/0/...) that warp the
+            # silhouette. Stepping by rotation*90 keeps the shadow on the same
+            # off-axis lattice world mode uses, held at its reference appearance.
+            azimuth = azimuth - self.rotation * 90.0
+        az = math.radians(azimuth)
+        return (length * math.sin(az), -1.0, length * math.cos(az))
+
+    def _shadow_flatten_matrix(self):
+        """Planar projection that collapses lot-space geometry onto the y=0
+        ground plane along the sun direction (row-major, matches the renderer's
+        GL_TRUE upload). Mirrors SC4's projective shadow decal, but using the
+        model's real S3D geometry instead of fixed-function texgen."""
+        dx, dy, dz = self._shadow_light_dir()
+        if abs(dy) < 1.0e-4:
+            dy = -1.0
+        return numpy.array([
+            [1.0, -dx / dy, 0.0, 0.0],
+            [0.0,  0.0,     0.0, 0.0],
+            [0.0, -dz / dy, 1.0, 0.0],
+            [0.0,  0.0,     0.0, 1.0],
+        ], dtype=numpy.float64)
 
     def _lot_lighting_state(self, exemplar):
         state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
@@ -2260,6 +2353,11 @@ class LotEditorWin(wx.Frame):
             return
         layers = self.visibleLayers3D if view_key == '3d' else self.visibleLayers2D
         layers[layer_key] = not bool(layers.get(layer_key, True))
+        self.SaveEditorState()
+        self.on_draw()
+
+    def OnToggleShadowLockView(self, event):
+        self.shadowLockToView = not bool(getattr(self, 'shadowLockToView', True))
         self.SaveEditorState()
         self.on_draw()
 
@@ -3449,7 +3547,17 @@ class LotEditorWin(wx.Frame):
                 )
         batches.clear()
 
-    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches):
+    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches,
+                          shadow=False):
+        if shadow:
+            # Shadow casters are flattened per-draw; never batch (each has its
+            # own MVP) and route through the shadow GL state path.
+            mesh.draw(
+                self.s3DTexturesHolder, shader_program, lighting_state,
+                self._render_context.mvp, self._render_context.normal_matrix,
+                shadow=True,
+            )
+            return
         # Blended meshes depend on source order. Treat them as barriers while
         # batching opaque and alpha-tested repetitions around them.
         batchable = batches is not None and not any(
@@ -3472,7 +3580,7 @@ class LotEditorWin(wx.Frame):
         )
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
-                  model_batches=None):
+                  model_batches=None, shadow=False):
         if viewZoom is None:
             viewZoom = zoom
         if resource is None:
@@ -3496,7 +3604,9 @@ class LotEditorWin(wx.Frame):
             temporal = self._temporal_state_for_exemplar(
                 getattr(resource, 'lighting_exemplar', None))
             state_idx = timer_state_index(temporal, state_count)
-        shader_program = self._ensure_s3d_shader_program()
+        shader_program = (
+            self._ensure_shadow_program() if shadow else self._ensure_s3d_shader_program()
+        )
         lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
         # A state can contain more than one model (e.g. a lamppost's night state
         # is the pole plus its light cone). Draw every model of the state, each
@@ -3514,11 +3624,12 @@ class LotEditorWin(wx.Frame):
                 offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]),
                           ToCoord(raw_offset[2]))
             self._draw_state_member(model, offset, rot2D, rot, rotFlag, zoom,
-                                    shader_program, lighting_state, model_batches)
+                                    shader_program, lighting_state, model_batches,
+                                    shadow=shadow)
         return
 
     def _draw_state_member(self, what, offset, rot2D, rot, rotFlag, zoom,
-                           shader_program, lighting_state, model_batches):
+                           shader_program, lighting_state, model_batches, shadow=False):
         render = self._render_context
         if what.__class__ == SC4Model:
             rotMapping = [180, -90, 0, 90]
@@ -3529,10 +3640,12 @@ class LotEditorWin(wx.Frame):
                 render.rotate(-rot2D, 0, 1, 0)
                 self._submit_s3d_model(
                     what.s3dMeshes[zoom][rot], shader_program, lighting_state, model_batches,
+                    shadow=shadow,
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
             self._submit_s3d_model(
                 what.s3dMeshes[zoom], shader_program, lighting_state, model_batches,
+                shadow=shadow,
             )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
@@ -3541,8 +3654,13 @@ class LotEditorWin(wx.Frame):
                 render.translate(offset[0], offset[1], offset[2])
                 self._submit_s3d_model(
                     what.mainMesh, shader_program, lighting_state, model_batches,
+                    shadow=shadow,
                 )
         elif what.__class__ == ATC:
+            # ATC billboards are screen-facing animated sprites; skip them as
+            # shadow casters (no meaningful planar silhouette).
+            if shadow:
+                return
             if model_batches is not None:
                 self._flush_model_batches(model_batches)
             glDisable(GL_DEPTH_TEST)
@@ -3557,6 +3675,74 @@ class LotEditorWin(wx.Frame):
                 )
             glEnable(GL_DEPTH_TEST)
         return
+
+    def _draw_shadow_pass(self, rot2D, rotation, rotMapping, assetZoom, viewZoom,
+                          lotSizeXOver, lotSizeYOver):
+        """Render building/prop/flora shadows as planar-projected, alpha-masked
+        decals on the ground. Mirrors SC4's projective shadow decal using the
+        models' real S3D geometry + texture alpha; see
+        .claude/docs/sc4-shadow-rendering.md."""
+        prog = self._ensure_shadow_program()
+        prog.shadow_color = self.SHADOW_COLOR
+        strength = self.SHADOW_STRENGTH
+        if getattr(self, 'nightMode', False):
+            strength *= self.SHADOW_NIGHT_SCALE
+        prog.shadow_strength = strength
+        flatten = self._shadow_flatten_matrix()
+        render = self._render_context
+
+        def cast(record, viewer):
+            with render.pushed():
+                offsetX = ToCoord(record[3]) - lotSizeXOver / 2
+                offsetZ = ToCoord(record[5]) - lotSizeYOver / 2
+                rtk4 = self.rtk4Offsets.get(record[12], (0, 0, 0))
+                # Flatten in lot space (after the camera, before placement), then
+                # place the caster; the flatten collapses it onto the y=0 ground.
+                render.model = render.model @ flatten
+                render.translate(offsetX, ToCoord(record[4]), offsetZ)
+                self.DrawModel(rtk4, viewer, rot2D,
+                               (rotation + rotMapping[record[2]]) % 4, record[2],
+                               assetZoom, viewZoom, shadow=True)
+
+        # Shadows write depth (GL_LESS, set per-mesh in S3DReader) so overlapping
+        # faces/casters darken each pixel once instead of multiply-stacking.
+        # Polygon offset pulls the y=0 shadow plane just in front of the coplanar
+        # ground so it wins without z-fighting.
+        glEnable(GL_DEPTH_TEST)
+        glDepthMask(GL_TRUE)
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(-1.0, -1.0)
+        try:
+            if self._is_layer_visible('3d', LAYER_BUILDING):
+                try:
+                    if self.buildingViewer[self.currentBuilding] is not None:
+                        cast(self.building, self.buildingViewer[self.currentBuilding])
+                except IndexError:
+                    pass
+            if self._is_layer_visible('3d', LAYER_PROPS):
+                for prop, propViewer in zip(self.props, self.propViewers):
+                    if propViewer is None or propViewer.viewingData == []:
+                        continue
+                    if not self._viewer_is_temporally_active(propViewer):
+                        continue
+                    if propViewer.viewingData[0].__class__ == ATC:
+                        continue
+                    cast(prop, propViewer)
+            if self._is_layer_visible('3d', LAYER_FLORA):
+                for flora, floraViewer in zip(self.floras, self.floraViewers):
+                    if floraViewer is None or floraViewer.viewingData == []:
+                        continue
+                    if not self._viewer_is_temporally_active(floraViewer):
+                        continue
+                    if floraViewer.viewingData[0].__class__ == ATC:
+                        continue
+                    cast(flora, floraViewer)
+        finally:
+            glPolygonOffset(0.0, 0.0)
+            glDisable(GL_POLYGON_OFFSET_FILL)
+            glDepthFunc(GL_LEQUAL)   # restore default for later draws
+            glDepthMask(GL_TRUE)
+            glDisable(GL_BLEND)
 
     def Draw3DBackdrop(self, valW, valH):
         glDisable(GL_DEPTH_TEST)
@@ -3661,6 +3847,11 @@ class LotEditorWin(wx.Frame):
         rotMapping = [2, 1, 0, 3]
         lotSizeXOver = self.lotSizeXOver
         lotSizeYOver = self.lotSizeYOver
+        # Cast shadows onto the ground before the models so the models occlude
+        # their own shadows. Optional, driven by the 3D "Shadows" layer toggle.
+        if self._is_layer_visible('3d', LAYER_SHADOWS):
+            self._draw_shadow_pass(rot2D, rotation, rotMapping, assetZoom, viewZoom,
+                                   lotSizeXOver, lotSizeYOver)
         model_batches = {}
         if self._is_layer_visible('3d', LAYER_BUILDING):
             try:
