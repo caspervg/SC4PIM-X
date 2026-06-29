@@ -24,6 +24,7 @@ class LightingProfile:
     night_threshold: float
     terrain_shadow_amount: float
     model_shadow_amount: float
+    flora_shadow_amount: float
     shadow_color: tuple[float, float, float]
     shadow_strength: float
     map_width: int
@@ -61,6 +62,10 @@ class LightingProfile:
         hour = (int(minutes) // 60) % 24
         span = (self.night_end_hour - self.night_begin_hour) % 24
         return ((hour - self.night_begin_hour) % 24) < span
+
+    def is_graphical_night(self, minutes: int, month: int) -> bool:
+        """Return SC4's lighting-manager night state for this map sample."""
+        return self.sample_global_light(minutes, month)[0] <= self.night_threshold
 
 
 def _float3(value, default) -> tuple[float, float, float]:
@@ -101,6 +106,7 @@ def _load_profile(path: Path) -> LightingProfile:
         night_threshold=float(global_light.get("night_threshold", 0.8)),
         terrain_shadow_amount=float(terrain.get("terrain_amount", 0.8)),
         model_shadow_amount=float(terrain.get("model_amount", 0.4)),
+        flora_shadow_amount=float(terrain.get("flora_amount", 0.9)),
         shadow_color=_float3(shadow.get("color"), (0.08, 0.06, 0.23)),
         shadow_strength=float(shadow.get("strength", 0.4)),
         map_width=width,
