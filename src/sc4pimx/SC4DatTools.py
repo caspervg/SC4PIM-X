@@ -605,6 +605,28 @@ class SC4Exemplar():
             return self.link.exemplar.GetProp(key)
         return
 
+    def GetPropRange(self, lo, hi):
+        """One-pass {id: values} for property ids in [lo, hi).
+
+        Honors the parent-cohort link exactly like GetProp (a child prop
+        overrides the inherited one). Callers that read a contiguous block of
+        ids — e.g. the 1280 lot-config-property slots — can resolve every slot
+        in O(props) instead of an O(N) GetProp scan per slot (O(N^2) overall).
+        """
+        result = {}
+        ex = self
+        seen = set()
+        while ex is not None:
+            for p in ex.props:
+                if lo <= p.id < hi and p.id not in result:
+                    result[p.id] = p.values
+            link = ex.link
+            if link is None or id(link) in seen:
+                break
+            seen.add(id(link))
+            ex = getattr(link, 'exemplar', None)
+        return result
+
     def LinkToParent(self):
         self.link = None
         if self.parentCohort != (0, 0, 0):
