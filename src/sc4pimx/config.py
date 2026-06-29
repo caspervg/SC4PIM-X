@@ -37,6 +37,7 @@ DEFAULT_LOT_EDITOR = {
     "PreviewDay": 1,
     "PreviewMinutes": 720,
     "ShowInactiveProps": False,
+    "LightingProfile": "maxis",
 }
 
 DEFAULT_MAIN_WINDOW = {
