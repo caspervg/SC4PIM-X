@@ -5,6 +5,11 @@ source_package = "SimFox_Day_n_Nite_Modd.dat"
 lighting_exemplar_tgi = "6534284A-A9189CF0-00000001"
 global_light_map = "global_light_map_0917660E.png"
 global_light_map_tgi = "856DDBAC-A9179251-0917660E"
+# SimFox does not override 0917660C, so this is the inherited Maxis resource.
+environment_shape_map = "environment_shape_map_0917660C.png"
+environment_shape_map_tgi = "856DDBAC-A9179251-0917660C"
+environment_color_map = "environment_color_map_0917660D.png"
+environment_color_map_tgi = "856DDBAC-A9179251-0917660D"
 graphical_night_rule = "global_light_red_lte_threshold"
 
 [clock]

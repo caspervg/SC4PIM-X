@@ -2388,6 +2388,12 @@ class LotEditorWin(wx.Frame):
                 if lighting_kind == 'flora'
                 else profile.model_shadow_amount
             )
+            environment_color = profile.sample_environment_color(
+                state['terrain_normal'],
+            )
+            state['use_environment_map'] = environment_color is not None
+            if environment_color is not None:
+                state['environment_color'] = environment_color
         state['prelit'] = model_is_prelit(exemplar)
         return state
 

@@ -40,6 +40,8 @@ DAY_PRESET = {
     'sky_color': (0.0, 0.1, 0.5),
     'terrain_normal': (0.0, 1.0, 0.0),
     'terrain_shadow_amount': 0.40,
+    'use_environment_map': False,
+    'environment_color': (1.0, 1.0, 1.0),
 }
 
 NIGHT_PRESET = {
@@ -51,6 +53,8 @@ NIGHT_PRESET = {
     'sky_color': (0.0, 0.1, 0.5),
     'terrain_normal': (0.0, 1.0, 0.0),
     'terrain_shadow_amount': 0.40,
+    'use_environment_map': False,
+    'environment_color': (1.0, 1.0, 1.0),
 }
 
 
@@ -95,6 +99,8 @@ uniform vec3 u_sky_dir;
 uniform vec3 u_sky_color;
 uniform vec3 u_terrain_normal;
 uniform float u_terrain_shadow_amount;
+uniform int u_use_environment_map;
+uniform vec3 u_environment_color;
 uniform float u_prelit;
 uniform float u_emissive;
 uniform int u_alpha_func;
@@ -119,6 +125,8 @@ bool alpha_passes(float alpha)
 
 vec3 sc4_getcolor(vec3 normal)
 {
+    if (u_use_environment_map != 0)
+        return clamp(u_environment_color, 0.0, 1.0);
     float sun_amount = max(dot(normal, normalize(u_sun_dir)), 0.0);
     float sky_amount = max(dot(normal, normalize(u_sky_dir)), 0.0);
     vec3 lit = u_ambient_color;
@@ -169,6 +177,8 @@ class SC4LightingProgram:
             'sky_color': glGetUniformLocation(self.program, 'u_sky_color'),
             'terrain_normal': glGetUniformLocation(self.program, 'u_terrain_normal'),
             'terrain_shadow_amount': glGetUniformLocation(self.program, 'u_terrain_shadow_amount'),
+            'use_environment_map': glGetUniformLocation(self.program, 'u_use_environment_map'),
+            'environment_color': glGetUniformLocation(self.program, 'u_environment_color'),
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
             'emissive': glGetUniformLocation(self.program, 'u_emissive'),
             'mvp': glGetUniformLocation(self.program, 'u_mvp'),
@@ -194,6 +204,13 @@ class SC4LightingProgram:
         glUniform1f(
             self._uniforms['terrain_shadow_amount'],
             float(lighting_state['terrain_shadow_amount']),
+        )
+        glUniform1i(
+            self._uniforms['use_environment_map'],
+            1 if lighting_state.get('use_environment_map') else 0,
+        )
+        self._set_vec3(
+            'environment_color', lighting_state.get('environment_color', (1.0, 1.0, 1.0)),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
         glUniform1i(self._uniforms['instanced'], 0)
@@ -366,18 +383,24 @@ class SC4ShadowProgram:
 
 def approximate_model_light(lighting_state):
     """CPU-side counterpart to the preview shader's GetModelLight approximation."""
-    terrain_normal = _normalize(lighting_state['terrain_normal'])
-    sun_dir = _normalize(lighting_state['sun_dir'])
-    sky_dir = _normalize(lighting_state['sky_dir'])
-    sun_amount = max(sum(a * b for a, b in zip(terrain_normal, sun_dir)), 0.0)
-    sky_amount = max(sum(a * b for a, b in zip(terrain_normal, sky_dir)), 0.0)
-    base = []
-    for ambient, sun, sky in zip(
-        lighting_state['ambient_color'],
-        lighting_state['sun_color'],
-        lighting_state['sky_color'],
-    ):
-        base.append(min(max(ambient + sun_amount * sun + sky_amount * sky, 0.0), 1.0))
+    if lighting_state.get('use_environment_map'):
+        base = [
+            min(max(float(channel), 0.0), 1.0)
+            for channel in lighting_state.get('environment_color', (1.0, 1.0, 1.0))
+        ]
+    else:
+        terrain_normal = _normalize(lighting_state['terrain_normal'])
+        sun_dir = _normalize(lighting_state['sun_dir'])
+        sky_dir = _normalize(lighting_state['sky_dir'])
+        sun_amount = max(sum(a * b for a, b in zip(terrain_normal, sun_dir)), 0.0)
+        sky_amount = max(sum(a * b for a, b in zip(terrain_normal, sky_dir)), 0.0)
+        base = []
+        for ambient, sun, sky in zip(
+            lighting_state['ambient_color'],
+            lighting_state['sun_color'],
+            lighting_state['sky_color'],
+        ):
+            base.append(min(max(ambient + sun_amount * sun + sky_amount * sky, 0.0), 1.0))
     shadow_mix = 1.0 - float(lighting_state['terrain_shadow_amount'])
     lit = []
     for channel, global_channel in zip(base, lighting_state['global_color']):
