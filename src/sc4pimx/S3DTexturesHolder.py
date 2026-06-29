@@ -201,8 +201,9 @@ class S3DTexturesHolder(object):
     __module__ = __name__
 
     def __init__(self, glCanvas):
-        # textures[key] = decoded source entries, worker future and GL layers.
-        # gl_layers is the uploaded GL texture names for the current night_mode.
+        # textures[key] = source entries plus, per night_mode, a worker future
+        # and the uploaded GL layer names. Both the day (False) and night (True)
+        # sets are kept resident so toggling night_mode is an instant swap.
         self.textures = {}
         self.glCanvas = glCanvas
         self.night_mode = False
@@ -262,8 +263,13 @@ class S3DTexturesHolder(object):
         self._mesh_buffers.clear()
 
     def SetNightMode(self, enabled):
-        """Toggle night-lighting composition. Invalidates uploaded textures so
-        the next bind re-composes from the stored day/night entry pair.
+        """Toggle night-lighting composition.
+
+        Day and night GL layer sets are cached side by side (see
+        :meth:`PrecacheTex`), so flipping the mode is a pointer swap on the next
+        bind — no re-decode, no re-upload, no red-model flash. We only kick off
+        a background decode for the newly active mode if it was never built
+        (e.g. the entry was registered after some earlier toggle).
 
         Returns True when the mode actually changed (caller should trigger a
         repaint), False when this was a no-op.
@@ -274,26 +280,39 @@ class S3DTexturesHolder(object):
         self.night_mode = enabled
         self.glCanvas.SetCurrent()
         for cached in self.textures.values():
-            self._free_gl_layers(cached)
-            self._schedule_decode(cached)
+            mode = self._effective_mode(cached)
+            if cached['gl'].get(mode) is None and cached['future'].get(mode) is None:
+                self._schedule_decode(cached, mode)
         return True
 
-    def _free_gl_layers(self, cached):
-        layers = cached.get('gl_layers')
-        if layers:
-            for name in layers:
-                _delete_texture(name)
-        self._texture_bytes -= int(cached.get('gl_bytes', 0))
-        self._texture_bytes = max(0, self._texture_bytes)
-        cached['gl_bytes'] = 0
-        cached['gl_layers'] = None
+    def _effective_mode(self, cached):
+        """Which cached set a bind should use right now.
+
+        A texture with no night sibling composites to the same pixels in both
+        modes, so it only ever keeps the ``False`` (day) set — that halves the
+        memory cost of the dual cache for the common night-less texture.
+        """
+        return bool(self.night_mode and cached.get('night') is not None)
+
+    def _free_gl_layers(self, cached, mode=None):
+        """Free the GL layers for one mode, or both when mode is None."""
+        modes = (mode,) if mode is not None else (False, True)
+        for m in modes:
+            layers = cached['gl'].get(m)
+            if layers:
+                for name in layers:
+                    _delete_texture(name)
+            self._texture_bytes -= int(cached['gl_bytes'].get(m, 0))
+            self._texture_bytes = max(0, self._texture_bytes)
+            cached['gl_bytes'][m] = 0
+            cached['gl'][m] = None
 
     def Free(self):
         self.glCanvas.SetCurrent()
         for cached in self.textures.values():
-            future = cached.get('future')
-            if future is not None:
-                future.cancel()
+            for future in cached['future'].values():
+                if future is not None:
+                    future.cancel()
             self._free_gl_layers(cached)
         self._free_mesh_buffers()
 
@@ -302,7 +321,9 @@ class S3DTexturesHolder(object):
 
         entry is the daytime FSH entry; night_entry, when provided, is the
         nightlight sibling (typically the day instance + 0x8000 in the same
-        group) — composited over day when night_mode is on.
+        group) — composited over day when night_mode is on. When a night
+        sibling exists, both the day and night composites are decoded up front
+        so a later night/day toggle is an instant swap.
         """
         try:
             self.glCanvas.SetCurrent()
@@ -313,33 +334,35 @@ class S3DTexturesHolder(object):
         cached = {
             'day': entry,
             'night': night_entry,
-            'gl_layers': None,
-            'future': None,
-            'generation': 0,
-            'gl_bytes': 0,
+            'gl': {False: None, True: None},
+            'gl_bytes': {False: 0, True: 0},
+            'future': {False: None, True: None},
+            'generation': {False: 0, True: 0},
             'last_used': 0,
         }
         self.textures[textureID] = cached
-        self._schedule_decode(cached)
+        self._schedule_decode(cached, False)
+        if night_entry is not None:
+            self._schedule_decode(cached, True)
 
-    def _schedule_decode(self, cached):
-        cached['generation'] = int(cached.get('generation', 0)) + 1
-        generation = cached['generation']
-        old_future = cached.get('future')
+    def _schedule_decode(self, cached, mode):
+        generation = cached['generation'].get(mode, 0) + 1
+        cached['generation'][mode] = generation
+        old_future = cached['future'].get(mode)
         if old_future is not None:
             old_future.cancel()
         future = _decode_executor.submit(
             _prepare_layers,
             _snapshot_content(cached.get('day')),
-            _snapshot_content(cached.get('night')) if self.night_mode else None,
-            self.night_mode,
+            _snapshot_content(cached.get('night')) if mode else None,
+            mode,
         )
-        cached['future'] = future
+        cached['future'][mode] = future
         holder_ref = weakref.ref(self)
 
         def decoded(_future):
             holder = holder_ref()
-            if holder is None or cached.get('generation') != generation:
+            if holder is None or cached['generation'].get(mode) != generation:
                 return
             try:
                 import wx
@@ -349,14 +372,14 @@ class S3DTexturesHolder(object):
 
         future.add_done_callback(decoded)
 
-    def _upload_layers(self, cached):
-        """Decode + (optionally) blend + upload GL textures for this cache entry.
+    def _upload_layers(self, cached, mode):
+        """Decode + (optionally) blend + upload GL textures for one mode.
 
-        Populates cached['gl_layers'] in place (empty list on full failure).
+        Populates ``cached['gl'][mode]`` in place (empty list on full failure).
         """
-        future = cached.get('future')
+        future = cached['future'].get(mode)
         if future is None:
-            self._schedule_decode(cached)
+            self._schedule_decode(cached, mode)
             return False
         if not future.done():
             return False
@@ -365,9 +388,9 @@ class S3DTexturesHolder(object):
         except Exception:
             logger.exception("Failed to decode S3D texture")
             chosen = []
-        cached['future'] = None
+        cached['future'][mode] = None
 
-        cached['gl_layers'] = []
+        new_layers = []
         uploaded_bytes = 0
         for size, rgba in chosen:
             try:
@@ -376,31 +399,35 @@ class S3DTexturesHolder(object):
                     srgb=getattr(self.glCanvas, 'srgb', False),
                     mipmaps=self.mipmaps,
                 )
-                cached['gl_layers'].append(texName)
+                new_layers.append(texName)
                 uploaded_bytes += int(size[0]) * int(size[1]) * 4
             except Exception:
                 continue
-        cached['gl_bytes'] = uploaded_bytes
+        self._free_gl_layers(cached, mode)
+        cached['gl'][mode] = new_layers
+        cached['gl_bytes'][mode] = uploaded_bytes
         self._texture_bytes += uploaded_bytes
         self._evict_texture_layers(cached)
         return True
 
     def flush_pending(self, timeout=15.0):
-        """Block until every scheduled texture decode has finished and uploaded.
+        """Block until the active-mode decode for every texture is uploaded.
 
         Normal rendering is lazy: FSH decoding runs on a background worker and
         the GL upload is deferred to the first :meth:`SetCurrentTex` after the
         future resolves. A *synchronous* prerender (asset thumbnails) can reach
         the capture before that happens, so the model draws with no texture and
         the shader paints it solid red (the untextured marker colour). Here the
-        decodes are awaited, then the uploads run on this thread (which owns the
-        GL context). Returns True if everything is ready, False on timeout.
+        decodes for the currently active mode are awaited, then the uploads run
+        on this thread (which owns the GL context). Returns True if everything
+        is ready, False on timeout.
         """
         self.glCanvas.SetCurrent()
         deadline = time.monotonic() + max(0.0, timeout)
         ready = True
         for cached in list(self.textures.values()):
-            future = cached.get('future')
+            mode = self._effective_mode(cached)
+            future = cached['future'].get(mode)
             if future is None:
                 continue
             remaining = deadline - time.monotonic()
@@ -416,8 +443,9 @@ class S3DTexturesHolder(object):
         # Uploads must happen on the context-owning thread, so do them here
         # rather than inside the decode worker.
         for cached in list(self.textures.values()):
-            if cached.get('gl_layers') is None and cached.get('future') is not None:
-                if not self._upload_layers(cached):
+            mode = self._effective_mode(cached)
+            if cached['future'].get(mode) is not None:
+                if not self._upload_layers(cached, mode):
                     ready = False
         return ready
 
@@ -426,7 +454,8 @@ class S3DTexturesHolder(object):
             return
         candidates = sorted(
             (value for value in self.textures.values()
-             if value is not exclude and value.get('gl_layers')),
+             if value is not exclude
+             and (value['gl'].get(False) or value['gl'].get(True))),
             key=lambda value: value.get('last_used', 0),
         )
         for cached in candidates:
@@ -446,10 +475,23 @@ class S3DTexturesHolder(object):
         # split-pane viewport on macOS and cost a context switch per mesh.
         if cached.get('day') is None and cached.get('night') is None:
             return False
-        if cached.get('gl_layers') is None:
-            if not self._upload_layers(cached):
+        mode = self._effective_mode(cached)
+        future = cached['future'].get(mode)
+        if future is not None and future.done():
+            # This mode's decode finished — swap it in (frees its old set).
+            self._upload_layers(cached, mode)
+        layers = cached['gl'].get(mode)
+        if layers is None:
+            # Active-mode set not ready yet: show the other mode's layers as a
+            # stand-in while it decodes, instead of flashing the red marker.
+            fallback = cached['gl'].get(not mode)
+            if fallback:
+                layers = fallback
+            elif self._upload_layers(cached, mode):
+                layers = cached['gl'].get(mode)
+            else:
                 return False
-        layers = cached.get('gl_layers') or []
+        layers = layers or []
         if not layers:
             return False
         # The requested layer (e.g. an ATC animation plane) can run past the
