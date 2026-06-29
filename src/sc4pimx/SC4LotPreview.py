@@ -739,9 +739,18 @@ class LotEditorWin(wx.Frame):
         row.Add(self.previewMonthCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
         self.previewTimeSlider = wx.Slider(
-            bar, -1, self.previewMinutes, 0, 1439, size=(220, -1),
+            bar, -1, self.previewMinutes, 0, 1439, size=(320, -1),
         )
-        row.Add(self.previewTimeSlider, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        row.Add(self.previewTimeSlider, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.previewPlayButton = wx.Button(bar, -1, LEXTemporalPlay,
+                                           size=(84, -1))
+        row.Add(self.previewPlayButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.previewLoopModeCtrl = wx.Choice(bar, -1, choices=[
+            LEXLoopTime, LEXLoopDate, LEXLoopTimeDate,
+        ])
+        self.previewLoopModeCtrl.SetSelection(0)
+        self.previewLoopModeCtrl.SetToolTip(LEXTemporalLoop)
+        row.Add(self.previewLoopModeCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.previewTimeLabel = wx.StaticText(bar, -1, '')
         self.previewTimeLabel.SetMinSize((88, -1))
         row.Add(self.previewTimeLabel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
@@ -757,8 +766,77 @@ class LotEditorWin(wx.Frame):
         self.previewTimeSlider.Bind(wx.EVT_SLIDER, self.OnTemporalChange)
         self.showInactiveCheck.Bind(wx.EVT_CHECKBOX, self.OnTemporalChange)
         self.lightingProfileCtrl.Bind(wx.EVT_CHOICE, self.OnLightingProfileChange)
+        self.previewPlayButton.Bind(wx.EVT_BUTTON, self.OnTogglePlayback)
+        self.previewPlayTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnPlaybackTick, self.previewPlayTimer)
         self._update_temporal_controls()
         return bar
+
+    # Every PLAYBACK_INTERVAL_MS, the loop advances by one step. The step size
+    # depends on the loop mode (see the previewLoopModeCtrl dropdown):
+    #   Time        -> +PLAYBACK_STEP_MINUTES of clock time, wrap at midnight.
+    #   Date        -> +1 calendar day, clock held fixed.
+    #   Time + Date -> +PLAYBACK_STEP_BOTH_MINUTES (faster), and each midnight
+    #                  wrap bumps the date forward one day.
+    PLAYBACK_STEP_MINUTES = 5
+    PLAYBACK_STEP_BOTH_MINUTES = 60
+    PLAYBACK_INTERVAL_MS = 50
+    LOOP_MODE_TIME = 0
+    LOOP_MODE_DATE = 1
+    LOOP_MODE_BOTH = 2
+
+    def OnTogglePlayback(self, event=None):
+        if self.previewPlayTimer.IsRunning():
+            self._stop_playback()
+        else:
+            self.previewPlayButton.SetLabel(LEXTemporalPause)
+            self.previewPlayTimer.Start(self.PLAYBACK_INTERVAL_MS)
+
+    def _stop_playback(self):
+        if self.previewPlayTimer.IsRunning():
+            self.previewPlayTimer.Stop()
+        self.previewPlayButton.SetLabel(LEXTemporalPlay)
+
+    def OnPlaybackTick(self, event=None):
+        mode = self.previewLoopModeCtrl.GetSelection()
+        if mode == self.LOOP_MODE_DATE:
+            self._advance_date(1)
+            return
+        step = (self.PLAYBACK_STEP_BOTH_MINUTES if mode == self.LOOP_MODE_BOTH
+                else self.PLAYBACK_STEP_MINUTES)
+        # Snap to the step grid, advance one step, wrap at midnight.
+        minutes = self.previewMinutes - (self.previewMinutes % step) + step
+        wrapped = minutes >= 1440
+        self.previewMinutes = minutes % 1440
+        self.previewTimeSlider.SetValue(self.previewMinutes)
+        if mode == self.LOOP_MODE_BOTH and wrapped:
+            # _advance_date syncs the date controls and triggers the redraw.
+            self._advance_date(1)
+        else:
+            self.OnTemporalChange()
+
+    def _advance_date(self, days=1):
+        """Roll the preview date forward, wrapping Dec 31 -> Jan 1.
+
+        Syncs the month/day controls then routes through OnTemporalChange so the
+        redraw, night-mode and inspector updates all run as if edited by hand.
+        """
+        import calendar
+        month, day = self.previewDate.month, self.previewDate.day + days
+        while True:
+            last = calendar.monthrange(1, month)[1]
+            if day <= last:
+                break
+            day -= last
+            month = month % 12 + 1
+        self._updatingTemporalControls = True
+        try:
+            self.previewMonthCtrl.SetSelection(month - 1)
+            self.previewDayCtrl.SetRange(1, calendar.monthrange(1, month)[1])
+            self.previewDayCtrl.SetValue(day)
+        finally:
+            self._updatingTemporalControls = False
+        self.OnTemporalChange()
 
     def _update_temporal_controls(self):
         if not hasattr(self, 'previewTimeLabel'):
@@ -2511,6 +2589,8 @@ class LotEditorWin(wx.Frame):
             self.LETools = None
         if hasattr(self, 't2'):
             self.t2.Stop()
+        if hasattr(self, 'previewPlayTimer') and self.previewPlayTimer.IsRunning():
+            self.previewPlayTimer.Stop()
         self.Free()
         event.Skip()
         return True
@@ -2881,36 +2961,33 @@ class LotEditorWin(wx.Frame):
         return (
          propViewer, name)
 
+    def _collect_effect_model_ids(self):
+        """Model IIDs in the effect category, resolved once per PreCache."""
+        ids = set()
+        effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+        if effect_category is not None:
+            for desc in effect_category.descriptors:
+                if IsEffectDesc(desc):
+                    ids.add(desc.exemplar.entry.tgi[2])
+        return ids
+
     def PreCacheObject(self, values):
         if values[0] == 0:
             self.building = values
             self.building.append(self.LoadBuildingModel(values[12]))
         if values[0] == 1:
-            is_effect = False
-            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
-            if effect_category is not None:
-                for desc in effect_category.descriptors:
-                    if desc.exemplar.entry.tgi[2] == values[12] and IsEffectDesc(desc):
-                        is_effect = True
-                        break
-            bOk = False
-            for prop, viewer in zip(self.props, self.propViewers):
-                if prop[12] == values[12]:
-                    values.append(prop[-1])
-                    self.props.append(values)
-                    self.propViewers.append(viewer)
-                    if is_effect:
-                        self.effects.append(values)
-                    bOk = True
-                    break
-
-            if not bOk:
-                propView, name = self.LoadPropModel(values[12])
-                values.append(name)
-                self.props.append(values)
-                self.propViewers.append(propView)
-                if is_effect:
-                    self.effects.append(values)
+            is_effect = values[12] in self._effectModelIds
+            cached = self._propViewerByModel.get(values[12])
+            if cached is not None:
+                viewer, name = cached
+            else:
+                viewer, name = self.LoadPropModel(values[12])
+                self._propViewerByModel[values[12]] = (viewer, name)
+            values.append(name)
+            self.props.append(values)
+            self.propViewers.append(viewer)
+            if is_effect:
+                self.effects.append(values)
         if values[0] == 2:
             texID = values[12]
             bBase = True
@@ -2926,20 +3003,15 @@ class LotEditorWin(wx.Frame):
             else:
                 self.texOverlays.append(texData)
         if values[0] == 4:
-            bOk = False
-            for flora, viewer in zip(self.floras, self.floraViewers):
-                if flora[12] == values[12]:
-                    values.append(flora[-1])
-                    self.floras.append(values)
-                    self.floraViewers.append(viewer)
-                    bOk = True
-                    break
-
-            if not bOk:
+            cached = self._floraViewerByModel.get(values[12])
+            if cached is not None:
+                viewer, name = cached
+            else:
                 viewer, name = self.LoadFloraModel(values[12])
-                values.append(name)
-                self.floras.append(values)
-                self.floraViewers.append(viewer)
+                self._floraViewerByModel[values[12]] = (viewer, name)
+            values.append(name)
+            self.floras.append(values)
+            self.floraViewers.append(viewer)
         if values[0] == 5:
             texData = [
              ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960, values[11]]
@@ -2973,6 +3045,14 @@ class LotEditorWin(wx.Frame):
         self.lands = []
         self.te = []
         self._sc4path_cache = {}
+        # Dedup: a lot can repeat the same prop/flora model hundreds of times.
+        # Map model IID -> (viewer, name) so each unique model is loaded once
+        # instead of rescanning the growing prop/flora list per object (O(n^2)).
+        self._propViewerByModel = {}
+        self._floraViewerByModel = {}
+        # Effect membership is a fixed set of model IIDs; resolve it once rather
+        # than rescanning the effect category's descriptors for every prop.
+        self._effectModelIds = self._collect_effect_model_ids()
         base, roadTex = self.GetTextures(641146880)
         self.textures[641146880] = [roadTex, base]
         base, waterLandTex = self.GetTexturesLE(3412818905, 1802442183)
