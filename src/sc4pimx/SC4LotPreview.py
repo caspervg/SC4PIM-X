@@ -574,7 +574,10 @@ class LotEditorWin(wx.Frame):
         self.shadowLockToView = bool(settings.get('ShadowLockToView', True))
         self.nightBegin = self.lightingProfile.night_begin_hour
         self.nightEnd = self.lightingProfile.night_end_hour
-        self.nightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.clockNightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.nightMode = self.lightingProfile.is_graphical_night(
+            self.previewMinutes, self.previewDate.month,
+        )
         self.s3DTexturesHolder.SetNightMode(self.nightMode)
         self._layer_menu_ids = {}
         self._background_menu_ids = {}
@@ -803,7 +806,12 @@ class LotEditorWin(wx.Frame):
         self._request_draw()
 
     def _apply_preview_night_mode(self):
-        night = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.clockNightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        profile = getattr(self, 'lightingProfile', None)
+        if profile is not None:
+            night = profile.is_graphical_night(self.previewMinutes, self.previewDate.month)
+        else:
+            night = self.clockNightMode
         self.nightMode = night
         if getattr(self, 's3DTexturesHolder', None) is not None:
             self.s3DTexturesHolder.SetNightMode(night)
@@ -2368,14 +2376,18 @@ class LotEditorWin(wx.Frame):
             [0.0,  0.0,     0.0, 1.0],
         ], dtype=numpy.float64)
 
-    def _lot_lighting_state(self, exemplar):
+    def _lot_lighting_state(self, exemplar, lighting_kind='model'):
         state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
         profile = getattr(self, 'lightingProfile', None)
         if profile is not None:
             state['global_color'] = profile.sample_global_light(
                 self.previewMinutes, self.previewDate.month,
             )
-            state['terrain_shadow_amount'] = profile.model_shadow_amount
+            state['terrain_shadow_amount'] = (
+                profile.flora_shadow_amount
+                if lighting_kind == 'flora'
+                else profile.model_shadow_amount
+            )
         state['prelit'] = model_is_prelit(exemplar)
         return state
 
@@ -2848,6 +2860,7 @@ class LotEditorWin(wx.Frame):
         if propViewer is not None:
             propViewer.night_state = night_state_for(selectedDesc.exemplar)
             propViewer.lighting_exemplar = selectedDesc.exemplar
+            propViewer.lighting_kind = 'flora'
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -3645,7 +3658,10 @@ class LotEditorWin(wx.Frame):
         shader_program = (
             self._ensure_shadow_program() if shadow else self._ensure_s3d_shader_program()
         )
-        lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
+        lighting_state = self._lot_lighting_state(
+            getattr(resource, 'lighting_exemplar', None),
+            getattr(resource, 'lighting_kind', 'model'),
+        )
         # A state can contain more than one model (e.g. a lamppost's night state
         # is the pole plus its light cone). Draw every model of the state, each
         # at its own per-record offset; props without grouped states fall back

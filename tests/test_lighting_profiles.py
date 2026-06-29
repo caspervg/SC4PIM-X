@@ -11,6 +11,8 @@ def test_bundled_profiles_load_with_expected_core_settings():
     assert profiles["maxis"].map_height == profiles["simfox"].map_height == 32
     assert profiles["maxis"].model_shadow_amount == pytest.approx(0.4)
     assert profiles["simfox"].model_shadow_amount == pytest.approx(0.9)
+    assert profiles["maxis"].flora_shadow_amount == pytest.approx(0.9)
+    assert profiles["simfox"].flora_shadow_amount == pytest.approx(0.9)
     assert profiles["maxis"].shadow_color == pytest.approx((0.08, 0.06, 0.23))
     assert profiles["simfox"].shadow_color == pytest.approx((0.02, 0.0, 0.2))
     assert profiles["maxis"].shadow_strength == pytest.approx(0.4)
@@ -36,3 +38,11 @@ def test_profile_clock_is_wrapped_and_unknown_id_falls_back_to_maxis():
     assert profile.is_clock_night(0)
     assert not profile.is_clock_night(60)
     assert lighting_profile("missing").profile_id == "maxis"
+
+
+@pytest.mark.parametrize("profile_id", ["maxis", "simfox"])
+def test_graphical_night_uses_sampled_red_channel_threshold(profile_id):
+    profile = lighting_profile(profile_id)
+
+    assert profile.is_graphical_night(0, 1)
+    assert not profile.is_graphical_night(12 * 60, 1)
