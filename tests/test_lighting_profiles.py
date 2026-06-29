@@ -17,6 +17,12 @@ def test_bundled_profiles_load_with_expected_core_settings():
     assert profiles["simfox"].shadow_color == pytest.approx((0.02, 0.0, 0.2))
     assert profiles["maxis"].shadow_strength == pytest.approx(0.4)
     assert profiles["simfox"].shadow_strength == pytest.approx(0.5)
+    assert profiles["maxis"].use_environment_map
+    assert profiles["simfox"].use_environment_map
+    assert profiles["maxis"].environment_width == 64
+    assert profiles["maxis"].environment_height == 64
+    assert profiles["simfox"].environment_width == 64
+    assert profiles["simfox"].environment_height == 64
 
 
 def test_midnight_global_light_comes_from_each_profile_map():
@@ -46,3 +52,21 @@ def test_graphical_night_uses_sampled_red_channel_threshold(profile_id):
 
     assert profile.is_graphical_night(0, 1)
     assert not profile.is_graphical_night(12 * 60, 1)
+
+
+def test_environment_map_uses_each_profiles_effective_color_data():
+    maxis = lighting_profile("maxis")
+    simfox = lighting_profile("simfox")
+
+    # Both maps deliberately peak at white for flat terrain. Their directional
+    # color data differs and becomes visible as soon as the normal tilts.
+    assert maxis.sample_environment_color() == pytest.approx((1.0, 1.0, 1.0))
+    assert simfox.sample_environment_color() == pytest.approx((1.0, 1.0, 1.0))
+    maxis_color = maxis.sample_environment_color((1.0, 0.0, 0.0))
+    simfox_color = simfox.sample_environment_color((1.0, 0.0, 0.0))
+
+    assert maxis_color is not None
+    assert simfox_color is not None
+    assert maxis_color != pytest.approx(simfox_color)
+    assert all(0.0 <= channel <= 1.0 for channel in maxis_color)
+    assert all(0.0 <= channel <= 1.0 for channel in simfox_color)

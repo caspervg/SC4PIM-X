@@ -1,4 +1,4 @@
-"""Bundled SC4 lighting profiles and global-light-map sampling."""
+"""Bundled SC4 lighting profiles and native map sampling."""
 from __future__ import annotations
 
 import math
@@ -27,9 +27,13 @@ class LightingProfile:
     flora_shadow_amount: float
     shadow_color: tuple[float, float, float]
     shadow_strength: float
+    use_environment_map: bool
     map_width: int
     map_height: int
     map_pixels: tuple[tuple[int, int, int], ...]
+    environment_width: int
+    environment_height: int
+    environment_pixels: tuple[tuple[int, int, int], ...]
 
     def sample_global_light(self, minutes: int, month: int) -> tuple[float, float, float]:
         """Sample the profile's time/month map using SC4's horizontal lerp.
@@ -67,6 +71,32 @@ class LightingProfile:
         """Return SC4's lighting-manager night state for this map sample."""
         return self.sample_global_light(minutes, month)[0] <= self.night_threshold
 
+    def sample_environment_color(
+        self, normal: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    ) -> tuple[float, float, float] | None:
+        """Sample SC4's paired environment map for an X/Z normal.
+
+        The game takes the lookup dimensions from 0917660C and the RGB data
+        from 0917660D. Lot-preview model light uses the flat terrain normal,
+        which resolves to the centre pixel.
+        """
+        if (
+            not self.use_environment_map
+            or not self.environment_pixels
+            or self.environment_width <= 0
+            or self.environment_height <= 0
+        ):
+            return None
+
+        x_normal = min(1.0, max(-1.0, float(normal[0])))
+        z_normal = min(1.0, max(-1.0, float(normal[2])))
+        x = int(self.environment_width * ((x_normal + 1.0) * 0.5))
+        y = int(self.environment_height * ((z_normal + 1.0) * 0.5))
+        x = min(self.environment_width - 1, max(0, x))
+        y = min(self.environment_height - 1, max(0, y))
+        color = self.environment_pixels[y * self.environment_width + x]
+        return tuple(channel / 255.0 for channel in color)
+
 
 def _float3(value, default) -> tuple[float, float, float]:
     try:
@@ -94,6 +124,20 @@ def _load_profile(path: Path) -> LightingProfile:
     directory = path.parent
     map_path = directory / str(data.get("global_light_map", ""))
     width, height, pixels = _load_map(map_path)
+    use_environment_map = bool(global_light.get("use_environment_map", False))
+    environment_width = environment_height = 0
+    environment_pixels = ()
+    if use_environment_map:
+        shape_path = directory / str(data.get("environment_shape_map", ""))
+        color_path = directory / str(data.get("environment_color_map", ""))
+        environment_width, environment_height, _shape_pixels = _load_map(shape_path)
+        color_width, color_height, environment_pixels = _load_map(color_path)
+        if (color_width, color_height) != (environment_width, environment_height):
+            raise ValueError(
+                f"Environment-map dimensions differ in {directory}: "
+                f"0917660C is {environment_width}x{environment_height}, "
+                f"0917660D is {color_width}x{color_height}"
+            )
 
     return LightingProfile(
         profile_id=str(data.get("id", directory.name)),
@@ -109,9 +153,13 @@ def _load_profile(path: Path) -> LightingProfile:
         flora_shadow_amount=float(terrain.get("flora_amount", 0.9)),
         shadow_color=_float3(shadow.get("color"), (0.08, 0.06, 0.23)),
         shadow_strength=float(shadow.get("strength", 0.4)),
+        use_environment_map=use_environment_map,
         map_width=width,
         map_height=height,
         map_pixels=pixels,
+        environment_width=environment_width,
+        environment_height=environment_height,
+        environment_pixels=environment_pixels,
     )
 
 
