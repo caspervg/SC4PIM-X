@@ -399,6 +399,11 @@ class PrimitiveRenderer:
 
     def __init__(self, samplers):
         self.samplers = samplers
+        # Create and bind VAO before compileProgram: macOS Core Profile requires
+        # a VAO bound during shader validation or it raises ShaderValidationError.
+        self.vao = int(glGenVertexArrays(1))
+        self.vbo = int(glGenBuffers(1))
+        glBindVertexArray(self.vao)
         self.program = compileProgram(
             compileShader(PRIMITIVE_VERTEX_SHADER, GL_VERTEX_SHADER),
             compileShader(PRIMITIVE_FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
@@ -406,10 +411,7 @@ class PrimitiveRenderer:
         self._mvp_location = glGetUniformLocation(self.program, "u_mvp")
         self._texture_location = glGetUniformLocation(self.program, "u_texture")
         self._texture_mode_location = glGetUniformLocation(self.program, "u_texture_mode")
-        self.vao = int(glGenVertexArrays(1))
-        self.vbo = int(glGenBuffers(1))
         self._capacity = 0
-        glBindVertexArray(self.vao)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         stride = self._FLOATS_PER_VERTEX * 4
         glEnableVertexAttribArray(0)
