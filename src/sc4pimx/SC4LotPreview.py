@@ -3866,19 +3866,26 @@ class LotEditorWin(wx.Frame):
             )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
+            # RKT0 is a single mesh pre-projected for one (North) view and reused
+            # at every rotation. SC4 S3D geometry is baked 2.5D -- the dimetric
+            # tilt lives in the vertices, not the camera (the model matrix only
+            # rotate_z's by rot2D) -- so rotating this mesh shears it, and it only
+            # looks right at North. Capture the unrotated basis (camera turn
+            # rotate_z(rot2D) removed) and draw the mesh with it, billboard-style
+            # like the ATC path, so it looks identical at every rotation while
+            # still being positioned in the rotated lot.
+            base_basis = render.model[0:3, 0:3] @ SC4Matrix.rotate_z(-rot2D)[0:3, 0:3]
             with render.pushed():
-                # Rotate the overhang offset into the prop's placement frame with
-                # the SAME sign as the SC4Model/pole path (-rotMapping). The old
-                # +rotMapping sent the offset the wrong way at the 90/270 prop
-                # rotations -- it only happened to match at 0/180, where the sign
-                # is irrelevant -- so an overhanging sub-model (e.g. a lamppost's
-                # light cone) landed on the wrong side of the pole.
+                # Position only: rotate the overhang offset into the prop frame
+                # with the same sign as the pole path (-rotMapping) so it points
+                # the right way at every prop rotation.
                 render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
-                # Re-orient the single RKT0 mesh itself; the net mesh rotation is
-                # still +rotMapping, unchanged from before.
-                render.rotate(rotMapping[rotFlag], 0, 1, 0)
-                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                # Override the orientation with the unrotated basis (keeping the
+                # placed translation column). Skipped for the shadow pass, whose
+                # ground-flatten matrix must stay intact.
+                if not shadow:
+                    render.model[0:3, 0:3] = base_basis
                 self._submit_s3d_model(
                     what.mainMesh, shader_program, lighting_state, model_batches,
                     shadow=shadow,
