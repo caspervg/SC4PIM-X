@@ -2780,6 +2780,7 @@ class LotEditorWin(wx.Frame):
             elif rkt3:
                 buildingViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
             elif rkt4:
+                # RKT4 offset reps are (X, Y, Z) with Y vertical.
                 self.rtk4Offsets[buildingID] = (
                  ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
                 buildingViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -2931,6 +2932,7 @@ class LotEditorWin(wx.Frame):
         elif rkt3:
             propViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
         elif rkt4:
+            # RKT4 offset reps are (X, Y, Z) with Y vertical.
             self.rtk4Offsets[propID] = (
              ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -2987,6 +2989,7 @@ class LotEditorWin(wx.Frame):
         elif rkt3:
             propViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
         elif rkt4:
+            # RKT4 offset reps are (X, Y, Z) with Y vertical.
             self.rtk4Offsets[propID] = (
              ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -3840,8 +3843,18 @@ class LotEditorWin(wx.Frame):
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
             with render.pushed():
-                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                # Rotate the overhang offset into the prop's placement frame with
+                # the SAME sign as the SC4Model/pole path (-rotMapping). The old
+                # +rotMapping sent the offset the wrong way at the 90/270 prop
+                # rotations -- it only happened to match at 0/180, where the sign
+                # is irrelevant -- so an overhanging sub-model (e.g. a lamppost's
+                # light cone) landed on the wrong side of the pole.
+                render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
+                # Re-orient the single RKT0 mesh itself; the net mesh rotation is
+                # still +rotMapping, unchanged from before.
+                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                render.rotate(rotMapping[rotFlag], 0, 1, 0)
                 self._submit_s3d_model(
                     what.mainMesh, shader_program, lighting_state, model_batches,
                     shadow=shadow,
