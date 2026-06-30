@@ -764,6 +764,8 @@ class ResourceViewer():
             for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
                 state_index = data[0]
+                # RKT4 reps after the state index are (X, Y, Z) with Y vertical,
+                # already matching the renderer's translate(x, y_vertical, z).
                 offset = (data[1], data[2], data[3])
                 model = None
                 if data[4] == 662775840:
