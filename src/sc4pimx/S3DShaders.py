@@ -7,7 +7,10 @@ from OpenGL.GL import (
     GL_LINK_STATUS,
     GL_TRUE,
     GL_VERTEX_SHADER,
+    glBindVertexArray,
     glDeleteProgram,
+    glDeleteVertexArrays,
+    glGenVertexArrays,
     glGetProgramInfoLog,
     glGetProgramiv,
     glGetUniformLocation,
@@ -19,6 +22,21 @@ from OpenGL.GL import (
     glUseProgram,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader
+
+
+def _compile_program(*shaders):
+    """compileProgram wrapper that binds a temporary VAO.
+
+    macOS Core Profile raises ShaderValidationError if no VAO is bound during
+    glValidateProgram, which PyOpenGL calls inside compileProgram.
+    """
+    tmp_vao = int(glGenVertexArrays(1))
+    glBindVertexArray(tmp_vao)
+    try:
+        return compileProgram(*shaders)
+    finally:
+        glBindVertexArray(0)
+        glDeleteVertexArrays(1, [tmp_vao])
 
 
 def _normalize(vec3):
@@ -161,7 +179,7 @@ class SC4LightingProgram:
     """Small wrapper around the S3D preview lighting shader."""
 
     def __init__(self):
-        self.program = compileProgram(
+        self.program = _compile_program(
             compileShader(VERTEX_SHADER, GL_VERTEX_SHADER),
             compileShader(FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
         )
@@ -329,7 +347,7 @@ class SC4ShadowProgram:
     """
 
     def __init__(self):
-        self.program = compileProgram(
+        self.program = _compile_program(
             compileShader(SHADOW_VERTEX_SHADER, GL_VERTEX_SHADER),
             compileShader(SHADOW_FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
         )
