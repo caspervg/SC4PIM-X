@@ -2,6 +2,7 @@
 import logging
 import math
 import os
+import time
 
 import numpy
 import wx
@@ -772,18 +773,27 @@ class LotEditorWin(wx.Frame):
         self.previewPlayButton.Bind(wx.EVT_BUTTON, self.OnTogglePlayback)
         self.previewPlayTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnPlaybackTick, self.previewPlayTimer)
+        # Coalesces config writes from manual temporal edits (slider drags,
+        # date spins) so a drag doesn't hit the disk on every step.
+        self._stateSaveTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_state_save_timer, self._stateSaveTimer)
         self._update_temporal_controls()
         return bar
 
-    # Every PLAYBACK_INTERVAL_MS, the loop advances by one step. The step size
-    # depends on the loop mode (see the previewLoopModeCtrl dropdown):
-    #   Time        -> +PLAYBACK_STEP_MINUTES of clock time, wrap at midnight.
-    #   Date        -> +1 calendar day, clock held fixed.
-    #   Time + Date -> +PLAYBACK_STEP_BOTH_MINUTES (faster), and each midnight
-    #                  wrap bumps the date forward one day.
-    PLAYBACK_STEP_MINUTES = 5
-    PLAYBACK_STEP_BOTH_MINUTES = 60
+    # The timer fires every PLAYBACK_INTERVAL_MS, but the clock advances by the
+    # REAL time elapsed since the previous frame, not a fixed step per tick.
+    # That decouples playback speed from the framerate: a heavy lot that can't
+    # hit the tick rate just drops frames instead of running the clock slow.
+    # The per-second rates below reproduce the old fixed-step speeds (which
+    # assumed a steady 25 ms tick): 5 min/tick -> 200 min/s, 60 -> 2400, etc.
     PLAYBACK_INTERVAL_MS = 25
+    PLAYBACK_TIME_MIN_PER_SEC = 200.0
+    PLAYBACK_BOTH_MIN_PER_SEC = 2400.0
+    PLAYBACK_DAYS_PER_SEC = 40.0
+    # Cap a single frame's advance so a stall (GC pause, slow first frame)
+    # doesn't fast-forward the clock by a large jump when ticks resume.
+    PLAYBACK_MAX_FRAME_SECONDS = 0.25
+    STATE_SAVE_DEBOUNCE_MS = 500
     LOOP_MODE_TIME = 0
     LOOP_MODE_DATE = 1
     LOOP_MODE_BOTH = 2
@@ -794,37 +804,58 @@ class LotEditorWin(wx.Frame):
         else:
             self.previewPlayButton.SetBitmap(icon_bundle('player-pause', LE_TOOLBAR_ICON_SIZE))
             self.previewPlayButton.SetToolTip(LEXTemporalPause)
+            self._playback_last_time = time.perf_counter()
+            self._playback_min_accum = 0.0
+            self._playback_day_accum = 0.0
             self.previewPlayTimer.Start(self.PLAYBACK_INTERVAL_MS)
 
     def _stop_playback(self):
-        if self.previewPlayTimer.IsRunning():
+        was_running = self.previewPlayTimer.IsRunning()
+        if was_running:
             self.previewPlayTimer.Stop()
         self.previewPlayButton.SetBitmap(icon_bundle('player-play', LE_TOOLBAR_ICON_SIZE))
         self.previewPlayButton.SetToolTip(LEXTemporalPlay)
+        # Persist the settled preview time once, on pause -- playback frames
+        # deliberately skip the (disk-backed) save so it never runs per frame.
+        if was_running:
+            self.SaveEditorState()
 
     def OnPlaybackTick(self, event=None):
+        now = time.perf_counter()
+        elapsed = now - self._playback_last_time
+        self._playback_last_time = now
+        elapsed = min(max(elapsed, 0.0), self.PLAYBACK_MAX_FRAME_SECONDS)
         mode = self.previewLoopModeCtrl.GetSelection()
         if mode == self.LOOP_MODE_DATE:
-            self._advance_date(1)
+            self._playback_day_accum += elapsed * self.PLAYBACK_DAYS_PER_SEC
+            days = int(self._playback_day_accum)
+            if days:
+                self._playback_day_accum -= days
+                self._advance_date(days)
             return
-        step = (self.PLAYBACK_STEP_BOTH_MINUTES if mode == self.LOOP_MODE_BOTH
-                else self.PLAYBACK_STEP_MINUTES)
-        # Snap to the step grid, advance one step, wrap at midnight.
-        minutes = self.previewMinutes - (self.previewMinutes % step) + step
-        wrapped = minutes >= 1440
+        rate = (self.PLAYBACK_BOTH_MIN_PER_SEC if mode == self.LOOP_MODE_BOTH
+                else self.PLAYBACK_TIME_MIN_PER_SEC)
+        self._playback_min_accum += elapsed * rate
+        step = int(self._playback_min_accum)
+        if step <= 0:
+            return
+        self._playback_min_accum -= step
+        minutes = self.previewMinutes + step
+        wraps = minutes // 1440
         self.previewMinutes = minutes % 1440
         self.previewTimeSlider.SetValue(self.previewMinutes)
-        if mode == self.LOOP_MODE_BOTH and wrapped:
+        if mode == self.LOOP_MODE_BOTH and wraps:
             # _advance_date syncs the date controls and triggers the redraw.
-            self._advance_date(1)
+            self._advance_date(wraps)
         else:
-            self.OnTemporalChange()
+            self._apply_temporal_state(persist=False, full_inspector=False)
 
     def _advance_date(self, days=1):
         """Roll the preview date forward, wrapping Dec 31 -> Jan 1.
 
-        Syncs the month/day controls then routes through OnTemporalChange so the
-        redraw, night-mode and inspector updates all run as if edited by hand.
+        Syncs the month/day controls then applies the new date to the scene. On
+        live playback frames the apply runs in its lightweight form (no disk
+        save, no inspector rebuild); see _apply_temporal_state.
         """
         import calendar
         month, day = self.previewDate.month, self.previewDate.day + days
@@ -839,9 +870,11 @@ class LotEditorWin(wx.Frame):
             self.previewMonthCtrl.SetSelection(month - 1)
             self.previewDayCtrl.SetRange(1, calendar.monthrange(1, month)[1])
             self.previewDayCtrl.SetValue(day)
+            self.previewDate = clamp_date(month, day)
         finally:
             self._updatingTemporalControls = False
-        self.OnTemporalChange()
+        playing = self.previewPlayTimer.IsRunning()
+        self._apply_temporal_state(persist=not playing, full_inspector=not playing)
 
     def _update_temporal_controls(self):
         if not hasattr(self, 'previewTimeLabel'):
@@ -867,13 +900,37 @@ class LotEditorWin(wx.Frame):
                 self.previewDayCtrl.SetValue(self.previewDate.day)
             self.previewMinutes = self.previewTimeSlider.GetValue()
             self.showInactiveProps = self.showInactiveCheck.GetValue()
-            self._apply_preview_night_mode()
-            self._update_temporal_controls()
-            self.SaveEditorState()
-            self.UpdateSelectionInspector()
-            self._request_draw()
+            self._apply_temporal_state(persist=True, full_inspector=True)
         finally:
             self._updatingTemporalControls = False
+
+    def _apply_temporal_state(self, persist=True, full_inspector=True):
+        """Push the current previewDate/previewMinutes into the scene.
+
+        persist=False skips the (disk-backed, debounced) config write and
+        full_inspector=False skips the inspector text rebuild. Both are off on
+        live playback frames so a heavy lot never pays disk I/O or inspector
+        churn dozens of times a second. The inspector is still rebuilt when
+        something is selected, so a selected prop's temporal status stays live.
+        """
+        self._apply_preview_night_mode()
+        self._update_temporal_controls()
+        if persist:
+            self._schedule_state_save()
+        if full_inspector or self.selected:
+            self.UpdateSelectionInspector()
+        self._request_draw()
+
+    def _schedule_state_save(self):
+        """Queue a debounced config write, coalescing rapid temporal edits."""
+        timer = getattr(self, '_stateSaveTimer', None)
+        if timer is None:
+            self.SaveEditorState()
+            return
+        timer.StartOnce(self.STATE_SAVE_DEBOUNCE_MS)
+
+    def _on_state_save_timer(self, event):
+        self.SaveEditorState()
 
     def OnLightingProfileChange(self, event=None):
         selection = self.lightingProfileCtrl.GetSelection()
