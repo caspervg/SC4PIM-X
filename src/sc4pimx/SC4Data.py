@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import FSHConverter
 from .paths import asset_path, image_db_path
-from .S3DReader import *
+from .S3DReader import S3D
 from .SC4DataFunctions import ToTile
 from .SC4DatTools import *
 from .translation import *
@@ -709,6 +709,12 @@ class ResourceViewer():
         self.rkType = rkType
         self.rktData = rktData
         self.viewingData = []
+        # For RKT4 only: viewingData holds one representative model per state
+        # (so len(viewingData) == number of states), while stateModels groups
+        # every model belonging to each state as (model, rawOffsetXYZ). A single
+        # state can contain several models -- e.g. a Maxis lamppost's night
+        # state is the pole plus its light cone(s). None for other RK types.
+        self.stateModels = None
         if self.rkType == 662775840:
             if rktData[0] == 698733036:
                 if rktData in virtualDAT.atcsDict:
@@ -746,45 +752,70 @@ class ResourceViewer():
                 virtualDAT.otherModelsDict[rktData[0:3]] = what
                 self.viewingData.append(what)
         if self.rkType == 662775844:
+            # Each 8-value record is (stateIndex, offX, offY, offZ, innerRKType,
+            # T, G, I). data[0] is the model state index: the game's
+            # cSC4ModelMakerUtility::GetAllModelInstanceIDs selects the record
+            # whose first value matches the requested state, so records may be
+            # stored out of order (e.g. CP semiseasonal props list state 1
+            # before state 0). Collect (stateIndex, model) and sort, otherwise
+            # the dormant/winter model renders for state 0.
+            groups = {}
+            flat = []
             for line in range(len(rktData) // 8):
                 data = rktData[line * 8:line * 8 + 8]
+                state_index = data[0]
+                offset = (data[1], data[2], data[3])
+                model = None
                 if data[4] == 662775840:
                     if data[5] == 698733036:
                         if data[5:] in virtualDAT.atcsDict:
-                            self.viewingData.append(virtualDAT.atcsDict[data[5:]])
+                            model = virtualDAT.atcsDict[data[5:]]
                     elif data[5:] in virtualDAT.otherModelsDict:
-                        self.viewingData.append(virtualDAT.otherModelsDict[data[5:]])
+                        model = virtualDAT.otherModelsDict[data[5:]]
                     else:
                         what = SC4ModelMesh(data[6], data[7], virtualDAT)
-                        if not what.is_valid:
-                            continue
-                        else:
+                        if what.is_valid:
                             virtualDAT.otherModels.append(
-                                StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
+                                StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.otherModelsDict[data[5:]] = what
-                            self.viewingData.append(what)
+                            model = what
                 if data[4] == 662775841:
                     if data[5:] in virtualDAT.standardModelsDict:
-                        self.viewingData.append(virtualDAT.standardModelsDict[data[5:]])
+                        model = virtualDAT.standardModelsDict[data[5:]]
                     else:
                         what = SC4Model(data[6], data[7], virtualDAT)
-                        if not what.is_valid:
-                            pass
-                        else:
-                            virtualDAT.standardModelsDict.append(
-                                StandardModel(virtualDAT.getEntry(rktData[5], rktData[6], rktData[7]), what))
+                        if what.is_valid:
+                            virtualDAT.standardModels.append(
+                                StandardModel(virtualDAT.getEntry(data[5], data[6], data[7]), what))
                             virtualDAT.standardModelsDict[data[5:]] = what
-                            self.viewingData.append(what)
+                            model = what
+                if model is not None:
+                    flat.append(model)
+                    groups.setdefault(state_index, []).append((model, offset))
+            # viewingData stays a flat per-record list (every model, in authored
+            # order) for the per-model state browser and PreLoad; stateModels
+            # groups the models by their state index for the lot renderer, which
+            # draws all of a state's models together (e.g. a lamppost's night
+            # pole + light cone).
+            self.viewingData = flat
+            self.stateModels = [groups[idx] for idx in sorted(groups)]
 
         return None
 
-    def PreLoad(self, virtualDAT, s3DTexturesHolder):
-        try:
-            what = self.viewingData[0]
-        except IndexError:
-            return None
+    @property
+    def stateCount(self):
+        # Number of distinct model states (not records). For RKT4 this is the
+        # grouped state count; otherwise the flat viewingData length.
+        if self.stateModels is not None:
+            return len(self.stateModels)
+        return len(self.viewingData)
 
-        what.PreLoad(virtualDAT, s3DTexturesHolder)
+    def PreLoad(self, virtualDAT, s3DTexturesHolder):
+        # Preload every model, not just state 0: alternate states (night change
+        # or a time/date timer) and extra per-state models (e.g. a lamppost's
+        # night light cone) must each be GL-initialised or they render invisible.
+        for what in self.viewingData:
+            what.PreLoad(virtualDAT, s3DTexturesHolder)
         return None
 
     def draw(self, viewer, fileNameStatic, zoom, rot, state):

@@ -113,6 +113,24 @@ AssetScope = "lot"
 AssetFilter = "all"
 AssetSearch = ""
 AssetCompact = false
+PreviewMonth = 1
+PreviewDay = 1
+PreviewMinutes = 720
+ShowInactiveProps = false
+
+# --- Graphics / rendering quality ---
+# Tunes the OpenGL 3.3 preview pipeline. All values degrade gracefully: each is
+# clamped to what the GPU actually supports, so over-asking is safe.
+[Rendering]
+# MSAA sample count for on-screen views and offscreen thumbnail/export buffers.
+# 0 or 1 = off; 2, 4, 8 are typical. Clamped to the GPU maximum.
+Samples = 4
+# sRGB-correct (linear) rendering and blending.
+SRGB = true
+# Mipmap generation + trilinear filtering for model textures (kills shimmer).
+Mipmaps = true
+# Max anisotropic filtering for model textures (needs Mipmaps). 1.0 = off.
+Anisotropy = 8.0
 
 # --- Dependency catalog lookups ---
 # Optional online enrichment for missing prop/texture dependencies. Set BaseUrl

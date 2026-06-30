@@ -1,11 +1,18 @@
 """SC4 Lot Editor (LE) tools for editing building lots."""
 import datetime
 import io
+import logging
+import os
 import random
 
 import wx
 import wx.lib.agw.balloontip as BT
 from PIL import Image, ImageDraw
+
+logger = logging.getLogger(__name__)
+
+# Sentinel for "not yet resolved" caches (distinct from a resolved None).
+_UNSET = object()
 
 try:
     import win32gui
@@ -293,6 +300,39 @@ def BuildImagesForPropStates(exemplar, size=128):
     elif rkt5 and _is_model_tid(rkt5[0]):
         return [BuildImageForTGI(tuple(rkt5), size)]
     return [Image.open(asset_path('other', 'NoPreview.jpg')).convert('RGB').resize((size, size), Image.BICUBIC)]
+
+
+def prop_preview_gif_path(exemplar):
+    """Path to a prop's looping preview GIF if one was generated, else None.
+
+    Resolves the prop's model resource keys the same way the static thumbnail
+    does (BuildImagesForPropStates) and checks for a sibling ``.gif`` in the
+    image DB. Only animated (ATC) props ever get a GIF generated, so the file's
+    mere existence is the gate -- no need to re-derive the resource type here.
+    """
+    candidates = []
+    for pid in (662775840, 662775841, 662775845):
+        rkt = exemplar.GetProp(pid)
+        if rkt and len(rkt) >= 3:
+            candidates.append((rkt[1], rkt[2]))
+    rkt3 = exemplar.GetProp(662775843)
+    if rkt3 and len(rkt3) >= 3:
+        candidates.append((rkt3[1], rkt3[-1]))
+    # ResourceKeyType4 packs one or more 8-value state records; the last 4 of
+    # each are (propID, type, group, instance). Animated props commonly use this
+    # (timed / day-night), so resolve it the same way BuildImagesForPropStates
+    # does, else their GIF is never found.
+    rkt4 = exemplar.GetProp(662775844)
+    if rkt4:
+        for cb in range(len(rkt4) // 8):
+            record = rkt4[cb * 8:cb * 8 + 8][4:]
+            if len(record) >= 4 and record[0] in (662775840, 662775841, 662775845):
+                candidates.append((record[2], record[3]))
+    for group, instance in candidates:
+        path = str(image_db_path('%s-%s.gif' % (hex2str(group), hex2str(instance)), large=True))
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def BuildImageForProp(exemplar):
@@ -745,10 +785,21 @@ class LEAssetItem(object):
 
 class LEAssetThumbnailProvider(object):
 
+    # ATC previews may contain up to 120 source frames.  Keeping a wx.Bitmap
+    # for every frame of every asset quickly consumes hundreds of MB.  Sample
+    # the visual frames while retaining repeated references in the playback
+    # list, which preserves the original 10 fps duration.
+    MAX_ANIM_BITMAPS = 30
+    MAX_CACHED_ANIMATIONS = 32
+
     def __init__(self):
         self.cache = {}
         self.state_counts = {}
         self.state_strips = {}
+        # Animated-prop GIF frames, keyed by (gif_path, thumb_size) -> list of
+        # thumb-sized wx.Bitmaps. An empty list caches a known failure so a
+        # broken GIF isn't reopened every repaint.
+        self.anim_cache = {}
         self.thumb_size = 72
         self.placeholder = self._build_placeholder('...')
         # Pending thumbnail loads. The grid rebuilds this via RestrictTo()
@@ -766,7 +817,61 @@ class LEAssetThumbnailProvider(object):
             return
         self.thumb_size = size
         self.cache = {}
+        self.anim_cache = {}
         self.placeholder = self._build_placeholder('...')
+
+    def _gif_path_for(self, item):
+        """Resolve (and cache on the item) the prop's preview GIF path, or None."""
+        cached = getattr(item, '_gif_path_cache', _UNSET)
+        if cached is _UNSET:
+            cached = None
+            source = getattr(item, 'source', None)
+            exemplar = getattr(source, 'exemplar', None)
+            if exemplar is not None and item.kind in ('prop', 'flora', 'effect'):
+                try:
+                    cached = prop_preview_gif_path(exemplar)
+                except Exception:
+                    logger.exception('Failed to resolve prop preview GIF')
+                    cached = None
+            item._gif_path_cache = cached
+        return cached
+
+    def AnimationFrames(self, item):
+        """Thumb-sized frame bitmaps for an animated prop, or None if not animated.
+
+        Frames are decoded once per (gif, thumb size) and cached. The grid asks
+        for these every repaint, so this stays a dict lookup after the first
+        decode.
+        """
+        path = self._gif_path_for(item)
+        if not path:
+            return None
+        cache_key = (path, self.thumb_size)
+        frames = self.anim_cache.pop(cache_key, None)
+        if frames is None:
+            frames = []
+            try:
+                with Image.open(path) as gif:
+                    frame_count = max(1, int(getattr(gif, 'n_frames', 1)))
+                    step = max(1, (frame_count + self.MAX_ANIM_BITMAPS - 1) // self.MAX_ANIM_BITMAPS)
+                    sampled = {}
+                    for frame_idx in range(0, frame_count, step):
+                        gif.seek(frame_idx)
+                        sampled[frame_idx] = self._bitmap_from_pil(gif.convert('RGB'))
+                    # Reuse each sampled bitmap for the source frames it
+                    # represents. Playback length and speed remain unchanged.
+                    frames = [sampled[(idx // step) * step] for idx in range(frame_count)]
+            except Exception:
+                logger.exception('Failed to load prop preview GIF %s', path)
+                frames = []
+            self.anim_cache[cache_key] = frames
+            while len(self.anim_cache) > self.MAX_CACHED_ANIMATIONS:
+                oldest = next(iter(self.anim_cache))
+                self.anim_cache.pop(oldest, None)
+        else:
+            # Dict insertion order provides a small dependency-free LRU.
+            self.anim_cache[cache_key] = frames
+        return frames or None
 
     def _build_placeholder(self, label, size=None):
         size = size or self.thumb_size
@@ -1035,6 +1140,16 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.hovered = -1
         self.drag_start = None
         self.state_popup = None
+        # Drives in-tile GIF playback for animated props. Runs only while at
+        # least one animated card is on screen (managed in OnPaint), so a folder
+        # of static props costs nothing.
+        self._anim_timer = wx.Timer(self)
+        self._anim_tick = 0
+        self._any_anim = False
+        self._animated_visible = []
+        self.Bind(wx.EVT_TIMER, self.OnAnimTick, self._anim_timer)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
+        self.Bind(wx.EVT_SHOW, self.OnShow)
         self.Bind(wx.EVT_PAINT, self.OnPaint)
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
@@ -1045,6 +1160,9 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.Bind(wx.EVT_LEFT_DCLICK, self.OnDoubleClick)
 
     def SetItems(self, items):
+        if self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
+        self._animated_visible = []
         self.items = items
         self.selected = -1
         self.hovered = -1
@@ -1088,6 +1206,31 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.Refresh(False)
         event.Skip()
 
+    def OnAnimTick(self, event):
+        """Advance every on-screen animated card to its next GIF frame."""
+        if not self.IsShownOnScreen() or not self._animated_visible:
+            self._anim_timer.Stop()
+            return
+        self._anim_tick += 1
+        # Animation changes only the thumbnail inside these cards.  Invalidating
+        # their client rectangles avoids repainting every static card at 10 Hz.
+        for idx in self._animated_visible:
+            virtual_rect = self._item_rect(idx)
+            x, y = self.CalcScrolledPosition(virtual_rect.x, virtual_rect.y)
+            self.RefreshRect(wx.Rect(x, y, virtual_rect.width, virtual_rect.height), False)
+
+    def OnShow(self, event):
+        if not event.IsShown() and self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
+        elif event.IsShown():
+            self.Refresh(False)
+        event.Skip()
+
+    def OnDestroy(self, event):
+        if event.GetEventObject() is self and self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
+        event.Skip()
+
     def _item_rect(self, idx):
         cols = self._columns()
         col = idx % cols
@@ -1128,19 +1271,33 @@ class LEAssetGrid(wx.ScrolledWindow):
         view_y = self.CalcUnscrolledPosition(0, 0)[1]
         end_y = view_y + self.GetClientSize()[1]
         cols = self._columns()
+        rows = (len(self.items) + cols - 1) // cols
+        stride = self.CARD_H + self.GAP
         start_row = max(0, view_y // (self.CARD_H + self.GAP))
-        end_row = min((len(self.items) + cols - 1) // cols, end_y // (self.CARD_H + self.GAP) + 2)
+        end_row = min(rows, end_y // stride + 1)
+        viewport = wx.Rect(0, view_y, self.GetClientSize()[0], self.GetClientSize()[1])
         visible = []
+        self._any_anim = False
+        self._animated_visible = []
         for row in range(int(start_row), int(end_row)):
             for col in range(cols):
                 idx = row * cols + col
                 if idx >= len(self.items):
                     break
-                self._draw_card(dc, idx, self._item_rect(idx))
+                rect = self._item_rect(idx)
+                if not rect.Intersects(viewport):
+                    continue
+                if self._draw_card(dc, idx, rect):
+                    self._animated_visible.append(idx)
                 visible.append(self.items[idx])
         # Drop thumbnail loads for cards no longer on screen so the cards we
         # scrolled TO decode immediately instead of behind a stale backlog.
         self.thumbnail_provider.RestrictTo(visible)
+        # Run the animation timer only while an animated card is on screen.
+        if self._any_anim and not self._anim_timer.IsRunning():
+            self._anim_timer.Start(100)
+        elif not self._any_anim and self._anim_timer.IsRunning():
+            self._anim_timer.Stop()
 
     def _draw_card(self, dc, idx, rect):
         item = self.items[idx]
@@ -1150,7 +1307,15 @@ class LEAssetGrid(wx.ScrolledWindow):
         dc.SetBrush(wx.Brush(bg))
         dc.SetPen(wx.Pen(border, 2 if selected else 1))
         dc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, 6)
-        bmp = self.thumbnail_provider.GetBitmap(item, self.Refresh)
+        # Animated props play their GIF in place; everything else draws the
+        # static thumbnail. The current frame comes from a shared tick so all
+        # animated cards advance together.
+        frames = self.thumbnail_provider.AnimationFrames(item)
+        if frames:
+            self._any_anim = True
+            bmp = frames[self._anim_tick % len(frames)]
+        else:
+            bmp = self.thumbnail_provider.GetBitmap(item, self.Refresh)
         tx = rect.x + (rect.width - self.THUMB) // 2
         ty = rect.y + 12
         dc.DrawBitmap(bmp, tx, ty, True)
@@ -1182,7 +1347,7 @@ class LEAssetGrid(wx.ScrolledWindow):
             dc.DrawLabel(self._shorten(dc, item.label, rect.width - 10),
                          wx.Rect(rect.x + 5, rect.y + 19 + self.THUMB, rect.width - 10, 16),
                          wx.ALIGN_CENTER)
-            return
+            return bool(frames)
         badge_rect = wx.Rect(rect.x + 10, rect.y + 19 + self.THUMB, rect.width - 20, 18)
         dc.SetBrush(wx.Brush(wx.Colour(238, 241, 244)))
         dc.SetPen(wx.Pen(wx.Colour(220, 224, 228)))
@@ -1196,6 +1361,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         dc.SetTextForeground(wx.Colour(96, 104, 112))
         dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.DrawLabel(self._shorten(dc, item.sublabel, rect.width - 18), wx.Rect(rect.x + 9, rect.y + 65 + self.THUMB, rect.width - 18, 18), wx.ALIGN_CENTER)
+        return bool(frames)
 
     def OnLeftDown(self, event):
         self._hide_state_popup()
@@ -1553,6 +1719,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
         self.thumb_slider.Bind(wx.EVT_SLIDER, self.OnThumbSize)
         self._debounce = None
+        self._destroyed = False
+        self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
         self.search.SetValue(str(settings.get('AssetSearch', '')))
         compact = bool(settings.get('AssetCompact', False))
         self.presentation.SetValue(compact)
@@ -1601,9 +1769,19 @@ class LEAssetBrowserPanel(wx.Panel):
         self.RefreshAssets()
 
     def OnSearch(self, event):
+        if self._destroyed:
+            return
         if self._debounce:
             self._debounce.Stop()
         self._debounce = wx.CallLater(120, self.ApplyFilters)
+
+    def OnDestroy(self, event):
+        if event.GetEventObject() is self:
+            self._destroyed = True
+            if self._debounce:
+                self._debounce.Stop()
+                self._debounce = None
+        event.Skip()
 
     def OnFilter(self, event):
         labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families']
@@ -1751,6 +1929,8 @@ class LEAssetBrowserPanel(wx.Panel):
         return False
 
     def ApplyFilters(self):
+        if self._destroyed:
+            return
         text = self.search.GetValue().strip().lower()
         filtered = []
         for item in self.all_items:

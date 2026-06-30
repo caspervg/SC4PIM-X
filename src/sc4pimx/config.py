@@ -33,7 +33,10 @@ DEFAULT_LOT_EDITOR = {
     "UndoLimit": 40,
     "Favorites": [],
     "ThumbSize": 72,
-    "NightMode": False,
+    "PreviewMonth": 1,
+    "PreviewDay": 1,
+    "PreviewMinutes": 720,
+    "ShowInactiveProps": False,
 }
 
 DEFAULT_MAIN_WINDOW = {
@@ -61,6 +64,23 @@ DEFAULT_DEPENDENCY_CATALOG = {
     "Enabled": False,
     "BaseUrl": "",
     "TimeoutSeconds": 15,
+}
+
+DEFAULT_RENDERING = {
+    # Multisample anti-aliasing sample count for the on-screen canvas and the
+    # offscreen thumbnail/export framebuffers. 0 or 1 disables MSAA; typical
+    # values are 2, 4 or 8. Clamped at runtime to what the GPU supports.
+    "Samples": 4,
+    # Render and blend in a linear/sRGB-correct color space. Disable only if a
+    # driver mishandles GL_FRAMEBUFFER_SRGB.
+    "SRGB": True,
+    # Generate mipmaps for model textures and sample them trilinearly. Removes
+    # shimmering on minified/distant textures.
+    "Mipmaps": True,
+    # Maximum anisotropic filtering for minified model textures (needs Mipmaps).
+    # 1.0 disables it; 8.0/16.0 sharpen textures viewed at a grazing angle.
+    # Clamped at runtime to the GPU maximum.
+    "Anisotropy": 8.0,
 }
 
 
@@ -132,6 +152,15 @@ def load_dependency_catalog() -> dict:
     """Settings for optional online dependency catalog lookups."""
     value = load().get("DependencyCatalog", {})
     settings = DEFAULT_DEPENDENCY_CATALOG.copy()
+    if isinstance(value, dict):
+        settings.update(value)
+    return settings
+
+
+def load_rendering() -> dict:
+    """Graphics-quality settings for the OpenGL preview pipeline."""
+    value = load().get("Rendering", {})
+    settings = DEFAULT_RENDERING.copy()
     if isinstance(value, dict):
         settings.update(value)
     return settings

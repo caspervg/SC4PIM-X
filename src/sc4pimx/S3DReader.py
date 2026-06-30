@@ -6,9 +6,46 @@ import time
 
 import numpy
 import numpy as np
-from OpenGL.GL import *  # noqa: F403  (GL names used in draw())
-
-from .S3DViewer import *
+from OpenGL.GL import (
+    GL_ALWAYS,
+    GL_BACK,
+    GL_BLEND,
+    GL_CCW,
+    GL_CULL_FACE,
+    GL_DEPTH_TEST,
+    GL_DST_COLOR,
+    GL_EQUAL,
+    GL_FALSE,
+    GL_GEQUAL,
+    GL_GREATER,
+    GL_LEQUAL,
+    GL_LESS,
+    GL_NEVER,
+    GL_NOTEQUAL,
+    GL_ONE,
+    GL_ONE_MINUS_DST_COLOR,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_ONE_MINUS_SRC_COLOR,
+    GL_SAMPLE_ALPHA_TO_COVERAGE,
+    GL_SRC_ALPHA,
+    GL_SRC_COLOR,
+    GL_TRIANGLE_FAN,
+    GL_TRIANGLE_STRIP,
+    GL_TRIANGLES,
+    GL_TRUE,
+    GL_UNSIGNED_SHORT,
+    GL_ZERO,
+    glBindSampler,
+    glBindVertexArray,
+    glBlendFunc,
+    glCullFace,
+    glDepthFunc,
+    glDepthMask,
+    glDisable,
+    glDrawElementsInstanced,
+    glEnable,
+    glFrontFace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +75,7 @@ class S3D(object):
             entry.rawContent = None
             self.entry = None
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
         buffer = self.ReadHead(buffer)
         buffer = self.ReadVert(buffer)
@@ -61,7 +98,7 @@ class S3D(object):
         if buffer[:4] != b'HEAD':
             logger.error('Invalid S3D HEAD chunk: got %r', buffer[:4])
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         self.majorRevision = struct.unpack('H', buffer[8:10])[0]
         self.minorRevision = struct.unpack('H', buffer[10:12])[0]
         return buffer[12:]
@@ -70,13 +107,13 @@ class S3D(object):
         if buffer[:4] != b'VERT':
             logger.error('Invalid S3D VERT chunk: got %r', buffer[:4])
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.vertexBuffers = []
         bounds_set = False
         for x in range(nbrBlock):
-            flag = struct.unpack('H', buffer[0:2])[0]
+            struct.unpack('H', buffer[0:2])[0]
             count = struct.unpack('H', buffer[2:4])[0]
             if self.minorRevision >= 4:
                 format = struct.unpack('I', buffer[4:8])[0]
@@ -178,13 +215,13 @@ class S3D(object):
         if buffer[:4] != b'INDX':
             logger.error('Invalid S3D INDX chunk: got %r', buffer[:4])
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.IndexBlocks = []
         for i in range(nbrBlock):
-            flag = struct.unpack('H', buffer[0:2])[0]
-            stride = struct.unpack('H', buffer[2:4])[0]
+            struct.unpack('H', buffer[0:2])[0]
+            struct.unpack('H', buffer[2:4])[0]
             count = struct.unpack('H', buffer[4:6])[0]
             buffer = buffer[6:]
             indices = struct.unpack('H' * count, buffer[:count * 2])
@@ -221,7 +258,7 @@ class S3D(object):
         if buffer[:4] != b'MATS':
             logger.error('Invalid S3D MATS chunk: got %r', buffer[:4])
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
         self.matBlocks = []
@@ -232,8 +269,8 @@ class S3D(object):
             srcBlend = struct.unpack('B', buffer[6:7])[0]
             dstBlend = struct.unpack('B', buffer[7:8])[0]
             alphaThreshold = float(struct.unpack('H', buffer[8:10])[0]) / 65535
-            materialClass = struct.unpack('I', buffer[10:14])[0]
-            reserved = struct.unpack('B', buffer[14:15])[0]
+            struct.unpack('I', buffer[10:14])[0]
+            struct.unpack('B', buffer[14:15])[0]
             textureCount = struct.unpack('B', buffer[15:16])[0]
             buffer = buffer[16:]
             textures = []
@@ -248,10 +285,10 @@ class S3D(object):
                     magFilter = struct.unpack('B', buffer[:1])[0]
                     minFilter = struct.unpack('B', buffer[1:2])[0]
                     buffer = buffer[2:]
-                animRate = struct.unpack('H', buffer[:2])[0]
-                animMode = struct.unpack('H', buffer[2:4])[0]
+                struct.unpack('H', buffer[:2])[0]
+                struct.unpack('H', buffer[2:4])[0]
                 animNameLen = struct.unpack('B', buffer[4:5])[0]
-                animName = buffer[5:5 + animNameLen]
+                buffer[5:5 + animNameLen]
                 buffer = buffer[5 + animNameLen:]
                 texture = {'magFilter': magFilter,'minFilter': minFilter,'textureID': textureID,'wrapS': wrapS,'wrapT': wrapT}
                 textures.append(texture)
@@ -265,13 +302,13 @@ class S3D(object):
         if buffer[:4] != b'ANIM':
             logger.error('Invalid S3D ANIM chunk: got %r', buffer[:4])
             raise IOError
-        length = struct.unpack('I', buffer[4:8])[0]
+        struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
         frameCount = struct.unpack('H', buffer[0:2])[0]
         frameRate = struct.unpack('H', buffer[2:4])[0]
         animMode = struct.unpack('H', buffer[4:6])[0]
-        flags = struct.unpack('I', buffer[6:10])[0]
-        disp = struct.unpack('f', buffer[10:14])[0]
+        struct.unpack('I', buffer[6:10])[0]
+        struct.unpack('f', buffer[10:14])[0]
         nbrMeshes = struct.unpack('H', buffer[14:16])[0]
         buffer = buffer[16:]
         self.anims = {}
@@ -283,7 +320,7 @@ class S3D(object):
         self.anims['animatedMeshes'] = []
         for nMesh in range(nbrMeshes):
             nameLen = struct.unpack('B', buffer[0:1])[0]
-            flags = struct.unpack('B', buffer[1:2])[0]
+            struct.unpack('B', buffer[1:2])[0]
             name = buffer[2:2 + nameLen - 1]
             buffer = buffer[2 + nameLen:]
             frames = []
@@ -301,11 +338,17 @@ class S3D(object):
 
         return buffer
 
-    def draw(self, s3DTexturesHolder, shader_program, lighting_state):
+    def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix):
+        return self.draw_instanced(
+            s3DTexturesHolder, shader_program, lighting_state, [mvp], [normal_matrix],
+        )
+
+    def draw_instanced(self, s3DTexturesHolder, shader_program, lighting_state,
+                       mvps, normal_matrices):
+        if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
+            raise ValueError('S3D instance batch must contain 1..32 matching transforms')
         if self.entry is None:
             return
-        glColor3f(1.0, 1.0, 1.0)
-        glEnable(GL_TEXTURE_2D)
         try:
             meshes = self.anims['animatedMeshes']
         except Exception:
@@ -328,16 +371,27 @@ class S3D(object):
                 # always loop until ping-pong / one-shot values can be verified
                 # so we never freeze on the last frame.
                 self.currentFrame = (self.currentFrame + steps) % frame_count
+            s3DTexturesHolder.glCanvas.request_animation(max(1, int(interval * 1000)))
         if self.currentFrame >= frame_count:
             self.currentFrame = 0
         funcTable = [
          GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS]
-        funcTableReverse = [GL_ALWAYS, GL_GEQUAL, GL_NOTEQUAL, GL_GREATER, GL_LEQUAL, GL_EQUAL, GL_LESS, GL_NEVER]
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
-        sample_alpha_to_coverage = globals().get('GL_SAMPLE_ALPHA_TO_COVERAGE')
         mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
-        shader_program.bind(lighting_state)
-        for mi, mesh in enumerate(meshes):
+        shader_program.bind_instanced(lighting_state, mvps, normal_matrices)
+        instance_count = len(mvps)
+
+        def pass_order(item):
+            _index, candidate = item
+            try:
+                info = candidate['frames'][self.currentFrame]
+                return 1 if self.matBlocks[info['matsBlock']]['flags'] & 16 else 0
+            except (IndexError, KeyError):
+                return 0
+
+        # Opaque/cutout meshes establish depth first; blended meshes retain
+        # their source order and render afterward.
+        for mi, mesh in sorted(enumerate(meshes), key=pass_order):
             frameInfo = mesh['frames'][self.currentFrame]
             try:
                 vertexBuffer = self.vertexBuffers[frameInfo['vertBlock']]
@@ -360,38 +414,40 @@ class S3D(object):
                 continue
 
             textures = material.get('textures') or []
-            if not textures:
-                # Materials without any texture entry (rare for animated meshes
-                # that reference an external/missing texture) -- skip drawing
-                # this mesh rather than crashing the viewer.
-                continue
-            texInfo = textures[0]
+            texInfo = textures[0] if textures else {}
             # Use the per-mesh key resolved in LEInit. Fall back to the
             # historical single tgi2search if the per-mesh list is missing
             # (older code path, defensive).
             tex_key = None
             if mi < len(mesh_tex_keys):
                 tex_key = mesh_tex_keys[mi]
-            if tex_key is None and hasattr(self, 'tgi2search'):
+            if tex_key is None and textures and hasattr(self, 'tgi2search'):
                 tex_key = (self.tgi2search[1], texInfo['textureID'])
+            textured = False
             if tex_key is not None:
-                s3DTexturesHolder.SetCurrentTex(
+                textured = bool(s3DTexturesHolder.SetCurrentTex(
                     tex_key,
                     min_filter=texInfo.get('minFilter'),
                     mag_filter=texInfo.get('magFilter'),
                     wrap_s=texInfo.get('wrapS'),
                     wrap_t=texInfo.get('wrapT'),
-                )
+                ))
             flags = material['flags']
             if flags & 1:
-                glEnable(GL_ALPHA_TEST)
-                glAlphaFunc(funcTable[material['alphaFunc']], material['alphaThreshold'])
-                if sample_alpha_to_coverage is not None:
-                    glEnable(sample_alpha_to_coverage)
+                alpha_func = material['alphaFunc']
+                glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE)
             else:
-                glDisable(GL_ALPHA_TEST)
-                if sample_alpha_to_coverage is not None:
-                    glDisable(sample_alpha_to_coverage)
+                alpha_func = 7
+                glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE)
+            shader_program.set_material(
+                alpha_func=alpha_func,
+                alpha_threshold=material['alphaThreshold'],
+                textured=textured,
+                # Framebuffer-blended materials are self-illuminated glows
+                # (light flares, lit windows); render them unlit so night
+                # lighting does not dim them away under additive blending.
+                emissive=bool(flags & 16),
+            )
             if flags & 2:
                 glEnable(GL_DEPTH_TEST)
                 glDepthFunc(funcTable[material['depthFunc']])
@@ -410,6 +466,7 @@ class S3D(object):
                 glDisable(GL_CULL_FACE)
             if flags & 16:
                 glEnable(GL_BLEND)
+                glDepthMask(GL_FALSE)
                 try:
                     glBlendFunc(blendTable[material['srcBlend']], blendTable[material['dstBlend']])
                 except Exception:
@@ -420,36 +477,19 @@ class S3D(object):
 
             else:
                 glDisable(GL_BLEND)
+                glDepthMask(GL_TRUE)
             normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
             idx_bytes = indexBuffer[0]
             idx_count = indexBuffer[1]
-            # Upload (once) and bind this frame's geometry as VBOs. Generic
-            # attribute arrays + VBOs keep macOS on the hardware vertex path,
-            # which honours a partial glViewport (the SW fallback the old
-            # client-array path triggered did not -- it skewed split preview).
+            # Upload once as an interleaved core-profile VAO.
             buffers = s3DTexturesHolder.get_mesh_buffers(self)
             vert_block = frameInfo['vertBlock']
             norm_key = (vert_block, frameInfo['indexBlock'], frameInfo['primBlock'])
-            pos_vbo = buffers.array_vbo(('pos', vert_block), vertexBuffer['positions'])
-            uv_vbo = buffers.array_vbo(('uv', vert_block), vertexBuffer['uvs'])
-            norm_vbo = buffers.array_vbo(('norm', norm_key), normals)
-            ibo = buffers.index_ibo(frameInfo['indexBlock'], idx_bytes)
-            loc_pos = shader_program.attribs.get('position', -1)
-            loc_norm = shader_program.attribs.get('normal', -1)
-            loc_uv = shader_program.attribs.get('texcoord', -1)
-            if loc_pos >= 0:
-                glBindBuffer(GL_ARRAY_BUFFER, pos_vbo)
-                glEnableVertexAttribArray(loc_pos)
-                glVertexAttribPointer(loc_pos, 3, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
-            if loc_norm >= 0:
-                glBindBuffer(GL_ARRAY_BUFFER, norm_vbo)
-                glEnableVertexAttribArray(loc_norm)
-                glVertexAttribPointer(loc_norm, 3, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
-            if loc_uv >= 0:
-                glBindBuffer(GL_ARRAY_BUFFER, uv_vbo)
-                glEnableVertexAttribArray(loc_uv)
-                glVertexAttribPointer(loc_uv, 2, GL_FLOAT, GL_FALSE, 0, ctypes.c_void_p(0))
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)
+            vao_key = (vert_block, norm_key, frameInfo['indexBlock'])
+            vao = buffers.mesh_vao(
+                vao_key, vertexBuffer['positions'], normals, vertexBuffer['uvs'], idx_bytes,
+            )
+            glBindVertexArray(vao)
             # Per the S3D Prim wiki each PRIM sub-entry has a first-index
             # offset and a triangle-index count; the parent INDX block may
             # back several sub-prims or carry padding past them. Draw each
@@ -458,25 +498,26 @@ class S3D(object):
             for typePrim, first, length in primBlock:
                 if length == 0 or first + length > idx_count:
                     continue
-                if typePrim != 0:
-                    # Maxis content uses type 0 (triangle list). Strips (1) and
-                    # quads (2) are rare in the wild; log so they surface.
+                if typePrim == 0:
+                    glDrawElementsInstanced(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
+                                            ctypes.c_void_p(first * 2), instance_count)
+                elif typePrim == 1:
+                    glDrawElementsInstanced(GL_TRIANGLE_STRIP, length, GL_UNSIGNED_SHORT,
+                                            ctypes.c_void_p(first * 2), instance_count)
+                elif typePrim == 2:
+                    # GL_QUADS is absent from core profiles; each source quad
+                    # is equivalent to a four-index triangle fan.
+                    for quad_first in range(first, first + length - 3, 4):
+                        glDrawElementsInstanced(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT,
+                                                ctypes.c_void_p(quad_first * 2), instance_count)
+                else:
                     logger.debug('S3D PRIM type %d not supported (first=%d length=%d) tgi=%r',
                                  typePrim, first, length, getattr(self, 'tgi', None))
-                    continue
-                glDrawElements(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
-                               ctypes.c_void_p(first * 2))
-            if loc_pos >= 0:
-                glDisableVertexAttribArray(loc_pos)
-            if loc_norm >= 0:
-                glDisableVertexAttribArray(loc_norm)
-            if loc_uv >= 0:
-                glDisableVertexAttribArray(loc_uv)
-            glBindBuffer(GL_ARRAY_BUFFER, 0)
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+            glBindVertexArray(0)
+            glBindSampler(0, 0)
 
-        if sample_alpha_to_coverage is not None:
-            glDisable(sample_alpha_to_coverage)
+        glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE)
+        glDepthMask(GL_TRUE)
         shader_program.unbind()
         return
 
@@ -489,13 +530,22 @@ class S3D(object):
         normals = numpy.zeros_like(positions, dtype=numpy.float32)
         idx_bytes, idx_count = index_buffer
         for type_prim, first, length in prim_block:
-            if type_prim != 0 or length < 3 or first + length > idx_count:
+            if length < 3 or first + length > idx_count:
                 continue
             indices = numpy.frombuffer(idx_bytes, dtype=numpy.uint16, count=length, offset=first * 2)
-            tri_count = length // 3
-            if tri_count <= 0:
+            if type_prim == 0:
+                triangles = indices[:(length // 3) * 3].reshape(-1, 3)
+            elif type_prim == 1:
+                triangles = numpy.column_stack((indices[:-2], indices[1:-1], indices[2:]))
+                if len(triangles) > 1:
+                    odd = triangles[1::2].copy()
+                    triangles[1::2, 0] = odd[:, 1]
+                    triangles[1::2, 1] = odd[:, 0]
+            elif type_prim == 2:
+                quads = indices[:(length // 4) * 4].reshape(-1, 4)
+                triangles = numpy.vstack((quads[:, (0, 1, 2)], quads[:, (0, 2, 3)]))
+            else:
                 continue
-            triangles = indices[:tri_count * 3].reshape(tri_count, 3)
             tri_pos = positions[triangles]
             edge1 = tri_pos[:, 1] - tri_pos[:, 0]
             edge2 = tri_pos[:, 2] - tri_pos[:, 0]
