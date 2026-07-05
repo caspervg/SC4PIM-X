@@ -694,6 +694,7 @@ class LotEditorWin(wx.Frame):
         inspector_width = int(settings.get('InspectorWidth', 280))
         self.rightSplitter.SplitVertically(viewport_panel, self.inspector, -inspector_width)
         self.rightSplitter.SetMinimumPaneSize(220)
+        self.rightSplitter.SetSashGravity(1.0)
         browser_width = int(settings.get('BrowserWidth', 330))
         self.mainSplitter.SplitVertically(self.assetBrowser, self.rightSplitter, browser_width)
         self.mainSplitter.SetMinimumPaneSize(260)
