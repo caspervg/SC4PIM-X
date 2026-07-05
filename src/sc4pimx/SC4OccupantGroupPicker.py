@@ -14,6 +14,7 @@ from typing import Iterable, Optional
 import wx
 import wx.lib.agw.ultimatelistctrl as ULC
 
+from .TablerIcons import set_button_icon
 from .translation import *  # noqa: F401,F403
 
 PROP_OCCUPANT_GROUPS = 0xAA1DD396
@@ -203,6 +204,7 @@ class OccupantGroupPickerDialog(wx.Dialog):
             if hasattr(self.hexText, "SetHint"):
                 self.hexText.SetHint(LEXOccupantGroupHexHint)
             self.addButton = wx.Button(self, -1, LEXOccupantGroupAddHex)
+            set_button_icon(self.addButton, "plus")
             add_row = wx.BoxSizer(wx.HORIZONTAL)
             add_row.Add(wx.StaticText(self, -1, LEXOccupantGroupManualHex), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
             add_row.Add(self.hexText, 1, wx.RIGHT | wx.EXPAND, 6)

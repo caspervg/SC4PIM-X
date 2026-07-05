@@ -5,6 +5,7 @@ import struct
 import wx
 
 from .SC4DatTools import format_float_value, hex2str
+from .TablerIcons import icon_button
 from .translation import *  # noqa: F401,F403
 
 POLLUTION_VECTOR_IDS = {0x27812851, 0xAA5832F3, 0x68EE9764}
@@ -323,11 +324,11 @@ class DemandPairEditorDialog(wx.Dialog):
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        add_btn = wx.Button(self, -1, "Add")
-        edit_btn = wx.Button(self, -1, "Edit")
-        del_btn = wx.Button(self, -1, "Delete")
-        up_btn = wx.Button(self, -1, "Up")
-        down_btn = wx.Button(self, -1, "Down")
+        add_btn = icon_button(self, "plus", "Add")
+        edit_btn = icon_button(self, "pencil", "Edit")
+        del_btn = icon_button(self, "trash", "Delete")
+        up_btn = icon_button(self, "arrow-up", "Up")
+        down_btn = icon_button(self, "arrow-down", "Down")
         add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         del_btn.Bind(wx.EVT_BUTTON, self._on_delete)
@@ -680,14 +681,14 @@ class TablePropertyDialog(wx.Dialog):
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        edit_btn = wx.Button(self, -1, propEditListEdit)
+        edit_btn = icon_button(self, "pencil", propEditListEdit)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         row_buttons.Add(edit_btn, 0, wx.RIGHT, 4)
         if variable:
-            add_btn = wx.Button(self, -1, propEditListAdd)
-            del_btn = wx.Button(self, -1, propEditListDelete)
-            up_btn = wx.Button(self, -1, propEditListUp)
-            down_btn = wx.Button(self, -1, propEditListDown)
+            add_btn = icon_button(self, "plus", propEditListAdd)
+            del_btn = icon_button(self, "trash", propEditListDelete)
+            up_btn = icon_button(self, "arrow-up", propEditListUp)
+            down_btn = icon_button(self, "arrow-down", propEditListDown)
             add_btn.Bind(wx.EVT_BUTTON, self._on_add)
             del_btn.Bind(wx.EVT_BUTTON, self._on_delete)
             up_btn.Bind(wx.EVT_BUTTON, self._on_up)

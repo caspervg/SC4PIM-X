@@ -39,6 +39,7 @@ from typing import Callable, Iterable, Optional
 import wx
 import wx.lib.mixins.listctrl as listmix
 
+from .TablerIcons import icon_button, set_button_icon
 from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
@@ -463,11 +464,12 @@ class TSECTablePanel(wx.Panel):
             self.list.InsertColumn(idx, label, width=width)
         self.list.SetMinSize((680, 220))
 
-        self.addBtn = wx.Button(self, -1, LEXTransitSwitchAdd)
-        self.editBtn = wx.Button(self, -1, LEXTransitSwitchEdit)
-        self.dupBtn = wx.Button(self, -1, LEXTransitSwitchDuplicate)
-        self.delBtn = wx.Button(self, -1, LEXTransitSwitchDelete)
+        self.addBtn = icon_button(self, "plus", LEXTransitSwitchAdd)
+        self.editBtn = icon_button(self, "pencil", LEXTransitSwitchEdit)
+        self.dupBtn = icon_button(self, "copy", LEXTransitSwitchDuplicate)
+        self.delBtn = icon_button(self, "trash", LEXTransitSwitchDelete)
         self.presetBtn = wx.Button(self, -1, LEXTransitSwitchApplyPreset)
+        set_button_icon(self.presetBtn, "wand")
 
         self.costText = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.capacityText = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)

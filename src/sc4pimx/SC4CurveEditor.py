@@ -6,6 +6,7 @@ import wx
 import wx.lib.plot as wxplot
 
 from .SC4DatTools import format_float_value
+from .TablerIcons import icon_button
 
 
 def is_curve_property(prop, prop_def):
@@ -108,11 +109,11 @@ class CurveEditorDialog(wx.Dialog):
         side.Add(self.points, 1, wx.EXPAND | wx.ALL, 6)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
-        add_btn = wx.Button(self, -1, "Add")
-        edit_btn = wx.Button(self, -1, "Edit")
-        del_btn = wx.Button(self, -1, "Delete")
-        sort_btn = wx.Button(self, -1, "Sort")
-        extent_btn = wx.Button(self, -1, "Extent")
+        add_btn = icon_button(self, "plus", "Add")
+        edit_btn = icon_button(self, "pencil", "Edit")
+        del_btn = icon_button(self, "trash", "Delete")
+        sort_btn = icon_button(self, "sort-ascending", "Sort by X")
+        extent_btn = icon_button(self, "focus-centered", "Zoom to extent")
         extent_btn.SetToolTip("Zoom to the full curve with padding.")
         add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit_point)

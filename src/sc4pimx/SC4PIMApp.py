@@ -35,6 +35,7 @@ from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .S3DViewer import S3DViewer
 from .settings import *
+from .TablerIcons import icon_bitmap, icon_button, set_button_icon
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
@@ -772,6 +773,9 @@ class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
         self._mainWin.SetItem(info)
         return True
 
+    def SetCellImage(self, index, col, image):
+        self.SetItemColumnImage(index, col, image)
+
     def CheckItem(self, index, checked, send_event=False):
         item = ULC.CreateListItem(index, 0)
         item = self._mainWin.GetItem(item, 0)
@@ -835,6 +839,13 @@ class RecomputePreviewDialog(wx.Dialog):
         self.list.InsertColumn(3, recomputePreviewColProperty, width=220)
         self.list.InsertColumn(4, recomputePreviewColCurrent, width=260)
         self.list.InsertColumn(5, recomputePreviewColRecomputed, width=260)
+        self._trend_images = wx.ImageList(16, 16, True)
+        self._trend_icon_indices = {
+            1: self._trend_images.Add(icon_bitmap("arrow-up", 16, "#147337")),
+            -1: self._trend_images.Add(icon_bitmap("arrow-down", 16, "#AA2323")),
+            0: self._trend_images.Add(icon_bitmap("minus", 16, "#5F6469")),
+        }
+        self.list.SetImageList(self._trend_images, wx.IMAGE_LIST_SMALL)
         root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         self.status = wx.StaticText(self, -1, "")
@@ -843,6 +854,8 @@ class RecomputePreviewDialog(wx.Dialog):
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.selectAll = wx.Button(self, -1, recomputePreviewSelectAll)
         self.selectNone = wx.Button(self, -1, recomputePreviewSelectNone)
+        set_button_icon(self.selectAll, "select-all")
+        set_button_icon(self.selectNone, "deselect")
         row_buttons.Add(self.selectAll, 0, wx.RIGHT, 4)
         row_buttons.Add(self.selectNone, 0, wx.RIGHT, 4)
         root.Add(row_buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
@@ -851,6 +864,8 @@ class RecomputePreviewDialog(wx.Dialog):
         self.applySelected = wx.Button(self, wx.ID_OK, recomputePreviewApplySelected)
         self.applyAll = wx.Button(self, -1, recomputePreviewApplyAll)
         self.cancel = wx.Button(self, wx.ID_CANCEL)
+        set_button_icon(self.applySelected, "check")
+        set_button_icon(self.applyAll, "checks")
         self.applySelected.SetDefault()
         buttons.AddStretchSpacer(1)
         buttons.Add(self.applySelected, 0, wx.RIGHT, 6)
@@ -955,13 +970,13 @@ class RecomputePreviewDialog(wx.Dialog):
                     item = self.list.InsertItem(self.list.GetItemCount(), "")
                     self._visible_row_indices.append((item, idx))
                     self.list.SetItem(item, 1, self._status_tag(row["status"]))
-                    self.list.SetItem(item, 2, row["trend"])
+                    self.list.SetItem(item, 2, "")
+                    if row["delta"] in self._trend_icon_indices:
+                        self.list.SetCellImage(item, 2, self._trend_icon_indices[row["delta"]])
                     self.list.SetItem(item, 3, row["name"])
                     self.list.SetItem(item, 4, row["current"])
                     self.list.SetItem(item, 5, row["recomputed"])
                     self.list.SetCellTextColour(item, 1, self._status_colour(row["status"]))
-                    if row["trend"]:
-                        self.list.SetCellTextColour(item, 2, self._trend_colour(row["delta"]))
                     if row["delta"] == 1:
                         self.list.SetCellTextColour(item, 5, wx.Colour(20, 115, 55))
                     elif row["delta"] == -1:
@@ -1762,8 +1777,10 @@ class NoteBookPanel(wx.Panel):
         self.virtual_dat = virtual_dat
         self.RebuildViewer()
         self.bClose = wx.Button(self, -1, propertyPageClose)
+        set_button_icon(self.bClose, "x")
         self.Bind(wx.EVT_BUTTON, self.parent.OnCloseTab, self.bClose)
         self.bSave = wx.Button(self, -1, propertyPageSave)
+        set_button_icon(self.bSave, "device-floppy")
         self.bSave.Enable(False)
         self.Bind(wx.EVT_BUTTON, self.OnSaveTab, self.bSave)
         self.listProperties = PropListCtrl(self)
@@ -4232,6 +4249,7 @@ class ConfigureDialog(sc.SizedDialog):
         self.rootFolderCtrl.SetSizerProp('expand', True)
         self.rootFolderCtrl.SetSizerProp('proportion', 1)
         self.bBrowseRoot = wx.Button(rootPane, -1, configurationDialogBrowse)
+        set_button_icon(self.bBrowseRoot, "folder-open")
         self.bBrowseRoot.Bind(wx.EVT_BUTTON, self.OnBrowseRoot)
         self.game_folders = _existing_unique_paths([parent.maxisFolder] + getattr(parent, 'gameFolders', []))
         self._build_folder_choices()
@@ -4400,11 +4418,9 @@ class MainFrame(wx.Frame):
         self.treeSearch.Bind(wx.EVT_TEXT_ENTER, self.OnTreeSearchNext)
         self.treeSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnTreeSearchNext)
         self.treeSearch.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnTreeSearchCancel)
-        self.bTreeExpand = wx.Button(leftPanel, -1, treeExpandAll, style=wx.BU_EXACTFIT)
-        self.bTreeExpand.SetToolTip(treeExpandAllTip)
+        self.bTreeExpand = icon_button(leftPanel, "fold-down", treeExpandAllTip)
         self.bTreeExpand.Bind(wx.EVT_BUTTON, lambda evt: self.tree.ExpandAll())
-        self.bTreeCollapse = wx.Button(leftPanel, -1, treeCollapseAll, style=wx.BU_EXACTFIT)
-        self.bTreeCollapse.SetToolTip(treeCollapseAllTip)
+        self.bTreeCollapse = icon_button(leftPanel, "fold-up", treeCollapseAllTip)
         self.bTreeCollapse.Bind(wx.EVT_BUTTON, self.OnTreeCollapseAll)
         self.virtualDAT.tree = self.tree
         dt = treeDnD.DropTarget(self.tree, self.OnDrop, self.OnDropFile)
