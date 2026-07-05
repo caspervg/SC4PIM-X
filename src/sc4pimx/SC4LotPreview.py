@@ -646,8 +646,10 @@ class LotEditorWin(wx.Frame):
         for label, handler, tip, group, art_id in [
             ('◀', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align', wx.ART_GO_BACK),
             ('▶', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align', wx.ART_GO_FORWARD),
+            ('↔', self.OnAlignCenterH, '%s\n%s\n%s' % (LEXToolbarAlignCenterH, LEXToolbarAlignHint, LEXToolbarAlignCenterShiftHint), 'align', None),
             ('▲', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align', wx.ART_GO_UP),
             ('▼', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align', wx.ART_GO_DOWN),
+            ('↕', self.OnAlignCenterV, '%s\n%s\n%s' % (LEXToolbarAlignCenterV, LEXToolbarAlignHint, LEXToolbarAlignCenterShiftHint), 'align', None),
             ('↺', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate', None),
             ('↻', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate', None),
             ('⇄', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror', None),
@@ -2208,7 +2210,7 @@ class LotEditorWin(wx.Frame):
         return (
          xMin, yMin, xMax, yMax)
 
-    def Align(self, ids, val):
+    def Align(self, ids, val, anchor_avg=False):
         self._push_undo()
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
@@ -2216,7 +2218,11 @@ class LotEditorWin(wx.Frame):
                 if values is None:
                     break
                 if values[11] == id:
-                    delta = val - ToCoord(values[ids[1]])
+                    if anchor_avg:
+                        own = (ToCoord(values[ids[1]]) + ToCoord(values[ids[2]])) / 2
+                    else:
+                        own = ToCoord(values[ids[1]])
+                    delta = val - own
                     for iid in ids:
                         values[iid] = ToUnsigned(int((ToCoord(values[iid]) + delta) * 65536))
 
@@ -2267,6 +2273,30 @@ class LotEditorWin(wx.Frame):
             return
         xMin, yMin, xMax, yMax = self.ComputeBBox()
         self.Align([5, 9, 7], yMax)
+
+    def OnAlignCenterH(self, event):
+        if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
+            return
+        if len(self.quadSelected) == 0:
+            return
+        if wx.GetKeyState(wx.WXK_SHIFT):
+            widest = max(self.quadSelected, key=lambda q: q[2] - q[0])
+            self.Align([3, 6, 8], (widest[0] + widest[2]) / 2, anchor_avg=True)
+        else:
+            xMin, yMin, xMax, yMax = self.ComputeBBox()
+            self.Align([3, 6, 8], (xMin + xMax) / 2, anchor_avg=True)
+
+    def OnAlignCenterV(self, event):
+        if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
+            return
+        if len(self.quadSelected) == 0:
+            return
+        if wx.GetKeyState(wx.WXK_SHIFT):
+            tallest = max(self.quadSelected, key=lambda q: q[3] - q[1])
+            self.Align([5, 7, 9], (tallest[1] + tallest[3]) / 2, anchor_avg=True)
+        else:
+            xMin, yMin, xMax, yMax = self.ComputeBBox()
+            self.Align([5, 7, 9], (yMin + yMax) / 2, anchor_avg=True)
 
     def _event_shortcut_key(self, event):
         key = event.GetKeyCode()
