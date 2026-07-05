@@ -28,6 +28,7 @@ from .SC4PathReader import (
     list_sc4path_entries,
     load_catalog_item,
 )
+from .TablerIcons import set_button_icon
 from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
@@ -717,6 +718,8 @@ class SC4PathPickerDialog(wx.Dialog):
                                             style=wx.BU_EXACTFIT)
         self.transportNoneButton = wx.Button(self, -1, LEXSC4PathPickerNone,
                                              style=wx.BU_EXACTFIT)
+        set_button_icon(self.transportAllButton, "select-all")
+        set_button_icon(self.transportNoneButton, "deselect")
         self.transportAllButton.Bind(wx.EVT_BUTTON, self._on_transport_all)
         self.transportNoneButton.Bind(wx.EVT_BUTTON, self._on_transport_none)
         filter_buttons = wx.BoxSizer(wx.HORIZONTAL)
@@ -751,6 +754,7 @@ class SC4PathPickerDialog(wx.Dialog):
         if hasattr(self.hexText, "SetHint"):
             self.hexText.SetHint(LEXSC4PathPickerManualHint)
         self.useHexButton = wx.Button(self, -1, LEXSC4PathPickerUseHex)
+        set_button_icon(self.useHexButton, "check")
         manual_row = wx.BoxSizer(wx.HORIZONTAL)
         manual_row.Add(wx.StaticText(self, -1, LEXSC4PathPickerManualLabel), 0,
                        wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
@@ -759,6 +763,7 @@ class SC4PathPickerDialog(wx.Dialog):
 
         # --- Footer --------------------------------------------------------
         self.clearButton = wx.Button(self, -1, LEXSC4PathPickerClear)
+        set_button_icon(self.clearButton, "route-off")
         self.okButton = wx.Button(self, wx.ID_OK)
         self.okButton.SetDefault()
         cancelButton = wx.Button(self, wx.ID_CANCEL)

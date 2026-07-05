@@ -43,7 +43,7 @@ from PIL import Image
 from . import FSHConverter, SC4IconMakerDlg, SC4Matrix, treeDnD
 from .ATCReader import ATC
 from .config import load_lot_editor, save_lot_editor
-from .paths import asset_path, background_path, background_set_dir, background_sets
+from .paths import background_path, background_set_dir, background_sets
 from .S3DShaders import (
     DAY_PRESET,
     NIGHT_PRESET,
@@ -91,6 +91,7 @@ from .SC4TransitLotTools import (
     tile_quad,
     transit_path_status,
 )
+from .TablerIcons import icon_bundle, icon_button
 from .translation import *
 
 logger = logging.getLogger(__name__)
@@ -542,17 +543,9 @@ class LotEditorWin(wx.Frame):
         self._sc4path_cache = {}
         return
 
-    def _toolbar_icon(self, name):
-        svg = asset_path('vendor', 'tabler-icons', 'svg', name + '.svg').read_bytes()
-        return wx.BitmapBundle.FromSVG(
-            svg.replace(b'currentColor', b'#000000'),
-            wx.Size(LE_TOOLBAR_ICON_SIZE, LE_TOOLBAR_ICON_SIZE),
-        )
-
     def _make_toolbar_button(self, parent, icon, tooltip, handler, hint=None, size=LE_TOOLBAR_BUTTON_SIZE):
         tip = tooltip if hint is None else '%s  [%s]' % (tooltip, hint)
-        btn = wx.BitmapButton(parent, -1, self._toolbar_icon(icon), size=size)
-        btn.SetToolTip(tip)
+        btn = icon_button(parent, icon, tip, LE_TOOLBAR_ICON_SIZE, size)
         btn.Bind(wx.EVT_BUTTON, handler)
         return btn
 
@@ -603,7 +596,10 @@ class LotEditorWin(wx.Frame):
             ('route', LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
             ('droplet-half-2', LEXConstraint, MODE_EDIT_CONSTRAINT, self.OnModeConstraint, 'W'),
         ]:
-            btn = wx.BitmapToggleButton(command_bar, -1, self._toolbar_icon(icon), size=LE_TOOLBAR_BUTTON_SIZE)
+            btn = wx.BitmapToggleButton(
+                command_bar, -1, icon_bundle(icon, LE_TOOLBAR_ICON_SIZE),
+                size=LE_TOOLBAR_BUTTON_SIZE,
+            )
             btn.SetToolTip('%s  [%s]' % (label, hint))
             btn.Bind(wx.EVT_TOGGLEBUTTON, handler)
             self.modeButtons[mode] = btn
@@ -747,8 +743,10 @@ class LotEditorWin(wx.Frame):
             bar, -1, self.previewMinutes, 0, 1439, size=(320, -1),
         )
         row.Add(self.previewTimeSlider, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
-        self.previewPlayButton = wx.Button(bar, -1, LEXTemporalPlay,
-                                           size=(84, -1))
+        self.previewPlayButton = icon_button(
+            bar, 'player-play', LEXTemporalPlay,
+            LE_TOOLBAR_ICON_SIZE, LE_TOOLBAR_BUTTON_SIZE,
+        )
         row.Add(self.previewPlayButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.previewLoopModeCtrl = wx.Choice(bar, -1, choices=[
             LEXLoopTime, LEXLoopDate, LEXLoopTimeDate,
@@ -794,13 +792,15 @@ class LotEditorWin(wx.Frame):
         if self.previewPlayTimer.IsRunning():
             self._stop_playback()
         else:
-            self.previewPlayButton.SetLabel(LEXTemporalPause)
+            self.previewPlayButton.SetBitmap(icon_bundle('player-pause', LE_TOOLBAR_ICON_SIZE))
+            self.previewPlayButton.SetToolTip(LEXTemporalPause)
             self.previewPlayTimer.Start(self.PLAYBACK_INTERVAL_MS)
 
     def _stop_playback(self):
         if self.previewPlayTimer.IsRunning():
             self.previewPlayTimer.Stop()
-        self.previewPlayButton.SetLabel(LEXTemporalPlay)
+        self.previewPlayButton.SetBitmap(icon_bundle('player-play', LE_TOOLBAR_ICON_SIZE))
+        self.previewPlayButton.SetToolTip(LEXTemporalPlay)
 
     def OnPlaybackTick(self, event=None):
         mode = self.previewLoopModeCtrl.GetSelection()

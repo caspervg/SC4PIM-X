@@ -20,6 +20,7 @@ from OpenGL.GL import (
 from .SC4DataFunctions import ToCoord, ToUnsigned
 from .SC4PathPicker import pick_sc4path
 from .SC4PathReader import point_to_lot_2d, point_to_lot_3d
+from .TablerIcons import set_button_icon
 from .translation import *
 
 # Maps the lot-editor "network" value (NETWORK_TYPES) to SC4Path transport
@@ -333,6 +334,8 @@ class TransitInspectorPanel(wx.Panel):
         self.rep16Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.pickPathButton = wx.Button(self, -1, LEXTransitPickPath, style=wx.BU_EXACTFIT)
         self.clearPathButton = wx.Button(self, -1, LEXTransitClearPath, style=wx.BU_EXACTFIT)
+        set_button_icon(self.pickPathButton, "route")
+        set_button_icon(self.clearPathButton, "route-off")
         rep16_row = wx.BoxSizer(wx.HORIZONTAL)
         rep16_row.Add(self.rep16Hex, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         rep16_row.Add(self.pickPathButton, 0, wx.RIGHT, 2)

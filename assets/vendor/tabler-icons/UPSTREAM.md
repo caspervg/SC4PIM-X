@@ -8,9 +8,9 @@
 - Vendored: 2026-07-05
 - License: MIT; see `LICENSE`
 
-Only the outline SVGs used by the lot editor are included. Upstream filenames
-are retained so the selection can be refreshed mechanically from a future
-Tabler Icons release.
+Only the outline SVGs used by SC4PIM-X are included. Upstream filenames are
+retained so the selection can be refreshed mechanically from a future Tabler
+Icons release.
 
 ## Lot Editor Mapping
 
@@ -43,3 +43,26 @@ Tabler Icons release.
 | Mirror | `flip-horizontal.svg` |
 | Undo | `arrow-back-up.svg` |
 | Redo | `arrow-forward-up.svg` |
+
+## Shared UI Mapping
+
+| Action | SVG |
+| --- | --- |
+| Add | `plus.svg` |
+| Edit | `pencil.svg` |
+| Move up/down | `arrow-up.svg`, `arrow-down.svg` |
+| Sort | `sort-ascending.svg` |
+| Play/pause | `player-play.svg`, `player-pause.svg` |
+| Apply preset | `wand.svg` |
+| Grid/list view | `layout-grid.svg`, `list.svg` |
+| Current lot/library/favorites | `building-community.svg`, `library.svg`, `star.svg` |
+| Save/close | `device-floppy.svg`, `x.svg` |
+| Expand/collapse tree | `fold-down.svg`, `fold-up.svg` |
+| Clear route | `route-off.svg` |
+| Package lookup/running | `packages.svg`, `loader-2.svg` |
+| Browse | `folder-open.svg` |
+| Select/deselect all | `select-all.svg`, `deselect.svg` |
+| Confirm/apply | `check.svg`, `checks.svg` |
+| Pin/unpin | `pin.svg`, `pinned.svg` |
+| Status | `circle-check.svg`, `alert-triangle.svg`, `info-circle.svg` |
+| Neutral trend | `minus.svg` |

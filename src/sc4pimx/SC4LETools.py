@@ -25,6 +25,7 @@ from .config import load_lot_editor
 from .paths import asset_path, ensure_user_data_dir, image_db_path, user_data_path
 from .SC4Data import *
 from .SC4OpenGL import *
+from .TablerIcons import icon_bundle, icon_toggle_button, set_button_icon
 from .translation import *
 from .util import basic_cmp
 
@@ -1674,12 +1675,13 @@ class LEAssetBrowserPanel(wx.Panel):
         root.Add(self.search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         scopes = wx.BoxSizer(wx.HORIZONTAL)
         self.scope_buttons = {}
-        for scope, label in [
-            ('lot', LEXAssetBrowserCurrentLot),
-            ('library', LEXAssetBrowserLibrary),
-            ('favorites', LEXAssetBrowserFavorites),
+        for scope, label, icon in [
+            ('lot', LEXAssetBrowserCurrentLot, 'building-community'),
+            ('library', LEXAssetBrowserLibrary, 'library'),
+            ('favorites', LEXAssetBrowserFavorites, 'star'),
         ]:
             btn = wx.ToggleButton(self, -1, label)
+            set_button_icon(btn, icon)
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, value=scope: self.SetScope(value))
             self.scope_buttons[scope] = btn
             scopes.Add(btn, 1, wx.RIGHT, 4)
@@ -1697,7 +1699,7 @@ class LEAssetBrowserPanel(wx.Panel):
         ])
         self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'].index(self.kind_filter))
         filters.Add(self.filter_choice, 1, wx.EXPAND)
-        self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
+        self.presentation = icon_toggle_button(self, 'list', LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
         thumb_size = int(settings.get('ThumbSize', 72))
         thumb_idx = min(range(len(self.THUMB_STEPS)),
@@ -1790,7 +1792,10 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def OnPresentation(self, event):
         compact = self.presentation.GetValue()
-        self.presentation.SetLabel(LEXAssetBrowserGrid if compact else LEXAssetBrowserCompact)
+        label = LEXAssetBrowserGrid if compact else LEXAssetBrowserCompact
+        icon = 'layout-grid' if compact else 'list'
+        self.presentation.SetBitmap(icon_bundle(icon))
+        self.presentation.SetToolTip(label)
         self.grid.Show(not compact)
         self.list.Show(compact)
         self.Layout()
@@ -2037,6 +2042,8 @@ class TextureDlg(wx.Frame):
         leftBox = wx.BoxSizer(wx.VERTICAL)
         leftBox.Add(self.tree, 1, wx.EXPAND)
         self.bConfig = wx.Button(leftPanel, -1, LEToggleTop, (-1, -1))
+        pin_icon = 'pinned' if self.GetWindowStyleFlag() & wx.FRAME_FLOAT_ON_PARENT else 'pin'
+        set_button_icon(self.bConfig, pin_icon)
         self.bConfig.Bind(wx.EVT_BUTTON, self.OnButton)
         leftBox.Add(self.bConfig, 0, wx.EXPAND)
         leftPanel.SetSizer(leftBox)

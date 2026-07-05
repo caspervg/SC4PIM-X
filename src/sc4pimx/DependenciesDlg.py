@@ -16,6 +16,7 @@ from .DependencyCatalog import DependencyCatalogClient
 from .SC4Data import *
 from .SC4DatTools import *
 from .SC4PathReader import SC4PATH_MODEL_GID, SC4PATH_TEXTURE_GID, SC4PATH_TYPE
+from .TablerIcons import icon_bitmap, set_button_icon
 from .translation import *
 
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
@@ -564,6 +565,7 @@ class DependenciesDlg(sc.SizedDialog):
         filter_sizer.Add(self.search, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 
         self.identifyButton = wx.Button(filter_panel, -1, DepDlgIdentifyPackages)
+        set_button_icon(self.identifyButton, "packages")
         self.identifyButton.Bind(wx.EVT_BUTTON, self.OnIdentifyPackages)
         filter_sizer.Add(self.identifyButton, 0, wx.ALIGN_CENTER_VERTICAL)
         filter_panel.SetSizer(filter_sizer)
@@ -592,6 +594,13 @@ class DependenciesDlg(sc.SizedDialog):
         )):
             self.list.InsertColumn(idx, label, width=width)
         self.list.SetMinSize((940, 360))
+        self._status_images = wx.ImageList(16, 16, True)
+        self._status_icon_indices = {
+            "found": self._status_images.Add(icon_bitmap("circle-check", 16, "#006E00")),
+            "missing": self._status_images.Add(icon_bitmap("alert-triangle", 16, "#AA0000")),
+            "ignored": self._status_images.Add(icon_bitmap("info-circle", 16, "#787878")),
+        }
+        self.list.SetImageList(self._status_images, wx.IMAGE_LIST_SMALL)
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnRowSelected)
         list_sizer.Add(self.list, 1, wx.EXPAND)
         list_panel.SetSizer(list_sizer)
@@ -748,7 +757,7 @@ class DependenciesDlg(sc.SizedDialog):
             return wx.Colour(170, 0, 0)
         return wx.Colour(90, 90, 90)
 
-    def _SetCell(self, row_idx, col, text, font=None, colour=None):
+    def _SetCell(self, row_idx, col, text, font=None, colour=None, image=None):
         info = ULC.UltimateListItem()
         info._itemId = row_idx
         info._col = col
@@ -760,6 +769,9 @@ class DependenciesDlg(sc.SizedDialog):
         if colour is not None:
             info.SetTextColour(colour)
             info._mask |= ULC.ULC_MASK_FONTCOLOUR
+        if image is not None:
+            info.SetImage(image)
+            info._mask |= ULC.ULC_MASK_IMAGE
         self.list.SetItem(info)
 
     def RenderRows(self):
@@ -798,7 +810,11 @@ class DependenciesDlg(sc.SizedDialog):
                 self.list.InsertStringItem(idx, "")
                 display_name = self.RowLabel(row)
                 name = ("    " + display_name) if is_child else display_name
-                self._SetCell(idx, self.COL_STATUS, self.RowStatusText(row), colour=self.RowStatusColour(row))
+                self._SetCell(
+                    idx, self.COL_STATUS, self.RowStatusText(row),
+                    colour=self.RowStatusColour(row),
+                    image=self._status_icon_indices.get(row.status),
+                )
                 self._SetCell(idx, self.COL_NAME, name)
                 self._SetCell(idx, self.COL_SOURCE, self.RowSourceText(row), colour=self.RowStatusColour(row) if row.status != "found" else None)
                 self._SetCell(idx, self.COL_PACKAGE, self.RowCatalogText(row), colour=self.RowCatalogColour(row))
@@ -844,10 +860,12 @@ class DependenciesDlg(sc.SizedDialog):
                 self.catalog.base_url,
             )
         self.identifyButton.SetLabel(DepDlgIdentifyPackagesRunning)
+        set_button_icon(self.identifyButton, "loader-2")
         self.identifyButton.Enable(False)
         self.ScheduleRender()
         if not self.StartCatalogLookups():
             self.identifyButton.SetLabel(DepDlgIdentifyPackages)
+            set_button_icon(self.identifyButton, "packages")
             self.identifyButton.Enable(True)
         event.Skip()
 
@@ -899,6 +917,7 @@ class DependenciesDlg(sc.SizedDialog):
             self.ScheduleRender()
         if not any(row.catalog_status == "pending" for row in self.rows):
             self.identifyButton.SetLabel(DepDlgIdentifyPackages)
+            set_button_icon(self.identifyButton, "packages")
             self.identifyButton.Enable(True)
 
     def ApplyCatalogResult(self, result):
