@@ -287,12 +287,12 @@ def path_bounds(path_file: SC4PathFile) -> tuple[float, float, float, float, flo
 def rotate_local_point(point: SC4PathPoint, orientation: int) -> SC4PathPoint:
     """Rotate a tile-local path point by a lot-object orientation flag.
 
-    Flag 2 is the unrotated orientation used by tile textures. The remaining
-    flags follow the same texture-coordinate rotation used by the lot preview.
+    Orientation 0 is unrotated; each step is 90 degrees clockwise (N -> E).
+    Returns lot-frame coordinates, where +y points South.
     """
     x = point.x_east
     y = -point.y_north
-    for _idx in range((int(orientation) - 2) % 4):
+    for _idx in range(int(orientation) & 3):
         x, y = -y, x
     return SC4PathPoint(x, y, point.z_height, point.line_no)
 
