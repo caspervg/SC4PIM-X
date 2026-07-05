@@ -351,8 +351,7 @@ def populate_sc4path_cache(item: SC4PathCatalogItem,
     entry at startup so the picker can open instantly with everything cached.
     The ``png_path`` argument is non-None only for entries on the
     ``missing_sc4path_pictures`` list — already-cached PNGs are left alone.
-    ``preview`` is an optional :class:`SC4PathImageBuilder` window that the
-    caller has put on screen; each freshly-rendered thumbnail is shown there.
+    The optional preview remains hidden until the first thumbnail is rendered.
     """
     load_catalog_item(item)
     metadata = _metadata_from_item(item)
@@ -375,9 +374,12 @@ def populate_sc4path_cache(item: SC4PathCatalogItem,
 
 
 class SC4PathImageBuilder(wx.Frame):
-    """Tiny on-screen window that displays each SC4Path thumbnail as it is
-    rendered during ``_load_finalize``. Pure eye-candy — purely visual, no
-    side effects beyond what ``populate_sc4path_cache`` already does."""
+    """Display SC4Path thumbnails while they are generated.
+
+    The frame is shown lazily after its first real bitmap is installed. This
+    avoids flashing an empty placeholder when none of the missing cache items
+    can or need to be rendered.
+    """
 
     PREVIEW_SIZE = (288, 192)
 
@@ -386,7 +388,7 @@ class SC4PathImageBuilder(wx.Frame):
                           style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP)
         panel = wx.Panel(self, -1)
         self._bitmap = wx.StaticBitmap(panel, -1,
-                                       _make_missing_bitmap(self.PREVIEW_SIZE))
+                                       _make_placeholder_bitmap(self.PREVIEW_SIZE))
         self._label = wx.StaticText(panel, -1, "")
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._bitmap, 0, wx.ALL | wx.ALIGN_CENTER, 6)
@@ -399,14 +401,14 @@ class SC4PathImageBuilder(wx.Frame):
     def Show(self, item: Optional[SC4PathCatalogItem] = None,  # type: ignore[override]
              bitmap: Optional[wx.Bitmap] = None, show: bool = True) -> bool:
         if item is not None and bitmap is not None:
-            # Upscale to the preview size with bicubic so the line art is
-            # readable instead of pixel-blocky.
             image = bitmap.ConvertToImage().Scale(
                 self.PREVIEW_SIZE[0], self.PREVIEW_SIZE[1], wx.IMAGE_QUALITY_BICUBIC
             )
             self._bitmap.SetBitmap(image.ConvertToBitmap())
             self._label.SetLabel(item.hex_iid)
             self.Layout()
+            if not self.IsShown():
+                wx.Frame.Show(self, True)
             wx.YieldIfNeeded()
             return True
         return wx.Frame.Show(self, show)

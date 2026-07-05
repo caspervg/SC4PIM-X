@@ -5013,10 +5013,7 @@ class MainFrame(wx.Frame):
                                                 'missing_sc4path_pictures', None) or []}
                     logger.debug('Caching %d SC4Path metadata entries (%d need thumbs)',
                                  len(sc4path_entries), len(missing_paths))
-                    preview = None
-                    if missing_paths:
-                        preview = SC4PathImageBuilder(self)
-                        preview.Show(show=True)
+                    preview = SC4PathImageBuilder(self) if missing_paths else None
                     metadata_table = {}
                     try:
                         for item in sc4path_entries:
