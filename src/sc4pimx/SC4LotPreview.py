@@ -1344,6 +1344,7 @@ class LotEditorWin(wx.Frame):
         self._push_undo()
         for values in targets:
             ensure_transit_values(values)
+            values[2] = (int(values[2]) & ~0xF) | (int(settings['rotation']) & 0xF)
             values[12] = int(settings['network'])
             values[13] = int(settings['rep14'])
             values[14] = int(settings['direction_mask'])
@@ -1412,9 +1413,8 @@ class LotEditorWin(wx.Frame):
         miny = tile_y * 16
         cx = minx + 8
         cy = miny + 8
-        # Rep 3 (orientation) = 2: the unrotated flag used by every other
-        # whole-tile object (PlaceAsset textures, make_transit_values), so the
-        # marker texture is not drawn rotated relative to the rest of the lot.
+        # Rep 3 (orientation) = 2: the unrotated flag used by PlaceAsset
+        # textures, so the marker texture is not drawn rotated.
         values = [obj_type, 0, 2,
                   ToUnsigned(cx * 65536), 0, ToUnsigned(cy * 65536),
                   ToUnsigned(minx * 65536), ToUnsigned(miny * 65536),
@@ -3638,7 +3638,7 @@ class LotEditorWin(wx.Frame):
 
         The labels sit at the lot-edge midpoints in (centred) lot space, so
         they rotate with the lot as the view turns and always point at the
-        true cardinal directions: North is the far edge, South the near edge.
+        true cardinal directions. Lot +y points South.
         """
         x = self.lotSizeXOffset
         y = self.lotSizeYOffset
@@ -3646,8 +3646,8 @@ class LotEditorWin(wx.Frame):
             return
         margin = 6.0
         for label, lx, ly in (
-            (LEXFacingNorth, -1.0, y + margin),
-            (LEXFacingSouth, -1.0, -y - margin),
+            (LEXFacingNorth, -1.0, -y - margin),
+            (LEXFacingSouth, -1.0, y + margin),
             (LEXFacingEast, x + margin, -1.0),
             (LEXFacingWest, -x - margin, -1.0),
         ):

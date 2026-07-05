@@ -160,9 +160,14 @@ def test_invalid_header_raises():
 def test_point_transforms_and_orientation():
     point = SC4PathPoint(2.0, -8.0, 3.5)
 
-    assert rotate_local_point(point, 2).x_east == pytest.approx(2.0)
-    assert rotate_local_point(point, 2).y_north == pytest.approx(8.0)
-    assert rotate_local_point(point, 3).x_east == pytest.approx(-8.0)
-    assert rotate_local_point(point, 3).y_north == pytest.approx(2.0)
-    assert point_to_lot_2d(1, 2, 2, point) == pytest.approx((26.0, 48.0))
-    assert point_to_lot_3d(1, 2, 2, point) == pytest.approx((26.0, 3.65, 48.0))
+    # Lot frame: +y South. Identity flips y_north; each step is 90 deg CW.
+    assert rotate_local_point(point, 0).x_east == pytest.approx(2.0)
+    assert rotate_local_point(point, 0).y_north == pytest.approx(8.0)
+    assert rotate_local_point(point, 1).x_east == pytest.approx(-8.0)
+    assert rotate_local_point(point, 1).y_north == pytest.approx(2.0)
+    assert rotate_local_point(point, 2).x_east == pytest.approx(-2.0)
+    assert rotate_local_point(point, 2).y_north == pytest.approx(-8.0)
+    assert rotate_local_point(point, 3).x_east == pytest.approx(8.0)
+    assert rotate_local_point(point, 3).y_north == pytest.approx(-2.0)
+    assert point_to_lot_2d(1, 2, 0, point) == pytest.approx((26.0, 48.0))
+    assert point_to_lot_3d(1, 2, 0, point) == pytest.approx((26.0, 3.65, 48.0))
