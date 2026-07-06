@@ -445,6 +445,17 @@ class VirtualDat(object):
         return None
 
     def Finalize(self, dlg):
+        """Compatibility wrapper for callers that require synchronous finalization."""
+        for _ in self.FinalizeIncremental(dlg, batch_size=0):
+            pass
+
+    def FinalizeIncremental(self, dlg, batch_size=5000):
+        """Finalize derived indexes in bounded GUI-thread batches.
+
+        Tree mutation must remain on the wx thread, but yielding between
+        batches keeps painting, timers, and the startup surface responsive.
+        ``batch_size=0`` retains the legacy synchronous behavior.
+        """
         start = time.time()
         logger.debug('Finalizing virtual DAT with %d entries', len(self.allEntries))
         if dlg is not None and hasattr(dlg, 'SetStatus'):
@@ -461,25 +472,33 @@ class VirtualDat(object):
         update_entry = self.tree.UpdateEntry
         cohorts_list = []
         cohorts_append = cohorts_list.append
-        for entry in self.allEntries:
+        total_entries = len(self.allEntries)
+        for entry_index, entry in enumerate(self.allEntries, 1):
             t0 = entry.tgi[0]
             if t0 == COHORT_T:
                 cohorts_append(entry)
                 update_entry(entry, self, entry.bStandard, dlg)
             elif t0 in OTHER_TS:
                 update_entry(entry, self, entry.bStandard, dlg)
+            if batch_size and entry_index % batch_size == 0:
+                if dlg is not None and hasattr(dlg, 'SetStatus'):
+                    dlg.SetStatus('Building resource index...',
+                                  '%d / %d entries' % (entry_index, total_entries))
+                yield
         self.cohorts = cohorts_list
 
         FinalizeCategory(self.rootCategory)
         self.missing_pictures = []
-        for s3d in self.standardModels:
+        for model_index, s3d in enumerate(self.standardModels, 1):
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(s3d.sc4Model.GID), hex2str(s3d.sc4Model.IID))))
             if not os.path.exists(file_name):
                 self.missing_pictures.append((file_name, s3d))
+            if batch_size and model_index % batch_size == 0:
+                yield
         # otherModels covers animated S3Ds and RKT0/3/4 references that the
         # asset browser also tries to display; without an entry here their
         # cards fall back to NoPreview.
-        for model in self.otherModels:
+        for model_index, model in enumerate(self.otherModels, 1):
             gid = getattr(model.sc4Model, 'GID', None)
             iid = getattr(model.sc4Model, 'IID', None)
             if gid is None or iid is None:
@@ -487,16 +506,20 @@ class VirtualDat(object):
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(gid), hex2str(iid))))
             if not os.path.exists(file_name):
                 self.missing_pictures.append((file_name, model))
+            if batch_size and model_index % batch_size == 0:
+                yield
         # ATCs (animated overlay textures) have no GL geometry to render, so
         # they get a separate pass that crops frame 0 of the source FSH.
         self.missing_atc_pictures = []
-        for atc_proxy in self.atcs:
+        for atc_index, atc_proxy in enumerate(self.atcs, 1):
             atc = atc_proxy.sc4Model
             if atc is None or atc.entry is None:
                 continue
             file_name = str(image_db_path('%s-%s.jpg' % (hex2str(atc.tgi[1]), hex2str(atc.tgi[2]))))
             if not os.path.exists(file_name):
                 self.missing_atc_pictures.append((file_name, atc))
+            if batch_size and atc_index % batch_size == 0:
+                yield
         # SC4Paths get picker-grid thumbnails rendered the same way: collect
         # every entry here and let _load_finalize parse them, populate the
         # metadata table, and render PNGs for the ones missing from the cache.
@@ -515,3 +538,4 @@ class VirtualDat(object):
             len(self.allTextures),
             len(self.missing_pictures),
             len(self.missing_atc_pictures))
+        yield

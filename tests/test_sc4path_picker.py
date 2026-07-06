@@ -80,3 +80,21 @@ def test_path_picker_metadata_includes_file_and_warning_text():
     assert md["file_name"] == r"C:\Plugins\NetworkAddon.dat"
     assert md["warnings"] == 2
     assert md["warning_text"] == "Line 10: first warning\nLine 20: second warning"
+
+
+def test_path_image_builder_routes_preview_to_embedded_target():
+    calls = []
+
+    class Target:
+        def ShowBitmapPreview(self, item, bitmap):
+            calls.append((item, bitmap))
+
+    item = SC4PathCatalogItem(iid=0x1234, gid=0, entry=None)
+    bitmap = object()
+    builder = SC4PathPicker.SC4PathImageBuilder(Target())
+
+    assert builder.Show(item, bitmap)
+    assert calls == [(item, bitmap)]
+
+    builder.Destroy()
+    assert builder.target is None

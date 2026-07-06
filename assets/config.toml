@@ -146,3 +146,7 @@ TimeoutSeconds = 15
 # [[Folders]]
 # Path    = 'C:\Users\you\Documents\SimCity 4\Plugins'
 # Recurse = true
+
+[Startup]
+# Show the plugin-file configuration before loading the workspace.
+ShowFileConfigurationAtStartup = true

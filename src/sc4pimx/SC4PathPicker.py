@@ -370,48 +370,24 @@ def populate_sc4path_cache(item: SC4PathCatalogItem,
 
 
 # ---------------------------------------------------------------------------
-# Live preview window (mirrors ImageDBBuilder for model thumbs)
+# Embedded live preview adapter (mirrors ImageDBBuilder for model thumbs)
 
 
-class SC4PathImageBuilder(wx.Frame):
-    """Display SC4Path thumbnails while they are generated.
+class SC4PathImageBuilder:
+    """Route generated SC4Path thumbnails to the in-window startup surface."""
 
-    The frame is shown lazily after its first real bitmap is installed. This
-    avoids flashing an empty placeholder when none of the missing cache items
-    can or need to be rendered.
-    """
+    def __init__(self, target):
+        self.target = target
 
-    PREVIEW_SIZE = (288, 192)
-
-    def __init__(self, parent: wx.Window, title: str = "SC4Paths"):
-        wx.Frame.__init__(self, parent, -1, title,
-                          style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP)
-        panel = wx.Panel(self, -1)
-        self._bitmap = wx.StaticBitmap(panel, -1,
-                                       _make_placeholder_bitmap(self.PREVIEW_SIZE))
-        self._label = wx.StaticText(panel, -1, "")
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._bitmap, 0, wx.ALL | wx.ALIGN_CENTER, 6)
-        sizer.Add(self._label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.ALIGN_CENTER, 6)
-        panel.SetSizerAndFit(sizer)
-        outer = wx.BoxSizer(wx.VERTICAL)
-        outer.Add(panel, 1, wx.EXPAND)
-        self.SetSizerAndFit(outer)
-
-    def Show(self, item: Optional[SC4PathCatalogItem] = None,  # type: ignore[override]
+    def Show(self, item: Optional[SC4PathCatalogItem] = None,
              bitmap: Optional[wx.Bitmap] = None, show: bool = True) -> bool:
-        if item is not None and bitmap is not None:
-            image = bitmap.ConvertToImage().Scale(
-                self.PREVIEW_SIZE[0], self.PREVIEW_SIZE[1], wx.IMAGE_QUALITY_BICUBIC
-            )
-            self._bitmap.SetBitmap(image.ConvertToBitmap())
-            self._label.SetLabel(item.hex_iid)
-            self.Layout()
-            if not self.IsShown():
-                wx.Frame.Show(self, True)
-            wx.YieldIfNeeded()
-            return True
-        return wx.Frame.Show(self, show)
+        if item is None or bitmap is None or not show:
+            return False
+        self.target.ShowBitmapPreview(item, bitmap)
+        return True
+
+    def Destroy(self) -> None:
+        self.target = None
 
 
 def _load_disk_thumb(iid: int) -> Optional[wx.Bitmap]:
