@@ -1646,6 +1646,14 @@ class LEAssetList(wx.ListCtrl):
 class LEAssetBrowserPanel(wx.Panel):
 
     THUMB_STEPS = [56, 72, 96, 120]
+    KIND_ORDER = {
+        'base texture': 0,
+        'overlay texture': 1,
+        'prop': 2,
+        'effect': 3,
+        'flora': 4,
+        'family': 5,
+    }
 
     def __init__(self, parent, editor):
         wx.Panel.__init__(self, parent, -1)
@@ -1657,6 +1665,10 @@ class LEAssetBrowserPanel(wx.Panel):
         self.kind_filter = str(settings.get('AssetFilter', 'all'))
         if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'):
             self.kind_filter = 'all'
+        self.sort_key = str(settings.get('AssetSort', 'name'))
+        if self.sort_key not in ('name', 'type', 'id'):
+            self.sort_key = 'name'
+        self.sort_ascending = bool(settings.get('AssetSortAscending', True))
         self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
         self.thumbnail_provider = LEAssetThumbnailProvider()
@@ -1699,6 +1711,17 @@ class LEAssetBrowserPanel(wx.Panel):
         ])
         self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'].index(self.kind_filter))
         filters.Add(self.filter_choice, 1, wx.EXPAND)
+        self.sort_choice = wx.Choice(self, -1, choices=[
+            LEXAssetBrowserSortName,
+            LEXAssetBrowserSortType,
+            LEXAssetBrowserSortId,
+        ])
+        self.sort_choice.SetSelection(['name', 'type', 'id'].index(self.sort_key))
+        self.sort_choice.SetToolTip(LEXAssetBrowserSortBy)
+        filters.Add(self.sort_choice, 0, wx.LEFT, 6)
+        self.sort_direction = icon_toggle_button(self, 'sort-ascending', LEXAssetBrowserSortDescending)
+        self.sort_direction.SetValue(not self.sort_ascending)
+        filters.Add(self.sort_direction, 0, wx.LEFT, 6)
         self.presentation = icon_toggle_button(self, 'list', LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
         thumb_size = int(settings.get('ThumbSize', 72))
@@ -1718,6 +1741,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.SetSizer(root)
         self.search.Bind(wx.EVT_TEXT, self.OnSearch)
         self.filter_choice.Bind(wx.EVT_CHOICE, self.OnFilter)
+        self.sort_choice.Bind(wx.EVT_CHOICE, self.OnSort)
+        self.sort_direction.Bind(wx.EVT_TOGGLEBUTTON, self.OnSortDirection)
         self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
         self.thumb_slider.Bind(wx.EVT_SLIDER, self.OnThumbSize)
         self._debounce = None
@@ -1727,12 +1752,15 @@ class LEAssetBrowserPanel(wx.Panel):
         compact = bool(settings.get('AssetCompact', False))
         self.presentation.SetValue(compact)
         self.OnPresentation(None)
+        self.OnSortDirection(None)
         self.SetScope(self.scope)
 
     def GetState(self):
         return {
             'AssetScope': self.scope,
             'AssetFilter': self.kind_filter,
+            'AssetSort': self.sort_key,
+            'AssetSortAscending': self.sort_ascending,
             'AssetSearch': self.search.GetValue(),
             'AssetCompact': bool(self.presentation.GetValue()),
             'Favorites': sorted(self.favorites),
@@ -1762,7 +1790,24 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def RefreshAssets(self):
         self.all_items = self._build_items()
+        self._sort_items()
         self.ApplyFilters()
+
+    def _sort_items(self):
+        if self.sort_key == 'type':
+            key = lambda item: (self.KIND_ORDER.get(item.kind, 99), item.label.upper())
+        elif self.sort_key == 'id':
+            key = lambda item: self._sort_hex_value(item.hex_id)
+        else:
+            key = lambda item: item.label.upper()
+        self.all_items.sort(key=key, reverse=not self.sort_ascending)
+
+    @staticmethod
+    def _sort_hex_value(hex_id):
+        try:
+            return int(hex_id, 16)
+        except (TypeError, ValueError):
+            return -1
 
     def SetScope(self, scope):
         self.scope = scope
@@ -1788,6 +1833,21 @@ class LEAssetBrowserPanel(wx.Panel):
     def OnFilter(self, event):
         labels = ['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families']
         self.kind_filter = labels[self.filter_choice.GetSelection()]
+        self.ApplyFilters()
+
+    def OnSort(self, event):
+        keys = ['name', 'type', 'id']
+        self.sort_key = keys[self.sort_choice.GetSelection()]
+        self._sort_items()
+        self.ApplyFilters()
+
+    def OnSortDirection(self, event):
+        self.sort_ascending = not self.sort_direction.GetValue()
+        icon = 'sort-ascending' if self.sort_ascending else 'sort-descending'
+        tooltip = LEXAssetBrowserSortDescending if self.sort_ascending else LEXAssetBrowserSortAscending
+        self.sort_direction.SetBitmap(icon_bundle(icon))
+        self.sort_direction.SetToolTip(tooltip)
+        self._sort_items()
         self.ApplyFilters()
 
     def OnPresentation(self, event):

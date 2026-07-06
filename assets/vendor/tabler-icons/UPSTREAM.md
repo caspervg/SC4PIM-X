@@ -51,7 +51,7 @@ Icons release.
 | Add | `plus.svg` |
 | Edit | `pencil.svg` |
 | Move up/down | `arrow-up.svg`, `arrow-down.svg` |
-| Sort | `sort-ascending.svg` |
+| Sort | `sort-ascending.svg`, `sort-descending.svg`* |
 | Play/pause | `player-play.svg`, `player-pause.svg` |
 | Apply preset | `wand.svg` |
 | Grid/list view | `layout-grid.svg`, `list.svg` |
@@ -66,3 +66,10 @@ Icons release.
 | Pin/unpin | `pin.svg`, `pinned.svg` |
 | Status | `circle-check.svg`, `alert-triangle.svg`, `info-circle.svg` |
 | Neutral trend | `minus.svg` |
+
+\* `sort-descending.svg` is a hand-authored placeholder (a vertical mirror of
+`sort-ascending.svg`), not pulled from the pinned v3.44.0 release — it could
+not be fetched from `github.com/tabler/tabler-icons` or an npm mirror in the
+environment this was authored in. Replace it with the real upstream file when
+possible, e.g. via `packages/icons/icons/outline/sort-descending.svg` in the
+tagged release archive.
