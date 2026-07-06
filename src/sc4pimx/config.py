@@ -25,6 +25,8 @@ DEFAULT_LOT_EDITOR = {
     "InspectorWidth": 280,
     "AssetScope": "lot",
     "AssetFilter": "all",
+    "AssetSort": "name",
+    "AssetSortAscending": True,
     "AssetSearch": "",
     "AssetCompact": False,
     "BackgroundSet": "Default",
