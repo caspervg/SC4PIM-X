@@ -1,11 +1,8 @@
 <!--
-PLACEHOLDER: vertical mirror of sort-ascending.svg, not pulled from the
-pinned tabler-icons v3.44.0 release. Replace with the real upstream SVG
-(see UPSTREAM.md) once it can be fetched.
-
 tags: [filter, classify, arrange, order, sort, descending, typography, writing, font, character]
 category: Text
 version: "1.0"
+unicode: "eb27"
 -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
