@@ -16,7 +16,7 @@ from pathlib import Path
 
 import tomlkit
 
-from .paths import data_file_path, ensure_user_data_dir
+from .paths import data_file_path, ensure_user_data_dir, user_data_path
 
 CONFIG_FILENAME = "config.toml"
 
@@ -84,6 +84,12 @@ DEFAULT_RENDERING = {
     "Anisotropy": 8.0,
 }
 
+DEFAULT_STARTUP = {
+    # Existing installations intentionally inherit True when this key is
+    # absent, giving users one opportunity to review the new setting.
+    "ShowFileConfigurationAtStartup": True,
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -92,6 +98,23 @@ def config_path() -> Path:
     copy shipped in ``assets/`` (the factory settings).
     """
     return data_file_path(CONFIG_FILENAME)
+
+
+def user_config_path() -> Path:
+    """The per-user config path, without falling back to bundled defaults."""
+    return user_data_path(CONFIG_FILENAME)
+
+
+def local_config_has_values() -> bool:
+    """Return whether the per-user config exists and contains TOML values."""
+    path = user_config_path()
+    if not path.exists():
+        return False
+    try:
+        with open(path, "rb") as fh:
+            return bool(tomllib.load(fh))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
 
 
 def load() -> dict:
@@ -167,6 +190,25 @@ def load_rendering() -> dict:
     return settings
 
 
+def load_startup() -> dict:
+    """Startup behavior, with migration-safe defaults for missing keys."""
+    value = load().get("Startup", {})
+    settings = DEFAULT_STARTUP.copy()
+    if isinstance(value, dict):
+        settings.update(value)
+    return settings
+
+
+def should_show_file_configuration() -> bool:
+    """Decide whether startup must present the plugin-file configuration."""
+    if not local_config_has_values():
+        return True
+    try:
+        return bool(load_startup()["ShowFileConfigurationAtStartup"])
+    except Exception:
+        return True
+
+
 def save_main_window(settings: dict) -> Path:
     """Persist main-window geometry and column layout in config.toml."""
     source = config_path()
@@ -224,6 +266,22 @@ def save_user_plugins_root(path: str) -> Path:
     path = str(path).strip()
     table["UserPluginsRoot"] = tomlkit.string(path, literal="'" not in path and "\n" not in path)
     doc["Paths"] = table
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
+
+
+def save_startup(settings: dict) -> Path:
+    """Persist startup behavior while preserving the rest of config.toml."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    table = doc.get("Startup")
+    if table is None or not hasattr(table, "update"):
+        table = tomlkit.table()
+    for key, value in settings.items():
+        table[key] = value
+    doc["Startup"] = table
     target = ensure_user_data_dir() / CONFIG_FILENAME
     target.write_text(tomlkit.dumps(doc), encoding="utf-8")
     return target

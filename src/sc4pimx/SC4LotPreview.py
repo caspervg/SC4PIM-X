@@ -4901,12 +4901,12 @@ def ComputeStagePurposeWealth(capacitySatisfied, occupantGroup, width, depth):
     return (stage, purpose, wealth)
 
 
-class ImageDBBuilder(wx.Frame):
+class ImageDBBuilder(wx.Panel):
+    """Embedded OpenGL renderer used for startup model thumbnails."""
 
-    def __init__(self, parent, ID, title, pos=wx.DefaultPosition, size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP):
-        wx.Frame.__init__(self, parent, ID, title, pos, size, style)
-        panel = wx.Panel(self, -1)
-        self.glCanvas = MyCanvasBase(panel, size=(256, 256))
+    def __init__(self, parent):
+        wx.Panel.__init__(self, parent, -1)
+        self.glCanvas = MyCanvasBase(self, size=(256, 256))
         self.glCanvas.displayer = self
         self.viewer = S3DViewer(None, self.glCanvas)
         # Batch thumbnail prerender: each model texture is uploaded, rendered
@@ -4918,8 +4918,7 @@ class ImageDBBuilder(wx.Frame):
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         hsizer.Add(self.glCanvas, 1, wx.ALL | wx.EXPAND, 5)
         sizer.Add(hsizer, 1, wx.ALL | wx.EXPAND, 5)
-        panel.SetSizer(sizer)
-        sizer.Fit(self)
+        self.SetSizerAndFit(sizer)
         return
 
     def Draw(self, sc4data):
@@ -4941,10 +4940,7 @@ class ImageDBBuilder(wx.Frame):
             with target.bound():
                 self.viewer.render_frame()
                 data = target.read_rgb()
-            # Mirror the just-captured thumbnail into the on-screen preview so
-            # the window shows live progress instead of staying blank. read_rgb
-            # already resolved MSAA into target.color; a single textured quad is
-            # near-free, so batch throughput is unaffected.
+            # Mirror the just-captured thumbnail into the embedded preview.
             self._present_thumbnail(target.color)
         finally:
             target.release_gl()
