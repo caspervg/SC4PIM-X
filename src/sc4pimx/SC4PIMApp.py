@@ -26,6 +26,7 @@ try:
 except ImportError:
     HAS_WIN32 = False
 from . import SC4IconMakerDlg, config, treeDnD
+from .ATCReader import ATC_PREVIEW_FRAME_MS
 from .ATCViewer import *
 from .DependenciesDlg import *
 from .logsetup import configure_logging
@@ -5656,7 +5657,7 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
     # so the asset browser can play a preview on hover/selection. Frames walk the
     # sheet exactly like the live renderer (ATCReader.draw_le, rotation 0): step
     # +w across the layer, wrap a row by +h, wrap onto the next layer at the
-    # bottom. 10 fps (duration=100) matches the live viewer's default tick.
+    # bottom. The frame duration matches the live viewer and LE asset grid.
     num_frames = min(int(getattr(atc, 'num_frames', 1) or 1), _ATC_GIF_MAX_FRAMES)
     if num_frames > 1:
         frames = []
@@ -5677,7 +5678,7 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
             gif_path = os.path.join(large_dir, os.path.splitext(name)[0] + '.gif')
             frames[0].save(
                 gif_path, save_all=True, append_images=frames[1:],
-                duration=100, loop=0, disposal=2, optimize=False,
+                duration=ATC_PREVIEW_FRAME_MS, loop=0, disposal=2, optimize=False,
             )
 
 
