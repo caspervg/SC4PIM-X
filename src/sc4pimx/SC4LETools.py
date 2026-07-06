@@ -789,7 +789,7 @@ class LEAssetThumbnailProvider(object):
     # ATC previews may contain up to 120 source frames.  Keeping a wx.Bitmap
     # for every frame of every asset quickly consumes hundreds of MB.  Sample
     # the visual frames while retaining repeated references in the playback
-    # list, which preserves the original 10 fps duration.
+    # list, which preserves the original playback duration.
     MAX_ANIM_BITMAPS = 30
     MAX_CACHED_ANIMATIONS = 32
 
@@ -1296,7 +1296,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.thumbnail_provider.RestrictTo(visible)
         # Run the animation timer only while an animated card is on screen.
         if self._any_anim and not self._anim_timer.IsRunning():
-            self._anim_timer.Start(100)
+            self._anim_timer.Start(ATC_PREVIEW_FRAME_MS)
         elif not self._any_anim and self._anim_timer.IsRunning():
             self._anim_timer.Stop()
 
