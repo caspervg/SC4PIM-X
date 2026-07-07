@@ -3844,13 +3844,15 @@ class LotEditorWin(wx.Frame):
             rotMapping = [180, -90, 0, 90]
             # RKT0 is a single mesh pre-projected for one (North) view and reused
             # at every rotation. SC4 S3D geometry is baked 2.5D -- the dimetric
-            # tilt lives in the vertices, not the camera (the model matrix only
-            # rotate_z's by rot2D) -- so rotating this mesh shears it, and it only
-            # looks right at North. Capture the unrotated basis (camera turn
-            # rotate_z(rot2D) removed) and draw the mesh with it, billboard-style
-            # like the ATC path, so it looks identical at every rotation while
-            # still being positioned in the rotated lot.
-            base_basis = render.model[0:3, 0:3] @ SC4Matrix.rotate_z(-rot2D)[0:3, 0:3]
+            # tilt lives in the vertices, not the camera -- so rotating this mesh
+            # shears it, and it only looks right at North. Capture the unrotated
+            # basis and draw the mesh with it, billboard-style like the ATC path,
+            # so it looks identical at every rotation while still being positioned
+            # in the rotated lot. The 3D pane applies the camera turn as
+            # rotate_y(self.ry) (Draw3D), so cancel it about Y -- Y rotations
+            # commute, so right-multiplying by rotate_y(-rot2D) leaves exactly
+            # the North-view basis scale @ rotate_x(rx) @ rotate_y(-22.5).
+            base_basis = render.model[0:3, 0:3] @ SC4Matrix.rotate_y(-rot2D)[0:3, 0:3]
             with render.pushed():
                 # Position only: rotate the overhang offset into the prop frame
                 # with the same sign as the pole path (-rotMapping) so it points
