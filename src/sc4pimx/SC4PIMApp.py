@@ -3205,7 +3205,6 @@ class NoteBookPanel(wx.Panel):
                                                                                      800))
             frame.Display(entry.exemplar, self.virtual_dat)
             frame.Show()
-            frame.Destroy()
         dlg1.Destroy()
         return
 
@@ -3555,7 +3554,6 @@ class NoteBookPanel(wx.Panel):
                                                                                   800))
             frame.Display(entry.exemplar, self.virtual_dat)
             frame.Show()
-            frame.Destroy()
         dlg.Destroy()
         return
 
