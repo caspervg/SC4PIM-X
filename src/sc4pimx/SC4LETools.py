@@ -697,6 +697,11 @@ class LEAssetItem(object):
 
     @property
     def search_text(self):
+        # Cached: ApplyFilters reads this for every item on every keystroke,
+        # and none of the inputs change after construction.
+        cached = self.__dict__.get('_search_text')
+        if cached is not None:
+            return cached
         file_name = ''
         try:
             src = self.source
@@ -706,9 +711,19 @@ class LEAssetItem(object):
                 file_name = src.exemplar.entry.fileName or ''
         except Exception:
             file_name = ''
-        return ('%s %s %s %s %s %s %s' % (self.kind, self.badge, self.label,
-                                          self.sublabel, self.hex_id, self.extra_text,
-                                          file_name)).lower()
+        cached = ('%s %s %s %s %s %s %s' % (self.kind, self.badge, self.label,
+                                            self.sublabel, self.hex_id, self.extra_text,
+                                            file_name)).lower()
+        self.__dict__['_search_text'] = cached
+        return cached
+
+    @property
+    def sort_label(self):
+        cached = self.__dict__.get('_sort_label')
+        if cached is None:
+            cached = self.label.upper()
+            self.__dict__['_sort_label'] = cached
+        return cached
 
     @property
     def type_label(self):
@@ -1671,6 +1686,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.sort_ascending = bool(settings.get('AssetSortAscending', True))
         self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
+        # (fingerprint, items) for the last library-scope build; see _build_items.
+        self._library_cache = None
         self.thumbnail_provider = LEAssetThumbnailProvider()
         self.thumbnail_provider.SetThumbSize(int(settings.get('ThumbSize', 72)))
         root = wx.BoxSizer(wx.VERTICAL)
@@ -1795,11 +1812,11 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def _sort_items(self):
         if self.sort_key == 'type':
-            key = lambda item: (self.KIND_ORDER.get(item.kind, 99), item.label.upper())
+            key = lambda item: (self.KIND_ORDER.get(item.kind, 99), item.sort_label)
         elif self.sort_key == 'id':
             key = lambda item: self._sort_hex_value(item.hex_id)
         else:
-            key = lambda item: item.label.upper()
+            key = lambda item: item.sort_label
         self.all_items.sort(key=key, reverse=not self.sort_ascending)
 
     @staticmethod
@@ -1888,22 +1905,29 @@ class LEAssetBrowserPanel(wx.Panel):
         badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserEffectBadge if effect else LEXAssetBrowserPropBadge
         return LEAssetItem(kind, label, sublabel, PropProxy(desc), desc, badge, hex_id=hex_id)
 
-    def _family_member_names(self, cat_id):
-        names = []
+    def _family_member_descs(self, cat_id):
+        """Prop/flora exemplar descriptors belonging to family cat_id.
+
+        Single traversal shared by the "is this a family" test and the member
+        name/count display in :meth:`_family_item`.
+        """
+        members = []
         try:
-            for desc in VirtualDat.this.categories[cat_id].descriptors:
+            descriptors = VirtualDat.this.categories[cat_id].descriptors
+        except Exception:
+            return members
+        for desc in descriptors:
+            try:
                 if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
                 if desc.exemplar.GetProp(16)[0] not in (30, 15):
                     continue
-                name = desc.exemplar.GetProp(32)
-                if name:
-                    names.append(str(name[0]))
-        except Exception:
-            pass
-        return names
+                members.append(desc)
+            except Exception:
+                pass
+        return members
 
-    def _family_item(self, cat_id):
+    def _family_item(self, cat_id, member_descs=None):
         hex_id = hex2str(cat_id)[2:]
         label = ''
         try:
@@ -1915,10 +1939,19 @@ class LEAssetBrowserPanel(wx.Panel):
             label = VirtualDat.this.builtin_family_names.get(cat_id, '')
         if not label:
             label = hex_id
-        members = self._family_member_names(cat_id)
-        sublabel = '%d %s' % (len(members), LEXAssetBrowserMembers) if members else ''
+        if member_descs is None:
+            member_descs = self._family_member_descs(cat_id)
+        names = []
+        for desc in member_descs:
+            try:
+                name = desc.exemplar.GetProp(32)
+            except Exception:
+                continue
+            if name:
+                names.append(str(name[0]))
+        sublabel = '%d %s' % (len(names), LEXAssetBrowserMembers) if names else ''
         return LEAssetItem('family', label, sublabel, FamilyProxy(cat_id), cat_id,
-                           LEXAssetBrowserFamilyBadge, ' '.join(members), hex_id=hex_id)
+                           LEXAssetBrowserFamilyBadge, ' '.join(names), hex_id=hex_id)
 
     def _build_items(self):
         items = []
@@ -1940,6 +1973,47 @@ class LEAssetBrowserPanel(wx.Panel):
             for cat_id in getattr(self.editor, 'lotFamiliesPropID', []):
                 items.append(self._family_item(cat_id))
             return items
+        # Library/favorites: the full plugin asset universe. Building it walks
+        # every texture/prop/effect/flora/family descriptor with several
+        # GetProp calls each, so the result is cached and reused until the
+        # underlying collections change size (see _library_fingerprint).
+        fingerprint = self._library_fingerprint()
+        if self._library_cache is not None and self._library_cache[0] == fingerprint:
+            items = self._library_cache[1]
+        else:
+            items = self._build_library_items()
+            self._library_cache = (fingerprint, items)
+        if self.scope == 'favorites':
+            return [it for it in items if it.fav_key in self.favorites]
+        return list(items)
+
+    @staticmethod
+    def _library_fingerprint():
+        """Cheap change signal for the library cache.
+
+        Descriptors are only ever appended to categories mid-session (see
+        AddDescRecurs), so collection sizes plus the VirtualDat identity are
+        enough to detect additions and full plugin reloads.
+        """
+        vd = VirtualDat.this
+        counts = [id(vd),
+                  len(getattr(vd, 'baseTexEntries', ())),
+                  len(getattr(vd, 'overTexEntries', ()))]
+        for cat_id in (210746660, EFFECT_CATEGORY_ID, 1830116951):
+            category = vd.categories.get(cat_id)
+            counts.append(len(category.descriptors) if category is not None else 0)
+        for root_id in (4089086497, 4089087265):
+            category = vd.categories.get(root_id)
+            if category is None:
+                counts.append(0)
+                counts.append(0)
+                continue
+            counts.append(len(category.childs))
+            counts.append(sum(len(sub.descriptors) for sub in category.childs))
+        return tuple(counts)
+
+    def _build_library_items(self):
+        items = []
         for entry in getattr(VirtualDat.this, 'baseTexEntries', []):
             items.append(self._texture_item(entry, False))
         for entry in getattr(VirtualDat.this, 'overTexEntries', []):
@@ -1976,22 +2050,10 @@ class LEAssetBrowserPanel(wx.Panel):
             if category is None:
                 continue
             for sub in category.childs:
-                if self._is_prop_family(sub.descriptors):
-                    items.append(self._family_item(sub.ID))
-        if self.scope == 'favorites':
-            return [it for it in items if it.fav_key in self.favorites]
+                member_descs = self._family_member_descs(sub.ID)
+                if member_descs:
+                    items.append(self._family_item(sub.ID, member_descs))
         return items
-
-    def _is_prop_family(self, descriptors):
-        for desc in descriptors:
-            try:
-                if desc.exemplar.entry.tgi[0] != 1697917002:
-                    continue
-                if desc.exemplar.GetProp(16)[0] in (30, 15):
-                    return True
-            except Exception:
-                pass
-        return False
 
     def ApplyFilters(self):
         if self._destroyed:
