@@ -1279,6 +1279,10 @@ class LotEditorWin(wx.Frame):
         if family_id is None:
             return
         self.familyVariations[family_id] = desc.exemplar.entry.tgi
+        # The prop/flora viewer cache is keyed by family_id only, so a stale
+        # viewer for the previous variation would otherwise keep rendering.
+        self._propViewerByModel.pop(family_id, None)
+        self._floraViewerByModel.pop(family_id, None)
         self._rebuild_scene()
         self.UpdateSelectionInspector()
         self.on_draw()
