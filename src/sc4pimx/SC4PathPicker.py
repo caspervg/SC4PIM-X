@@ -784,8 +784,7 @@ class SC4PathPickerDialog(wx.Dialog):
             return md
         # Fallback: Finalize was skipped (safe mode / env flag) or this is a
         # newly-loaded entry. Parse on demand and cache for the session.
-        populate_sc4path_cache(item, str(sc4path_thumb_path(item.iid)))
-        md = _metadata_from_item(item)
+        md = populate_sc4path_cache(item)
         self._metadata_table[item.iid] = md
         return md
 

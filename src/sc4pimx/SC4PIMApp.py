@@ -5118,26 +5118,14 @@ class MainFrame(wx.Frame):
         from .SC4PathPicker import SC4PathImageBuilder, populate_sc4path_cache
         sc4path_entries = getattr(self.virtualDAT, 'sc4path_entries', None) or []
         missing_path_items = getattr(self.virtualDAT, 'missing_sc4path_pictures', None) or []
-        if (sc4path_entries and not safe_mode
-                and not _env_true('SC4PIM_SKIP_MISSING_PICS')):
-            logger.debug('Caching %d SC4Path metadata entries (%d need thumbs)',
+        if sc4path_entries:
+            # Parsing thousands of SC4Path entries can dominate warm startup
+            # even when every thumbnail PNG is already cached. Keep startup to
+            # catalog + missing-thumbnail work; the picker fills metadata on
+            # demand and reuses this table for the session.
+            self.virtualDAT.sc4path_metadata = {}
+            logger.debug('Deferred SC4Path metadata for %d entries (%d need thumbs)',
                          len(sc4path_entries), len(missing_path_items))
-            metadata_table = {}
-            total_paths = len(sc4path_entries)
-            for index, item in enumerate(sc4path_entries, 1):
-                try:
-                    # Metadata is required before the editor is enabled;
-                    # missing PNG rendering is optional and happens below.
-                    metadata_table[item.iid] = populate_sc4path_cache(item)
-                except Exception:
-                    logger.exception("Could not cache SC4Path 0x%08X", item.iid)
-                if index % 100 == 0:
-                    dlg.SetStatus('Preparing SC4Paths...',
-                                  '%d / %d paths' % (index, total_paths))
-                    yield
-            self.virtualDAT.sc4path_metadata = metadata_table
-        elif sc4path_entries:
-            logger.debug('Skipping SC4Path metadata generation')
 
         logger.debug('Loading prop image list')
         if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
@@ -5210,7 +5198,8 @@ class MainFrame(wx.Frame):
                     dlg.SetStatus('Generating SC4Path previews...',
                                   '%d / %d paths' % (index, total_paths))
                     try:
-                        populate_sc4path_cache(item, png_path, preview=preview)
+                        metadata = populate_sc4path_cache(item, png_path, preview=preview)
+                        self.virtualDAT.sc4path_metadata[item.iid] = metadata
                     except Exception:
                         logger.exception("Could not render SC4Path 0x%08X", item.iid)
                     dlg.Increment()
