@@ -1,6 +1,8 @@
 """S3D textures holder for OpenGL rendering."""
 import ctypes
 import logging
+import os
+import struct
 import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
@@ -33,15 +35,19 @@ from OpenGL.GL import (
 )
 from PIL import Image
 
-from . import FSHConverter
+from . import FSHConverter, QFS
 from .SC4Renderer import create_texture_2d
 
 logger = logging.getLogger(__name__)
 
-# DBPF entries can share an underlying file handle. A single decode worker
-# keeps reads serialized while moving FSH decompression/composition off the UI
-# thread. GL uploads remain on the context-owning UI thread.
-_decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sc4-fsh-decode")
+# _snapshot_content reads entry bytes through its own file handle and never
+# touches shared entry state, so decode jobs are independent and can run in
+# parallel. GL uploads remain on the context-owning UI thread.
+_decode_executor = ThreadPoolExecutor(
+    max_workers=min(8, os.cpu_count() or 1), thread_name_prefix="sc4-fsh-decode",
+)
+
+_COMPRESSED_SIG = 64272  # QFS signature, see SC4DatTools.COMPRESSED_SIG
 
 
 class _MeshGLBuffers(object):
@@ -121,16 +127,27 @@ def _delete_texture(value):
 
 
 def _snapshot_content(entry):
+    """Read and decompress an entry's bytes without mutating the entry.
+
+    Runs on decode workers. Entry objects are shared across the app and
+    ``read_file`` caches content on the entry, so instead we read straight
+    from the backing file with a private handle — no shared state, so any
+    number of decode jobs can snapshot concurrently.
+    """
     if entry is None:
         return None
     try:
-        entry.read_file(None, True, True)
-        return bytes(entry.content)
+        if entry.rawContent is not None and entry.content is not None:
+            # In-memory entry (e.g. freshly written); already decompressed.
+            return bytes(entry.content)
+        with open(entry.fileName, 'rb') as fh:
+            fh.seek(entry.initialFileLocation)
+            raw = fh.read(entry.filesize)
+        if len(raw) >= 8 and struct.unpack('H', raw[4:6])[0] == _COMPRESSED_SIG:
+            return QFS.decode(raw[4:])
+        return raw
     except Exception:
         return None
-    finally:
-        entry.content = None
-        entry.rawContent = None
 
 
 def _decode_layers(content):
@@ -179,9 +196,14 @@ def _blend_night_over_day(day_rgba, night_rgba):
     return out.astype(np.uint8).tobytes()
 
 
-def _prepare_layers(day_content, night_content, night_mode):
-    day_layers = _decode_layers(day_content)
-    night_layers = _decode_layers(night_content) if night_mode else None
+def _prepare_layers(day_entry, night_entry, night_mode):
+    """Worker-side pipeline: file read + QFS + FSH decode + night blend.
+
+    Takes the raw entries (not pre-read bytes) so the expensive read/QFS
+    step runs on the worker instead of the UI thread that scheduled it.
+    """
+    day_layers = _decode_layers(_snapshot_content(day_entry))
+    night_layers = _decode_layers(_snapshot_content(night_entry)) if night_mode else None
     if night_mode and day_layers and night_layers:
         chosen = []
         for index, (size, day_rgba) in enumerate(day_layers):
@@ -265,11 +287,12 @@ class S3DTexturesHolder(object):
     def SetNightMode(self, enabled):
         """Toggle night-lighting composition.
 
-        Day and night GL layer sets are cached side by side (see
-        :meth:`PrecacheTex`), so flipping the mode is a pointer swap on the next
-        bind — no re-decode, no re-upload, no red-model flash. We only kick off
-        a background decode for the newly active mode if it was never built
-        (e.g. the entry was registered after some earlier toggle).
+        Day and night GL layer sets are cached side by side, but only the
+        active mode is decoded at load time (see :meth:`PrecacheTex`). On the
+        first toggle we schedule decodes for the newly active mode; until each
+        one lands, :meth:`SetCurrentTex` keeps showing the other mode's layers
+        as a stand-in, so there is no red-model flash. Toggling back to an
+        already-built mode is an instant pointer swap.
 
         Returns True when the mode actually changed (caller should trigger a
         repaint), False when this was a no-op.
@@ -321,9 +344,10 @@ class S3DTexturesHolder(object):
 
         entry is the daytime FSH entry; night_entry, when provided, is the
         nightlight sibling (typically the day instance + 0x8000 in the same
-        group) — composited over day when night_mode is on. When a night
-        sibling exists, both the day and night composites are decoded up front
-        so a later night/day toggle is an instant swap.
+        group) — composited over day when night_mode is on. Only the
+        currently active mode is decoded here; the other mode is decoded
+        lazily on the first night/day toggle (see :meth:`SetNightMode`),
+        which keeps the load-time decode queue at one job per texture.
         """
         try:
             self.glCanvas.SetCurrent()
@@ -341,9 +365,7 @@ class S3DTexturesHolder(object):
             'last_used': 0,
         }
         self.textures[textureID] = cached
-        self._schedule_decode(cached, False)
-        if night_entry is not None:
-            self._schedule_decode(cached, True)
+        self._schedule_decode(cached, self._effective_mode(cached))
 
     def _schedule_decode(self, cached, mode):
         generation = cached['generation'].get(mode, 0) + 1
@@ -353,8 +375,8 @@ class S3DTexturesHolder(object):
             old_future.cancel()
         future = _decode_executor.submit(
             _prepare_layers,
-            _snapshot_content(cached.get('day')),
-            _snapshot_content(cached.get('night')) if mode else None,
+            cached.get('day'),
+            cached.get('night') if mode else None,
             mode,
         )
         cached['future'][mode] = future
