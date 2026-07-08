@@ -333,6 +333,10 @@ class LEInspectorPanel(wx.Panel):
         wx.Panel.__init__(self, parent, -1)
         self.editor = editor
         self._family_members = []
+        self._thumb_cache = {}
+        self._last_family_id = None
+        self._last_member_tgis = ()
+        self._family_buttons = {}
         self.SetBackgroundColour(wx.Colour(250, 251, 252))
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.text = wx.TextCtrl(self, -1, LEXInspectorPrompt,
@@ -419,36 +423,58 @@ class LEInspectorPanel(wx.Panel):
 
     def ShowFamilyVariations(self, family_id, members, selected_tgi):
         self._family_members = list(members)
+        member_tgis = tuple(desc.exemplar.entry.tgi for desc in self._family_members)
+        if family_id == self._last_family_id and member_tgis == self._last_member_tgis:
+            # Same family, same members -- just move the selected toggle,
+            # instead of destroying and rebuilding every button (which was
+            # re-decoding every thumbnail from disk on each selection/move).
+            for tgi, btn in self._family_buttons.items():
+                btn.SetValue(tgi == selected_tgi)
+            return
         self.familySizer.Clear(True)
+        self._family_buttons = {}
         for idx, desc in enumerate(self._family_members):
+            tgi = desc.exemplar.entry.tgi
             bmp = self._family_member_bitmap(desc)
             item = wx.Panel(self.familyGrid, -1)
             item_sizer = wx.BoxSizer(wx.VERTICAL)
             btn = wx.BitmapToggleButton(item, -1, bmp, size=(58, 58))
-            btn.SetValue(desc.exemplar.entry.tgi == selected_tgi)
-            btn.SetToolTip('%s\n%s' % (desc.name, hex2str(desc.exemplar.entry.tgi[2])))
+            btn.SetValue(tgi == selected_tgi)
+            btn.SetToolTip('%s\n%s' % (desc.name, hex2str(tgi[2])))
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, i=idx: self.OnFamilyVariation(i))
-            label = wx.StaticText(item, -1, hex2str(desc.exemplar.entry.tgi[2])[-4:])
-            label.SetFont(wx.Font(7, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            label = wx.StaticText(item, -1, hex2str(tgi[2]))
+            label.SetFont(wx.Font(6, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             item_sizer.Add(btn, 0, wx.ALIGN_CENTER)
             item_sizer.Add(label, 0, wx.ALIGN_CENTER | wx.TOP, 1)
             item.SetSizer(item_sizer)
             self.familySizer.Add(item, 0, wx.ALL, 2)
+            self._family_buttons[tgi] = btn
         self.familyGrid.FitInside()
         self.familyGrid.SetMinSize((-1, 76 if len(self._family_members) <= 4 else 136))
         self._outer.Show(self._family_fields, True, recursive=True)
         self.Layout()
+        self._last_family_id = family_id
+        self._last_member_tgis = member_tgis
 
     def HideFamilyVariations(self):
         self._family_members = []
+        self._family_buttons = {}
+        self._last_family_id = None
+        self._last_member_tgis = ()
         self.familySizer.Clear(True)
         self._outer.Show(self._family_fields, False, recursive=True)
         self.Layout()
 
     def _family_member_bitmap(self, desc):
+        tgi = desc.exemplar.entry.tgi
+        cached = self._thumb_cache.get(tgi)
+        if cached is not None:
+            return cached
         try:
             image = BuildImagesForPropStates(desc.exemplar, 52)[0]
-            return BitmapFromPIL(image)
+            bmp = BitmapFromPIL(image)
+            self._thumb_cache[tgi] = bmp
+            return bmp
         except Exception:
             bmp = wx.Bitmap(52, 52)
             dc = wx.MemoryDC(bmp)
@@ -505,6 +531,7 @@ class LotEditorWin(wx.Frame):
         self.lotFamiliesPropID = []
         self.lotFloraDescs = []
         self.familyVariations = {}
+        self._family_members_cache = {}
         self.modeDisplay = MODE_DISPLAY_FULL
         self.modeEdit = MODE_EDIT_PAN
         self.transitDefaults = dict(DEFAULT_TRANSIT_SETTINGS)
@@ -1214,8 +1241,12 @@ class LotEditorWin(wx.Frame):
     def _family_members(self, family_id):
         if not hasattr(self, 'virtualDAT') or family_id not in self.virtualDAT.categories:
             return []
+        descriptors = self.virtualDAT.categories[family_id].descriptors
+        cached = self._family_members_cache.get(family_id)
+        if cached is not None and cached[0] == len(descriptors):
+            return cached[1]
         members = []
-        for desc in self.virtualDAT.categories[family_id].descriptors:
+        for desc in descriptors:
             try:
                 if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
@@ -1224,6 +1255,7 @@ class LotEditorWin(wx.Frame):
             except Exception:
                 pass
         members.sort(key=lambda n: n.name.upper())
+        self._family_members_cache[family_id] = (len(descriptors), members)
         return members
 
     def _selected_family_desc(self, family_id):
