@@ -22,7 +22,8 @@ Icons release.
 | Overlay texture mode | `layers-intersect.svg` |
 | Flora mode | `trees.svg` |
 | Transit mode | `route.svg` |
-| Constraint mode | `droplet-half-2.svg` |
+| Water constraint mode | `droplet.svg` |
+| Land constraint mode | `mountain.svg` |
 | Duplicate | `copy.svg` |
 | Delete | `trash.svg` |
 | Cycle 2D/3D view | `cube-3d-sphere.svg` |

@@ -116,6 +116,8 @@ MODE_EDIT_BUILDING = 8
 MODE_EDIT_FLORA = 16
 MODE_EDIT_TRANSIT = 32
 MODE_EDIT_CONSTRAINT = 64
+MODE_EDIT_CONSTRAINT_LAND = 128
+CONSTRAINT_EDIT_MODES = (MODE_EDIT_CONSTRAINT, MODE_EDIT_CONSTRAINT_LAND)
 LE_TOOLBAR_ICON_SIZE = 22
 LE_TOOLBAR_BUTTON_SIZE = (36, 32)
 LAYER_BASE = 'base_textures'
@@ -611,7 +613,8 @@ class LotEditorWin(wx.Frame):
             ('layers-intersect', LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
             ('trees', LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
             ('route', LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
-            ('droplet-half-2', LEXConstraint, MODE_EDIT_CONSTRAINT, self.OnModeConstraint, 'W'),
+            ('droplet', LEXConstraintWater, MODE_EDIT_CONSTRAINT, self.OnModeConstraintWater, 'W'),
+            ('mountain', LEXConstraintLand, MODE_EDIT_CONSTRAINT_LAND, self.OnModeConstraintLand, 'L'),
         ]:
             btn = wx.BitmapToggleButton(
                 command_bar, -1, icon_bundle(icon, LE_TOOLBAR_ICON_SIZE),
@@ -1702,14 +1705,20 @@ class LotEditorWin(wx.Frame):
         self.UpdateSelectionInspector()
         self._sync_mode_buttons()
 
-    def OnModeConstraint(self, event):
-        if self.modeEdit != MODE_EDIT_CONSTRAINT:
+    def OnModeConstraintWater(self, event):
+        self._OnModeConstraint(MODE_EDIT_CONSTRAINT)
+
+    def OnModeConstraintLand(self, event):
+        self._OnModeConstraint(MODE_EDIT_CONSTRAINT_LAND)
+
+    def _OnModeConstraint(self, mode):
+        if self.modeEdit != mode:
             self.selected = []
             self.newIds = []
             self.quadSelected = []
-        self.modeEdit = MODE_EDIT_CONSTRAINT
+        self.modeEdit = mode
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
-        self.sb.SetStatusText(LEXConstraintHint, 3)
+        self.sb.SetStatusText(LEXConstraintLand if mode == MODE_EDIT_CONSTRAINT_LAND else LEXConstraintWater, 3)
         self.UpdateSelectionInspector()
         self._sync_mode_buttons()
 
@@ -2416,7 +2425,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraint,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraintWater,108: self.OnModeConstraintLand,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self._request_draw()
@@ -3617,6 +3626,24 @@ class LotEditorWin(wx.Frame):
             self._render_context.mvp, color=(*color, 1.0), filled=False,
         )
 
+    def _DrawConstraintOutlines(self, constraints, color):
+        """Border each constraint tile in its type colour, always on top of
+        the fill tint, so adjacent same-type tiles stay individually
+        readable instead of blending into one blob."""
+        if not constraints:
+            return
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        glDisable(GL_BLEND)
+        primitives = self.glCanvas2D.renderer.primitives
+        for texData in constraints:
+            minx = texData[0] * 16 + offsetX
+            miny = texData[1] * 16 + offsetY
+            primitives.rect(
+                minx, miny, minx + 16, miny + 16,
+                self._render_context.mvp, color=(*color, 1.0), filled=False,
+            )
+
     def DrawQuadsHighLight(self, quads, color=(1, 0, 0)):
         offsetX = -self.lotSizeXOffset
         offsetY = -self.lotSizeYOffset
@@ -3790,9 +3817,18 @@ class LotEditorWin(wx.Frame):
             for is_water, constraints, layer_key in constraint_layers:
                 if not self._is_layer_visible('2d', layer_key):
                     continue
-                tint = (0.2, 0.2, 0.8, 1.0) if is_water else (0.8, 0.5, 0.2, 1.0)
+                # Dim the type that would not be placed by the active
+                # constraint mode, so it's visually obvious which one is live.
+                if self.modeEdit == MODE_EDIT_CONSTRAINT:
+                    alpha = 1.0 if is_water else 0.35
+                elif self.modeEdit == MODE_EDIT_CONSTRAINT_LAND:
+                    alpha = 0.35 if is_water else 1.0
+                else:
+                    alpha = 1.0
+                base_rgb = (0.05, 0.3, 0.95) if is_water else (0.95, 0.55, 0.05)
+                tint = (*base_rgb, alpha)
                 for texData in constraints:
-                    if self.modeEdit == MODE_EDIT_CONSTRAINT:
+                    if self.modeEdit in CONSTRAINT_EDIT_MODES:
                         minx = texData[0] * 16
                         miny = texData[1] * 16
                         maxx = minx + 16
@@ -3807,6 +3843,7 @@ class LotEditorWin(wx.Frame):
                             self.quadHighs = [[minx, miny, maxx, maxy]]
                 records = [(item[0], item[1], item[2], 1802442183) for item in constraints]
                 self.DrawQuads(records, True, tint=tint)
+                self._DrawConstraintOutlines(constraints, base_rgb)
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_TRANSIT):
             for texData in self.te:
@@ -4955,13 +4992,12 @@ class LotEditorWin(wx.Frame):
             if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
                 self.PlaceTransitNode(tile_x, tile_y)
                 return
-        if self.modeEdit == MODE_EDIT_CONSTRAINT and self.highlighted == []:
+        if self.modeEdit in CONSTRAINT_EDIT_MODES and self.highlighted == []:
             tile_x = int(math.floor(px / 16.0))
             tile_y = int(math.floor(py / 16.0))
             lot_size = self.exemplar.GetProp(2297284496)
             if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
-                # Plain click places a water tile, Shift+click places land.
-                self.PlaceConstraint(tile_x, tile_y, 6 if evt.ShiftDown() else 5)
+                self.PlaceConstraint(tile_x, tile_y, 6 if self.modeEdit == MODE_EDIT_CONSTRAINT_LAND else 5)
                 return
         if not evt.ControlDown():
             for quad in self.quadSelected:
