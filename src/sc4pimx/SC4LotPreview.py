@@ -482,9 +482,9 @@ class LEInspectorPanel(wx.Panel):
 
 class LotEditorWin(wx.Frame):
     zoomScale = [
-     1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2]
-    zoomScale3D = [1 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1]
-    zoomScaleATC = [1 / 64.0, 1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1 / 2.0]
+     1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2, 4, 8]
+    zoomScale3D = [1 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2, 4]
+    zoomScaleATC = [1 / 64.0, 1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1 / 2.0, 1, 2]
 
     def __init__(self, parent, ID, title, size):
         wx.Frame.__init__(self, parent, ID, title, size=size, style=wx.DEFAULT_FRAME_STYLE)
@@ -1754,7 +1754,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def OnZoom(self, event):
-        if self.zoom < 5:
+        if self.zoom < 7:
             self.SetZoom(self.zoom + 1)
 
     def OnUnzoom(self, event):
@@ -1812,6 +1812,12 @@ class LotEditorWin(wx.Frame):
 
     def OnSetZoom6(self, event):
         self.SetZoom(5)
+
+    def OnSetZoom7(self, event):
+        self.SetZoom(6)
+
+    def OnSetZoom8(self, event):
+        self.SetZoom(7)
 
     def Rotate(self, rotOrder, rotFunc):
         for id, q in zip(self.selected, self.quadSelected):
@@ -2425,7 +2431,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraintWater,108: self.OnModeConstraintLand,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraintWater,108: self.OnModeConstraintLand,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,55: self.OnSetZoom7,56: self.OnSetZoom8,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,wx.WXK_NUMPAD7: self.OnSetZoom7,wx.WXK_NUMPAD8: self.OnSetZoom8,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self._request_draw()
@@ -3521,7 +3527,7 @@ class LotEditorWin(wx.Frame):
     def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False,
                  tint=(1.0, 1.0, 1.0, 1.0)):
         zoom = self.zoom
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         try:
             texture = self.textures[texID][0][zoom]
@@ -4022,7 +4028,7 @@ class LotEditorWin(wx.Frame):
             return
         zoom = self.zoom
         LotEditorWin.zoomScale3D[zoom]
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         if self.BackTextures[zoom] is not None and self.BackTextureSizes[zoom] is not None:
             glDisable(GL_DEPTH_TEST)
@@ -4050,7 +4056,7 @@ class LotEditorWin(wx.Frame):
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
         zoom = self.zoom
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         try:
             texture = self.textures[texID][0][zoom]
