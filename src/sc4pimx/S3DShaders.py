@@ -208,9 +208,17 @@ class SC4LightingProgram:
             'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
             'textured': glGetUniformLocation(self.program, 'u_textured'),
         }
+        # Identity of the lighting_state dict whose values are currently
+        # uploaded. Uniforms persist in the program object, so when the same
+        # (cached, immutable) dict comes back the ~12 lighting uploads are
+        # skipped — with per-exemplar states deduped to a handful of shared
+        # dicts this drops lighting uploads from per-mesh to per-transition.
+        self._current_lighting = None
 
-    def bind(self, lighting_state, mvp, normal_matrix):
-        glUseProgram(self.program)
+    def _set_lighting(self, lighting_state):
+        if lighting_state is self._current_lighting:
+            return
+        self._current_lighting = lighting_state
         glUniform1i(self._uniforms['texture'], 0)
         self._set_vec3('global_color', lighting_state['global_color'])
         self._set_vec3('ambient_color', lighting_state['ambient_color'])
@@ -231,6 +239,10 @@ class SC4LightingProgram:
             'environment_color', lighting_state.get('environment_color', (1.0, 1.0, 1.0)),
         )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
+
+    def bind(self, lighting_state, mvp, normal_matrix):
+        glUseProgram(self.program)
+        self._set_lighting(lighting_state)
         glUniform1i(self._uniforms['instanced'], 0)
         self._upload_explicit_matrices(mvp, normal_matrix)
 
@@ -366,12 +378,18 @@ class SC4ShadowProgram:
         }
         self.shadow_color = (0.0, 0.0, 0.0)
         self.shadow_strength = 0.35
+        # Currently uploaded (color, strength); uniforms persist in the
+        # program, so unchanged params skip their uploads on later binds.
+        self._current_params = None
 
     def bind(self, lighting_state, mvp, normal_matrix=None):
         glUseProgram(self.program)
-        glUniform1i(self._uniforms['texture'], 0)
-        glUniform3f(self._uniforms['shadow_color'], *(float(c) for c in self.shadow_color))
-        glUniform1f(self._uniforms['shadow_strength'], float(self.shadow_strength))
+        params = (tuple(float(c) for c in self.shadow_color), float(self.shadow_strength))
+        if params != self._current_params:
+            self._current_params = params
+            glUniform1i(self._uniforms['texture'], 0)
+            glUniform3f(self._uniforms['shadow_color'], *params[0])
+            glUniform1f(self._uniforms['shadow_strength'], params[1])
         glUniform1i(self._uniforms['instanced'], 0)
         mvp = numpy.ascontiguousarray(mvp, dtype=numpy.float32)
         glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_TRUE, mvp)
