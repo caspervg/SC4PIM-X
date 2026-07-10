@@ -13,6 +13,7 @@ import wx
 import wx.lib.agw.ultimatelistctrl as ULC
 
 from .SC4OccupantGroupPicker import _centre_on_top_level, _monospace_font
+from .TablerIcons import set_button_icon
 from .translation import *  # noqa: F401,F403
 
 PROP_BUILDING_SUBMENUS = 0xAA1DD399
@@ -188,6 +189,7 @@ class BuildingSubmenuPickerDialog(wx.Dialog):
             if hasattr(self.hexText, "SetHint"):
                 self.hexText.SetHint(LEXBuildingSubmenuHexHint)
             self.addButton = wx.Button(self, -1, LEXBuildingSubmenuAddHex)
+            set_button_icon(self.addButton, "plus")
             add_row = wx.BoxSizer(wx.HORIZONTAL)
             add_row.Add(wx.StaticText(self, -1, LEXBuildingSubmenuManualHex), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
             add_row.Add(self.hexText, 1, wx.RIGHT | wx.EXPAND, 6)

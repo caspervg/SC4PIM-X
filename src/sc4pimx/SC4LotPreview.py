@@ -2,6 +2,7 @@
 import logging
 import math
 import os
+import time
 
 import numpy
 import wx
@@ -14,22 +15,28 @@ from OpenGL.GL import (
     GL_DEPTH_BUFFER_BIT,
     GL_DEPTH_TEST,
     GL_FRAMEBUFFER,
+    GL_LEQUAL,
     GL_LINEAR,
     GL_LINES,
     GL_MULTISAMPLE,
     GL_NEAREST,
     GL_ONE,
     GL_ONE_MINUS_SRC_ALPHA,
+    GL_POLYGON_OFFSET_FILL,
     GL_REPEAT,
     GL_SRC_ALPHA,
+    GL_TRUE,
     glBindFramebuffer,
     glBlendFunc,
     glClear,
     glClearColor,
     glClearDepth,
     glDeleteTextures,
+    glDepthFunc,
+    glDepthMask,
     glDisable,
     glEnable,
+    glPolygonOffset,
     glViewport,
 )
 from PIL import Image
@@ -38,12 +45,19 @@ from . import FSHConverter, SC4IconMakerDlg, SC4Matrix, treeDnD
 from .ATCReader import ATC
 from .config import load_lot_editor, save_lot_editor
 from .paths import background_path, background_set_dir, background_sets
-from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram, approximate_model_light
+from .S3DShaders import (
+    DAY_PRESET,
+    NIGHT_PRESET,
+    SC4LightingProgram,
+    SC4ShadowProgram,
+    approximate_model_light,
+)
 from .S3DTexturesHolder import S3DTexturesHolder
 from .S3DViewer import S3DViewer
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
 from .SC4LETools import *
+from .SC4LightingProfiles import lighting_profile, lighting_profiles
 from .SC4OpenGL import MyCanvasBase
 from .SC4PathReader import (
     SC4PATH_GIDS,
@@ -53,7 +67,6 @@ from .SC4PathReader import (
 )
 from .SC4PropTiming import (
     clamp_date,
-    effective_night_hours,
     is_night,
     prop_temporal_state,
     timer_hides_prop,
@@ -79,6 +92,7 @@ from .SC4TransitLotTools import (
     tile_quad,
     transit_path_status,
 )
+from .TablerIcons import icon_bundle, icon_button
 from .translation import *
 
 logger = logging.getLogger(__name__)
@@ -102,6 +116,10 @@ MODE_EDIT_BUILDING = 8
 MODE_EDIT_FLORA = 16
 MODE_EDIT_TRANSIT = 32
 MODE_EDIT_CONSTRAINT = 64
+MODE_EDIT_CONSTRAINT_LAND = 128
+CONSTRAINT_EDIT_MODES = (MODE_EDIT_CONSTRAINT, MODE_EDIT_CONSTRAINT_LAND)
+LE_TOOLBAR_ICON_SIZE = 22
+LE_TOOLBAR_BUTTON_SIZE = (36, 32)
 LAYER_BASE = 'base_textures'
 LAYER_OVERLAY = 'overlay_textures'
 LAYER_WATER = 'water_constraints'
@@ -117,6 +135,7 @@ LAYER_SELECTION = 'selection'
 LAYER_MISSING = 'missing_markers'
 LAYER_CARDINALS = 'cardinal_labels'
 LAYER_BACKGROUND = 'terrain_background'
+LAYER_SHADOWS = 'shadows'
 LAYER_SPECS = [
     (LAYER_BASE, LEXLayerBaseTextures),
     (LAYER_OVERLAY, LEXLayerOverlayTextures),
@@ -128,12 +147,15 @@ LAYER_SPECS = [
     (LAYER_BUILDING, LEXLayerBuilding),
     (LAYER_PROPS, LEXLayerProps),
     (LAYER_FLORA, LEXLayerFlora),
+    (LAYER_SHADOWS, LEXLayerShadows),
     (LAYER_SNAP_GRID, LEXLayerSnapGrid),
     (LAYER_SELECTION, LEXLayerSelection),
     (LAYER_MISSING, LEXLayerMissingMarkers),
     (LAYER_CARDINALS, LEXLayerCardinalLabels),
     (LAYER_BACKGROUND, LEXLayerTerrainBackground),
 ]
+# Layers that only make sense in the 3D preview; hidden from the 2D submenu.
+LAYER_3D_ONLY = {LAYER_SHADOWS}
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -311,6 +333,10 @@ class LEInspectorPanel(wx.Panel):
         wx.Panel.__init__(self, parent, -1)
         self.editor = editor
         self._family_members = []
+        self._thumb_cache = {}
+        self._last_family_id = None
+        self._last_member_tgis = ()
+        self._family_buttons = {}
         self.SetBackgroundColour(wx.Colour(250, 251, 252))
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.text = wx.TextCtrl(self, -1, LEXInspectorPrompt,
@@ -397,36 +423,58 @@ class LEInspectorPanel(wx.Panel):
 
     def ShowFamilyVariations(self, family_id, members, selected_tgi):
         self._family_members = list(members)
+        member_tgis = tuple(desc.exemplar.entry.tgi for desc in self._family_members)
+        if family_id == self._last_family_id and member_tgis == self._last_member_tgis:
+            # Same family, same members -- just move the selected toggle,
+            # instead of destroying and rebuilding every button (which was
+            # re-decoding every thumbnail from disk on each selection/move).
+            for tgi, btn in self._family_buttons.items():
+                btn.SetValue(tgi == selected_tgi)
+            return
         self.familySizer.Clear(True)
+        self._family_buttons = {}
         for idx, desc in enumerate(self._family_members):
+            tgi = desc.exemplar.entry.tgi
             bmp = self._family_member_bitmap(desc)
             item = wx.Panel(self.familyGrid, -1)
             item_sizer = wx.BoxSizer(wx.VERTICAL)
             btn = wx.BitmapToggleButton(item, -1, bmp, size=(58, 58))
-            btn.SetValue(desc.exemplar.entry.tgi == selected_tgi)
-            btn.SetToolTip('%s\n%s' % (desc.name, hex2str(desc.exemplar.entry.tgi[2])))
+            btn.SetValue(tgi == selected_tgi)
+            btn.SetToolTip('%s\n%s' % (desc.name, hex2str(tgi[2])))
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, i=idx: self.OnFamilyVariation(i))
-            label = wx.StaticText(item, -1, hex2str(desc.exemplar.entry.tgi[2])[-4:])
-            label.SetFont(wx.Font(7, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            label = wx.StaticText(item, -1, hex2str(tgi[2]))
+            label.SetFont(wx.Font(6, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             item_sizer.Add(btn, 0, wx.ALIGN_CENTER)
             item_sizer.Add(label, 0, wx.ALIGN_CENTER | wx.TOP, 1)
             item.SetSizer(item_sizer)
             self.familySizer.Add(item, 0, wx.ALL, 2)
+            self._family_buttons[tgi] = btn
         self.familyGrid.FitInside()
         self.familyGrid.SetMinSize((-1, 76 if len(self._family_members) <= 4 else 136))
         self._outer.Show(self._family_fields, True, recursive=True)
         self.Layout()
+        self._last_family_id = family_id
+        self._last_member_tgis = member_tgis
 
     def HideFamilyVariations(self):
         self._family_members = []
+        self._family_buttons = {}
+        self._last_family_id = None
+        self._last_member_tgis = ()
         self.familySizer.Clear(True)
         self._outer.Show(self._family_fields, False, recursive=True)
         self.Layout()
 
     def _family_member_bitmap(self, desc):
+        tgi = desc.exemplar.entry.tgi
+        cached = self._thumb_cache.get(tgi)
+        if cached is not None:
+            return cached
         try:
             image = BuildImagesForPropStates(desc.exemplar, 52)[0]
-            return BitmapFromPIL(image)
+            bmp = BitmapFromPIL(image)
+            self._thumb_cache[tgi] = bmp
+            return bmp
         except Exception:
             bmp = wx.Bitmap(52, 52)
             dc = wx.MemoryDC(bmp)
@@ -460,9 +508,9 @@ class LEInspectorPanel(wx.Panel):
 
 class LotEditorWin(wx.Frame):
     zoomScale = [
-     1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2]
-    zoomScale3D = [1 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1]
-    zoomScaleATC = [1 / 64.0, 1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1 / 2.0]
+     1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2, 4, 8]
+    zoomScale3D = [1 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1, 2, 4]
+    zoomScaleATC = [1 / 64.0, 1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1 / 2.0, 1, 2]
 
     def __init__(self, parent, ID, title, size):
         wx.Frame.__init__(self, parent, ID, title, size=size, style=wx.DEFAULT_FRAME_STYLE)
@@ -483,6 +531,7 @@ class LotEditorWin(wx.Frame):
         self.lotFamiliesPropID = []
         self.lotFloraDescs = []
         self.familyVariations = {}
+        self._family_members_cache = {}
         self.modeDisplay = MODE_DISPLAY_FULL
         self.modeEdit = MODE_EDIT_PAN
         self.transitDefaults = dict(DEFAULT_TRANSIT_SETTINGS)
@@ -493,6 +542,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetDropTarget(dt)
         self.s3DTexturesHolder = S3DTexturesHolder(self.glCanvas2D)
         self.s3d_shader_program = None
+        self.s3d_shadow_program = None
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.zoom = 3
         # Continuous multiplier on top of the discrete zoom level, so Fit view
@@ -521,18 +571,24 @@ class LotEditorWin(wx.Frame):
         self._redo_stack = []
         self._drag_undo_pending = False
         self._sc4path_cache = {}
+        # Per-frame render caches; see _temporal_state_for_exemplar and
+        # _lot_lighting_state. Cleared on lot reload (PreCache) and whenever
+        # their key (preview clock / lighting settings) changes.
+        self._temporal_cache = {}
+        self._temporal_cache_key = None
+        self._lighting_state_cache = {}
+        self._lighting_state_cache_key = None
+        self._prelit_cache = {}
+        # Offscreen snapshot of the non-dragged split-view pane; see
+        # _draw_pane_cached.
+        self._pane_cache_target = None
+        self._pane_cache_pane = None
+        self._pane_cache_key = None
         return
 
-    def _make_toolbar_button(self, parent, label, tooltip, handler, hint=None, art_id=None, size=(32, 28)):
+    def _make_toolbar_button(self, parent, icon, tooltip, handler, hint=None, size=LE_TOOLBAR_BUTTON_SIZE):
         tip = tooltip if hint is None else '%s  [%s]' % (tooltip, hint)
-        btn = None
-        if art_id is not None:
-            bmp = wx.ArtProvider.GetBitmap(art_id, wx.ART_TOOLBAR, wx.Size(16, 16))
-            if bmp.IsOk():
-                btn = wx.BitmapButton(parent, -1, bmp, size=size)
-        if btn is None:
-            btn = wx.Button(parent, -1, label, size=size)
-        btn.SetToolTip(tip)
+        btn = icon_button(parent, icon, tip, LE_TOOLBAR_ICON_SIZE, size)
         btn.Bind(wx.EVT_BUTTON, handler)
         return btn
 
@@ -549,8 +605,20 @@ class LotEditorWin(wx.Frame):
         )
         self.previewMinutes = max(0, min(1439, int(settings.get('PreviewMinutes', 720))))
         self.showInactiveProps = bool(settings.get('ShowInactiveProps', False))
-        self.nightBegin, self.nightEnd = 20, 1
-        self.nightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.showFps = bool(settings.get('ShowFps', False))
+        self._fps_last_frame = None
+        self._fps_smoothed = None
+        self.lightingProfiles = lighting_profiles()
+        self.lightingProfile = lighting_profile(settings.get('LightingProfile', 'maxis'))
+        self.lightingProfileId = self.lightingProfile.profile_id
+        # SC4 shadows are view-locked (sun azimuth fixed on screen); default on.
+        self.shadowLockToView = bool(settings.get('ShadowLockToView', True))
+        self.nightBegin = self.lightingProfile.night_begin_hour
+        self.nightEnd = self.lightingProfile.night_end_hour
+        self.clockNightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.nightMode = self.lightingProfile.is_graphical_night(
+            self.previewMinutes, self.previewDate.month,
+        )
         self.s3DTexturesHolder.SetNightMode(self.nightMode)
         self._layer_menu_ids = {}
         self._background_menu_ids = {}
@@ -565,48 +633,52 @@ class LotEditorWin(wx.Frame):
         # always visible; _sync_mode_buttons keeps them in step with the
         # keyboard shortcuts (h/p/t/v/f/b).
         self.modeButtons = {}
-        for label, mode, handler, hint in [
-            (LEXPAN, MODE_EDIT_PAN, self.OnModePan, 'H'),
-            (LEXProps, MODE_EDIT_PROP, self.OnModeProp, 'P'),
-            (LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex, 'T'),
-            (LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
-            (LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
-            (LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
-            (LEXConstraint, MODE_EDIT_CONSTRAINT, self.OnModeConstraint, 'W'),
+        for icon, label, mode, handler, hint in [
+            ('hand-move', LEXPAN, MODE_EDIT_PAN, self.OnModePan, 'H'),
+            ('cube', LEXProps, MODE_EDIT_PROP, self.OnModeProp, 'P'),
+            ('texture', LEXBaseTexture, MODE_EDIT_BASETEX, self.OnModeBaseTex, 'T'),
+            ('layers-intersect', LEXOverlayTexture, MODE_EDIT_OVERTEX, self.OnModeOverTex, 'V'),
+            ('trees', LEXFlora, MODE_EDIT_FLORA, self.OnModeFlora, 'F'),
+            ('route', LEXTransit, MODE_EDIT_TRANSIT, self.OnModeTransit, 'E'),
+            ('droplet', LEXConstraintWater, MODE_EDIT_CONSTRAINT, self.OnModeConstraintWater, 'W'),
+            ('mountain', LEXConstraintLand, MODE_EDIT_CONSTRAINT_LAND, self.OnModeConstraintLand, 'L'),
         ]:
-            btn = wx.ToggleButton(command_bar, -1, label, size=(-1, 28))
+            btn = wx.BitmapToggleButton(
+                command_bar, -1, icon_bundle(icon, LE_TOOLBAR_ICON_SIZE),
+                size=LE_TOOLBAR_BUTTON_SIZE,
+            )
             btn.SetToolTip('%s  [%s]' % (label, hint))
             btn.Bind(wx.EVT_TOGGLEBUTTON, handler)
             self.modeButtons[mode] = btn
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        for label, fallback, handler, hint, art_id in [
-            (LEXToolbarDuplicate, '⧉', self.OnDuplicate, 'D', wx.ART_COPY),
-            (LEXToolbarDelete, '×', self.OnDelete, 'Del', wx.ART_DELETE),
+        for icon, tooltip, handler, hint in [
+            ('copy', LEXToolbarDuplicate, self.OnDuplicate, 'D'),
+            ('trash', LEXToolbarDelete, self.OnDelete, 'Del'),
         ]:
-            btn = self._make_toolbar_button(command_bar, fallback, label, handler, hint, art_id)
+            btn = self._make_toolbar_button(command_bar, icon, tooltip, handler, hint)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        for label, tooltip, handler, hint, art_id in [
-            ('◱', LEXToolbarView, self.OnCycleViewMode, 'A', wx.ART_REPORT_VIEW),
-            ('−', LEXToolbarZoomOut, self.OnUnzoom, '-', wx.ART_MINUS),
-            ('+', LEXToolbarZoomIn, self.OnZoom, '+', wx.ART_PLUS),
-            ('⛶', LEXToolbarFitView, self.OnFitView, 'C', wx.ART_FIND),
+        for icon, tooltip, handler, hint in [
+            ('cube-3d-sphere', LEXToolbarView, self.OnCycleViewMode, 'A'),
+            ('zoom-out', LEXToolbarZoomOut, self.OnUnzoom, '-'),
+            ('zoom-in', LEXToolbarZoomIn, self.OnZoom, '+'),
+            ('focus-centered', LEXToolbarFitView, self.OnFitView, 'C'),
         ]:
-            btn = self._make_toolbar_button(command_bar, label, tooltip, handler, hint, art_id)
+            btn = self._make_toolbar_button(command_bar, icon, tooltip, handler, hint)
             command_sizer.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
 
         # Snap: plain click toggles the grid, Ctrl+click sets the grid size.
-        snap_btn = self._make_toolbar_button(command_bar, '#', '%s\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint),
+        snap_btn = self._make_toolbar_button(command_bar, 'grid-dots', '%s\n%s' % (LEXToolbarSnap, LEXToolbarSnapHint),
                                              self.OnSnapButton, 'S')
         command_sizer.Add(snap_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        icon_btn = self._make_toolbar_button(command_bar, '▣', LEXIconPreviewTitle, self.OnPreviewIcon,
-                                             art_id=wx.ART_NORMAL_FILE)
+        icon_btn = self._make_toolbar_button(command_bar, 'photo', LEXIconPreviewTitle, self.OnPreviewIcon)
         command_sizer.Add(icon_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        layers_btn = self._make_toolbar_button(command_bar, '▤', '%s\n%s' % (LEXToolbarLayers, LEXToolbarLayersHint),
-                                               self.OnLayersMenu, art_id=wx.ART_LIST_VIEW)
+        layers_btn = self._make_toolbar_button(command_bar, 'layers-selected',
+                                               '%s\n%s' % (LEXToolbarLayers, LEXToolbarLayersHint),
+                                               self.OnLayersMenu)
         command_sizer.Add(layers_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
@@ -616,17 +688,19 @@ class LotEditorWin(wx.Frame):
         self.alignButtons = []
         self.rotateButtons = []
         self.mirrorButton = None
-        for label, handler, tip, group, art_id in [
-            ('◀', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align', wx.ART_GO_BACK),
-            ('▶', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align', wx.ART_GO_FORWARD),
-            ('▲', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align', wx.ART_GO_UP),
-            ('▼', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align', wx.ART_GO_DOWN),
-            ('↺', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate', None),
-            ('↻', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate', None),
-            ('⇄', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror', None),
+        for icon, handler, tip, group in [
+            ('layout-align-left', self.OnAlignLeft, '%s\n%s' % (LEXToolbarAlignLeft, LEXToolbarAlignHint), 'align'),
+            ('layout-align-right', self.OnAlignRight, '%s\n%s' % (LEXToolbarAlignRight, LEXToolbarAlignHint), 'align'),
+            ('layout-align-center', self.OnAlignCenterH, '%s\n%s\n%s' % (LEXToolbarAlignCenterH, LEXToolbarAlignHint, LEXToolbarAlignCenterShiftHint), 'align'),
+            ('layout-align-top', self.OnAlignTop, '%s\n%s' % (LEXToolbarAlignTop, LEXToolbarAlignHint), 'align'),
+            ('layout-align-bottom', self.OnAlignBottom, '%s\n%s' % (LEXToolbarAlignBottom, LEXToolbarAlignHint), 'align'),
+            ('layout-align-middle', self.OnAlignCenterV, '%s\n%s\n%s' % (LEXToolbarAlignCenterV, LEXToolbarAlignHint, LEXToolbarAlignCenterShiftHint), 'align'),
+            ('rotate-2', self.OnRotateLeft, '%s  [Home]' % LEXToolbarRotateLeft, 'rotate'),
+            ('rotate-clockwise-2', self.OnRotateRight, '%s  [End]' % LEXToolbarRotateRight, 'rotate'),
+            ('flip-horizontal', self.OnMirror, '%s  [M]' % LEXToolbarMirror, 'mirror'),
         ]:
             holder = wx.Panel(command_bar, -1)
-            btn = self._make_toolbar_button(holder, label, tip, handler, art_id=art_id)
+            btn = self._make_toolbar_button(holder, icon, tip, handler)
             holder.SetToolTip(tip)
             holder_sizer = wx.BoxSizer(wx.VERTICAL)
             holder_sizer.Add(btn, 0)
@@ -640,11 +714,11 @@ class LotEditorWin(wx.Frame):
                 self.mirrorButton = btn
 
         # Undo/redo for every lot-config edit (also Ctrl+Z / Ctrl+Y).
-        self.undoButton = self._make_toolbar_button(command_bar, '↶', LEXToolbarUndo, self.OnUndo,
-                                                    'Ctrl+Z', wx.ART_UNDO)
+        self.undoButton = self._make_toolbar_button(command_bar, 'arrow-back-up', LEXToolbarUndo, self.OnUndo,
+                                                    'Ctrl+Z')
         command_sizer.Add(self.undoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        self.redoButton = self._make_toolbar_button(command_bar, '↷', LEXToolbarRedo, self.OnRedo,
-                                                    'Ctrl+Y', wx.ART_REDO)
+        self.redoButton = self._make_toolbar_button(command_bar, 'arrow-forward-up', LEXToolbarRedo, self.OnRedo,
+                                                    'Ctrl+Y')
         command_sizer.Add(self.redoButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         self.undoButton.Disable()
         self.redoButton.Disable()
@@ -667,6 +741,7 @@ class LotEditorWin(wx.Frame):
         inspector_width = int(settings.get('InspectorWidth', 280))
         self.rightSplitter.SplitVertically(viewport_panel, self.inspector, -inspector_width)
         self.rightSplitter.SetMinimumPaneSize(220)
+        self.rightSplitter.SetSashGravity(1.0)
         browser_width = int(settings.get('BrowserWidth', 330))
         self.mainSplitter.SplitVertically(self.assetBrowser, self.rightSplitter, browser_width)
         self.mainSplitter.SetMinimumPaneSize(260)
@@ -683,6 +758,17 @@ class LotEditorWin(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.Add(wx.StaticText(bar, -1, LEXTemporalPreview), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 8)
+
+        row.Add(wx.StaticText(bar, -1, LEXLightingProfile), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.lightingProfileCtrl = wx.Choice(
+            bar, -1, choices=[profile.display_name for profile in self.lightingProfiles],
+        )
+        self._lightingProfileIds = [profile.profile_id for profile in self.lightingProfiles]
+        self.lightingProfileCtrl.SetSelection(
+            self._lightingProfileIds.index(self.lightingProfileId)
+        )
+        row.Add(self.lightingProfileCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
         row.Add(wx.StaticText(bar, -1, LEXTemporalDayField), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
@@ -701,9 +787,20 @@ class LotEditorWin(wx.Frame):
         row.Add(self.previewMonthCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
         self.previewTimeSlider = wx.Slider(
-            bar, -1, self.previewMinutes, 0, 1439, size=(220, -1),
+            bar, -1, self.previewMinutes, 0, 1439, size=(320, -1),
         )
-        row.Add(self.previewTimeSlider, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        row.Add(self.previewTimeSlider, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.previewPlayButton = icon_button(
+            bar, 'player-play', LEXTemporalPlay,
+            LE_TOOLBAR_ICON_SIZE, LE_TOOLBAR_BUTTON_SIZE,
+        )
+        row.Add(self.previewPlayButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self.previewLoopModeCtrl = wx.Choice(bar, -1, choices=[
+            LEXLoopTime, LEXLoopDate, LEXLoopTimeDate,
+        ])
+        self.previewLoopModeCtrl.SetSelection(0)
+        self.previewLoopModeCtrl.SetToolTip(LEXTemporalLoop)
+        row.Add(self.previewLoopModeCtrl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.previewTimeLabel = wx.StaticText(bar, -1, '')
         self.previewTimeLabel.SetMinSize((88, -1))
         row.Add(self.previewTimeLabel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
@@ -718,8 +815,112 @@ class LotEditorWin(wx.Frame):
         self.previewDayCtrl.Bind(wx.EVT_TEXT, self.OnTemporalChange)
         self.previewTimeSlider.Bind(wx.EVT_SLIDER, self.OnTemporalChange)
         self.showInactiveCheck.Bind(wx.EVT_CHECKBOX, self.OnTemporalChange)
+        self.lightingProfileCtrl.Bind(wx.EVT_CHOICE, self.OnLightingProfileChange)
+        self.previewPlayButton.Bind(wx.EVT_BUTTON, self.OnTogglePlayback)
+        self.previewPlayTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnPlaybackTick, self.previewPlayTimer)
+        # Coalesces config writes from manual temporal edits (slider drags,
+        # date spins) so a drag doesn't hit the disk on every step.
+        self._stateSaveTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_state_save_timer, self._stateSaveTimer)
         self._update_temporal_controls()
         return bar
+
+    # The timer fires every PLAYBACK_INTERVAL_MS, but the clock advances by the
+    # REAL time elapsed since the previous frame, not a fixed step per tick.
+    # That decouples playback speed from the framerate: a heavy lot that can't
+    # hit the tick rate just drops frames instead of running the clock slow.
+    # The per-second rates below reproduce the old fixed-step speeds (which
+    # assumed a steady 25 ms tick): 5 min/tick -> 200 min/s, 60 -> 2400, etc.
+    PLAYBACK_INTERVAL_MS = 25
+    PLAYBACK_TIME_MIN_PER_SEC = 200.0
+    PLAYBACK_BOTH_MIN_PER_SEC = 2400.0
+    PLAYBACK_DAYS_PER_SEC = 40.0
+    # Cap a single frame's advance so a stall (GC pause, slow first frame)
+    # doesn't fast-forward the clock by a large jump when ticks resume.
+    PLAYBACK_MAX_FRAME_SECONDS = 0.25
+    STATE_SAVE_DEBOUNCE_MS = 500
+    LOOP_MODE_TIME = 0
+    LOOP_MODE_DATE = 1
+    LOOP_MODE_BOTH = 2
+
+    def OnTogglePlayback(self, event=None):
+        if self.previewPlayTimer.IsRunning():
+            self._stop_playback()
+        else:
+            self.previewPlayButton.SetBitmap(icon_bundle('player-pause', LE_TOOLBAR_ICON_SIZE))
+            self.previewPlayButton.SetToolTip(LEXTemporalPause)
+            self._playback_last_time = time.perf_counter()
+            self._playback_min_accum = 0.0
+            self._playback_day_accum = 0.0
+            self.previewPlayTimer.Start(self.PLAYBACK_INTERVAL_MS)
+
+    def _stop_playback(self):
+        was_running = self.previewPlayTimer.IsRunning()
+        if was_running:
+            self.previewPlayTimer.Stop()
+        self.previewPlayButton.SetBitmap(icon_bundle('player-play', LE_TOOLBAR_ICON_SIZE))
+        self.previewPlayButton.SetToolTip(LEXTemporalPlay)
+        # Persist the settled preview time once, on pause -- playback frames
+        # deliberately skip the (disk-backed) save so it never runs per frame.
+        if was_running:
+            self.SaveEditorState()
+
+    def OnPlaybackTick(self, event=None):
+        now = time.perf_counter()
+        elapsed = now - self._playback_last_time
+        self._playback_last_time = now
+        elapsed = min(max(elapsed, 0.0), self.PLAYBACK_MAX_FRAME_SECONDS)
+        mode = self.previewLoopModeCtrl.GetSelection()
+        if mode == self.LOOP_MODE_DATE:
+            self._playback_day_accum += elapsed * self.PLAYBACK_DAYS_PER_SEC
+            days = int(self._playback_day_accum)
+            if days:
+                self._playback_day_accum -= days
+                self._advance_date(days)
+            return
+        rate = (self.PLAYBACK_BOTH_MIN_PER_SEC if mode == self.LOOP_MODE_BOTH
+                else self.PLAYBACK_TIME_MIN_PER_SEC)
+        self._playback_min_accum += elapsed * rate
+        step = int(self._playback_min_accum)
+        if step <= 0:
+            return
+        self._playback_min_accum -= step
+        minutes = self.previewMinutes + step
+        wraps = minutes // 1440
+        self.previewMinutes = minutes % 1440
+        self.previewTimeSlider.SetValue(self.previewMinutes)
+        if mode == self.LOOP_MODE_BOTH and wraps:
+            # _advance_date syncs the date controls and triggers the redraw.
+            self._advance_date(wraps)
+        else:
+            self._apply_temporal_state(persist=False, full_inspector=False)
+
+    def _advance_date(self, days=1):
+        """Roll the preview date forward, wrapping Dec 31 -> Jan 1.
+
+        Syncs the month/day controls then applies the new date to the scene. On
+        live playback frames the apply runs in its lightweight form (no disk
+        save, no inspector rebuild); see _apply_temporal_state.
+        """
+        import calendar
+        month, day = self.previewDate.month, self.previewDate.day + days
+        while True:
+            last = calendar.monthrange(1, month)[1]
+            if day <= last:
+                break
+            day -= last
+            month = month % 12 + 1
+        self._updatingTemporalControls = True
+        try:
+            self.previewMonthCtrl.SetSelection(month - 1)
+            self.previewDayCtrl.SetRange(1, calendar.monthrange(1, month)[1])
+            self.previewDayCtrl.SetValue(day)
+            self.previewDate = clamp_date(month, day)
+        finally:
+            self._updatingTemporalControls = False
+        playing = self.previewPlayTimer.IsRunning()
+        self._apply_temporal_state(persist=not playing, full_inspector=not playing)
 
     def _update_temporal_controls(self):
         if not hasattr(self, 'previewTimeLabel'):
@@ -745,16 +946,58 @@ class LotEditorWin(wx.Frame):
                 self.previewDayCtrl.SetValue(self.previewDate.day)
             self.previewMinutes = self.previewTimeSlider.GetValue()
             self.showInactiveProps = self.showInactiveCheck.GetValue()
-            self._apply_preview_night_mode()
-            self._update_temporal_controls()
-            self.SaveEditorState()
-            self.UpdateSelectionInspector()
-            self._request_draw()
+            self._apply_temporal_state(persist=True, full_inspector=True)
         finally:
             self._updatingTemporalControls = False
 
+    def _apply_temporal_state(self, persist=True, full_inspector=True):
+        """Push the current previewDate/previewMinutes into the scene.
+
+        persist=False skips the (disk-backed, debounced) config write and
+        full_inspector=False skips the inspector text rebuild. Both are off on
+        live playback frames so a heavy lot never pays disk I/O or inspector
+        churn dozens of times a second. The inspector is still rebuilt when
+        something is selected, so a selected prop's temporal status stays live.
+        """
+        self._apply_preview_night_mode()
+        self._update_temporal_controls()
+        if persist:
+            self._schedule_state_save()
+        if full_inspector or self.selected:
+            self.UpdateSelectionInspector()
+        self._request_draw()
+
+    def _schedule_state_save(self):
+        """Queue a debounced config write, coalescing rapid temporal edits."""
+        timer = getattr(self, '_stateSaveTimer', None)
+        if timer is None:
+            self.SaveEditorState()
+            return
+        timer.StartOnce(self.STATE_SAVE_DEBOUNCE_MS)
+
+    def _on_state_save_timer(self, event):
+        self.SaveEditorState()
+
+    def OnLightingProfileChange(self, event=None):
+        selection = self.lightingProfileCtrl.GetSelection()
+        if selection < 0 or selection >= len(self._lightingProfileIds):
+            return
+        self.lightingProfile = lighting_profile(self._lightingProfileIds[selection])
+        self.lightingProfileId = self.lightingProfile.profile_id
+        self.nightBegin = self.lightingProfile.night_begin_hour
+        self.nightEnd = self.lightingProfile.night_end_hour
+        self._apply_preview_night_mode()
+        self._update_temporal_controls()
+        self.SaveEditorState()
+        self._request_draw()
+
     def _apply_preview_night_mode(self):
-        night = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        self.clockNightMode = is_night(self.previewMinutes, self.nightBegin, self.nightEnd)
+        profile = getattr(self, 'lightingProfile', None)
+        if profile is not None:
+            night = profile.is_graphical_night(self.previewMinutes, self.previewDate.month)
+        else:
+            night = self.clockNightMode
         self.nightMode = night
         if getattr(self, 's3DTexturesHolder', None) is not None:
             self.s3DTexturesHolder.SetNightMode(night)
@@ -776,10 +1019,14 @@ class LotEditorWin(wx.Frame):
         state['PreviewDay'] = int(self.previewDate.day)
         state['PreviewMinutes'] = int(self.previewMinutes)
         state['ShowInactiveProps'] = bool(self.showInactiveProps)
+        state['ShadowLockToView'] = bool(getattr(self, 'shadowLockToView', True))
+        state['ShowFps'] = bool(getattr(self, 'showFps', False))
+        state['LightingProfile'] = str(getattr(self, 'lightingProfileId', 'maxis'))
         return state
 
     def _default_visible_layers(self):
-        return {key: True for key, _label in LAYER_SPECS}
+        # Shadows are an opt-in extra; everything else defaults on.
+        return {key: (key != LAYER_SHADOWS) for key, _label in LAYER_SPECS}
 
     def _load_visible_layers(self, settings):
         layers = self._default_visible_layers()
@@ -856,7 +1103,21 @@ class LotEditorWin(wx.Frame):
         self.inspector.HideFields()
 
     def _temporal_state_for_exemplar(self, exemplar):
-        return prop_temporal_state(exemplar, self.previewDate, self.previewMinutes)
+        # Memoized: evaluating a prop's timer rules costs several linear
+        # GetProp scans, and Draw3D asks for the same exemplar's state up to
+        # four times per frame (visibility, state selection, shadow pass).
+        # The result only depends on the preview clock, so cache per exemplar
+        # until the time widget moves.
+        key = (self.previewDate, self.previewMinutes)
+        if self._temporal_cache_key != key:
+            self._temporal_cache_key = key
+            self._temporal_cache.clear()
+        cache_id = id(exemplar)
+        state = self._temporal_cache.get(cache_id)
+        if state is None:
+            state = prop_temporal_state(exemplar, self.previewDate, self.previewMinutes)
+            self._temporal_cache[cache_id] = state
+        return state
 
     def _temporal_status_lines(self, exemplar, state_count=1):
         if exemplar is None:
@@ -980,8 +1241,12 @@ class LotEditorWin(wx.Frame):
     def _family_members(self, family_id):
         if not hasattr(self, 'virtualDAT') or family_id not in self.virtualDAT.categories:
             return []
+        descriptors = self.virtualDAT.categories[family_id].descriptors
+        cached = self._family_members_cache.get(family_id)
+        if cached is not None and cached[0] == len(descriptors):
+            return cached[1]
         members = []
-        for desc in self.virtualDAT.categories[family_id].descriptors:
+        for desc in descriptors:
             try:
                 if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
@@ -990,6 +1255,7 @@ class LotEditorWin(wx.Frame):
             except Exception:
                 pass
         members.sort(key=lambda n: n.name.upper())
+        self._family_members_cache[family_id] = (len(descriptors), members)
         return members
 
     def _selected_family_desc(self, family_id):
@@ -1013,6 +1279,10 @@ class LotEditorWin(wx.Frame):
         if family_id is None:
             return
         self.familyVariations[family_id] = desc.exemplar.entry.tgi
+        # The prop/flora viewer cache is keyed by family_id only, so a stale
+        # viewer for the previous variation would otherwise keep rendering.
+        self._propViewerByModel.pop(family_id, None)
+        self._floraViewerByModel.pop(family_id, None)
         self._rebuild_scene()
         self.UpdateSelectionInspector()
         self.on_draw()
@@ -1203,6 +1473,7 @@ class LotEditorWin(wx.Frame):
         self._push_undo()
         for values in targets:
             ensure_transit_values(values)
+            values[2] = (int(values[2]) & ~0xF) | (int(settings['rotation']) & 0xF)
             values[12] = int(settings['network'])
             values[13] = int(settings['rep14'])
             values[14] = int(settings['direction_mask'])
@@ -1271,9 +1542,8 @@ class LotEditorWin(wx.Frame):
         miny = tile_y * 16
         cx = minx + 8
         cy = miny + 8
-        # Rep 3 (orientation) = 2: the unrotated flag used by every other
-        # whole-tile object (PlaceAsset textures, make_transit_values), so the
-        # marker texture is not drawn rotated relative to the rest of the lot.
+        # Rep 3 (orientation) = 2: the unrotated flag used by PlaceAsset
+        # textures, so the marker texture is not drawn rotated.
         values = [obj_type, 0, 2,
                   ToUnsigned(cx * 65536), 0, ToUnsigned(cy * 65536),
                   ToUnsigned(minx * 65536), ToUnsigned(miny * 65536),
@@ -1471,14 +1741,20 @@ class LotEditorWin(wx.Frame):
         self.UpdateSelectionInspector()
         self._sync_mode_buttons()
 
-    def OnModeConstraint(self, event):
-        if self.modeEdit != MODE_EDIT_CONSTRAINT:
+    def OnModeConstraintWater(self, event):
+        self._OnModeConstraint(MODE_EDIT_CONSTRAINT)
+
+    def OnModeConstraintLand(self, event):
+        self._OnModeConstraint(MODE_EDIT_CONSTRAINT_LAND)
+
+    def _OnModeConstraint(self, mode):
+        if self.modeEdit != mode:
             self.selected = []
             self.newIds = []
             self.quadSelected = []
-        self.modeEdit = MODE_EDIT_CONSTRAINT
+        self.modeEdit = mode
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
-        self.sb.SetStatusText(LEXConstraintHint, 3)
+        self.sb.SetStatusText(LEXConstraintLand if mode == MODE_EDIT_CONSTRAINT_LAND else LEXConstraintWater, 3)
         self.UpdateSelectionInspector()
         self._sync_mode_buttons()
 
@@ -1514,7 +1790,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Refresh(False)
 
     def OnZoom(self, event):
-        if self.zoom < 5:
+        if self.zoom < 7:
             self.SetZoom(self.zoom + 1)
 
     def OnUnzoom(self, event):
@@ -1572,6 +1848,12 @@ class LotEditorWin(wx.Frame):
 
     def OnSetZoom6(self, event):
         self.SetZoom(5)
+
+    def OnSetZoom7(self, event):
+        self.SetZoom(6)
+
+    def OnSetZoom8(self, event):
+        self.SetZoom(7)
 
     def Rotate(self, rotOrder, rotFunc):
         for id, q in zip(self.selected, self.quadSelected):
@@ -2069,7 +2351,7 @@ class LotEditorWin(wx.Frame):
         return (
          xMin, yMin, xMax, yMax)
 
-    def Align(self, ids, val):
+    def Align(self, ids, val, anchor_avg=False):
         self._push_undo()
         for id, q in zip(self.selected, self.quadSelected):
             for lcp in range(2297284864, 2297286144):
@@ -2077,7 +2359,11 @@ class LotEditorWin(wx.Frame):
                 if values is None:
                     break
                 if values[11] == id:
-                    delta = val - ToCoord(values[ids[1]])
+                    if anchor_avg:
+                        own = (ToCoord(values[ids[1]]) + ToCoord(values[ids[2]])) / 2
+                    else:
+                        own = ToCoord(values[ids[1]])
+                    delta = val - own
                     for iid in ids:
                         values[iid] = ToUnsigned(int((ToCoord(values[iid]) + delta) * 65536))
 
@@ -2129,6 +2415,30 @@ class LotEditorWin(wx.Frame):
         xMin, yMin, xMax, yMax = self.ComputeBBox()
         self.Align([5, 9, 7], yMax)
 
+    def OnAlignCenterH(self, event):
+        if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
+            return
+        if len(self.quadSelected) == 0:
+            return
+        if wx.GetKeyState(wx.WXK_SHIFT):
+            widest = max(self.quadSelected, key=lambda q: q[2] - q[0])
+            self.Align([3, 6, 8], (widest[0] + widest[2]) / 2, anchor_avg=True)
+        else:
+            xMin, yMin, xMax, yMax = self.ComputeBBox()
+            self.Align([3, 6, 8], (xMin + xMax) / 2, anchor_avg=True)
+
+    def OnAlignCenterV(self, event):
+        if self.modeEdit not in [MODE_EDIT_PROP, MODE_EDIT_FLORA]:
+            return
+        if len(self.quadSelected) == 0:
+            return
+        if wx.GetKeyState(wx.WXK_SHIFT):
+            tallest = max(self.quadSelected, key=lambda q: q[3] - q[1])
+            self.Align([5, 7, 9], (tallest[1] + tallest[3]) / 2, anchor_avg=True)
+        else:
+            xMin, yMin, xMax, yMax = self.ComputeBBox()
+            self.Align([5, 7, 9], (yMin + yMax) / 2, anchor_avg=True)
+
     def _event_shortcut_key(self, event):
         key = event.GetKeyCode()
         if event.ControlDown() and 65 <= key <= 90:
@@ -2157,7 +2467,7 @@ class LotEditorWin(wx.Frame):
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
         rot = self.rotation
-        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraint,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
+        func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraintWater,108: self.OnModeConstraintLand,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,55: self.OnSetZoom7,56: self.OnSetZoom8,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,wx.WXK_NUMPAD7: self.OnSetZoom7,wx.WXK_NUMPAD8: self.OnSetZoom8,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
             self._request_draw()
@@ -2210,6 +2520,8 @@ class LotEditorWin(wx.Frame):
         submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, True), id=all_on)
         submenu.Bind(wx.EVT_MENU, lambda event: self.SetAllLayersVisible(view_key, False), id=all_off)
         for key, label in LAYER_SPECS:
+            if key in LAYER_3D_ONLY and view_key != '3d':
+                continue
             menu_id = wx.NewIdRef()
             item = submenu.AppendCheckItem(menu_id, label)
             item.Check(bool(layers.get(key, True)))
@@ -2234,6 +2546,15 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, '2d', LEXLayer2D, self.visibleLayers2D)
         self._append_layer_menu(menu, '3d', LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
+        shadow_lock_id = wx.NewIdRef()
+        shadow_lock_item = menu.AppendCheckItem(shadow_lock_id, LEXShadowLockView)
+        shadow_lock_item.Check(bool(getattr(self, 'shadowLockToView', True)))
+        menu.Bind(wx.EVT_MENU, self.OnToggleShadowLockView, id=shadow_lock_id)
+        fps_id = wx.NewIdRef()
+        fps_item = menu.AppendCheckItem(fps_id, LEXShowFpsCounter)
+        fps_item.Check(bool(getattr(self, 'showFps', False)))
+        menu.Bind(wx.EVT_MENU, self.OnToggleFpsCounter, id=fps_id)
+        menu.AppendSeparator()
         self._append_background_menu(menu)
         if event is not None and hasattr(event.GetEventObject(), 'PopupMenu'):
             event.GetEventObject().PopupMenu(menu)
@@ -2246,13 +2567,118 @@ class LotEditorWin(wx.Frame):
             self.s3d_shader_program = self.glCanvas2D.renderer.register(SC4LightingProgram())
         return self.s3d_shader_program
 
-    def _lot_lighting_state(self, exemplar):
-        state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
-        state['prelit'] = model_is_prelit(exemplar)
+    def _ensure_shadow_program(self):
+        if self.s3d_shadow_program is None:
+            self.s3d_shadow_program = self.glCanvas2D.renderer.register(SC4ShadowProgram())
+        return self.s3d_shadow_program
+
+    # Authoritative SC4 shadow params, from the VANILLA type-0x13 graphics
+    # exemplar 6534284A-A9189CF0-00000001 in SimCity_1.dat ("Shadow colour" /
+    # "Shadow strength" / "Sun direction" / "Sun pitch"; see
+    # .claude/docs/sc4-shadow-rendering.md). NOTE: vanilla shadow colour is a
+    # dark blue-purple, not black -- Gizmo's Day-Night mod flattens it to black.
+    # "Model terrain shadow amount" (0.4) is the building/prop value and matches
+    # "Shadow strength".
+    SHADOW_COLOR = (0.08, 0.06, 0.23)     # "Shadow colour" (vanilla)
+    SHADOW_STRENGTH = 0.4                 # "Shadow strength" / "Model terrain shadow amount"
+    SHADOW_SUN_AZIMUTH = 67.5             # "Sun direction" (degrees)
+    SHADOW_SUN_PITCH = 45.0               # "Sun pitch" (degrees); shadow length = cot(pitch)
+    # On-screen shadow angle. The shadow lives in the lot ground plane at
+    # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
+    # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
+    # screen-vertical, so a shadow runs horizontal across the monitor only when
+    # its post-yaw Z component vanishes: az + ry = 90 deg. With the view-lock
+    # already removing rotation*90, az = (67.5 + offset) - rot2D, which solves to
+    # offset = 45 -> shadows lie flat (matching SC4, whose shadows are ~horizontal
+    # on screen). The old +90 left a large lot-Z share, so shadows climbed
+    # up-screen. Nudge +/-10 to taste.
+    SHADOW_AZIMUTH_OFFSET = 45.0
+
+    def _shadow_light_dir(self):
+        """Lot-space sun direction (points from sun toward ground; -y is down).
+
+        SC4's shadow is view-locked: the sun azimuth is fixed on screen, so when
+        locked we counter-rotate the lot-space azimuth by the camera yaw (the
+        ``-viewYaw`` term in cSC4ModelMaker::CreateOccupantShadow). When unlocked
+        the azimuth is world-fixed and shadows rotate with the lot."""
+        pitch = math.radians(self.SHADOW_SUN_PITCH)
+        length = 1.0 / max(math.tan(pitch), 1.0e-3)   # cot(pitch): horizontal per unit height
+        azimuth = self.SHADOW_SUN_AZIMUTH + self.SHADOW_AZIMUTH_OFFSET
+        if getattr(self, 'shadowLockToView', True):
+            # Counter-rotate by the 90-degree view steps only. The camera's fixed
+            # -22.5 iso tilt applies equally to world mode (which looks correct),
+            # so it must NOT enter the lock: including it lands the lock on
+            # degenerate pure-axis shears (lot azimuth 90/0/...) that warp the
+            # silhouette. Stepping by rotation*90 keeps the shadow on the same
+            # off-axis lattice world mode uses, held at its reference appearance.
+            azimuth = azimuth - self.rotation * 90.0
+        az = math.radians(azimuth)
+        return (length * math.sin(az), -1.0, length * math.cos(az))
+
+    def _shadow_flatten_matrix(self):
+        """Planar projection that collapses lot-space geometry onto the y=0
+        ground plane along the sun direction (row-major, matches the renderer's
+        GL_TRUE upload). Mirrors SC4's projective shadow decal, but using the
+        model's real S3D geometry instead of fixed-function texgen."""
+        dx, dy, dz = self._shadow_light_dir()
+        if abs(dy) < 1.0e-4:
+            dy = -1.0
+        return numpy.array([
+            [1.0, -dx / dy, 0.0, 0.0],
+            [0.0,  0.0,     0.0, 0.0],
+            [0.0, -dz / dy, 1.0, 0.0],
+            [0.0,  0.0,     0.0, 1.0],
+        ], dtype=numpy.float64)
+
+    def _lot_lighting_state(self, exemplar, lighting_kind='model'):
+        # Memoized and deduped: the state only varies by lighting kind and the
+        # exemplar's prelit flag, so at most four shared dicts exist per
+        # global-lighting configuration. Sharing matters beyond avoiding the
+        # rebuild — the shader skips its lighting uniform uploads when handed
+        # the identical dict object again (see SC4LightingProgram). The
+        # per-exemplar part (model_is_prelit, a linear GetProp scan) is
+        # memoized separately. The returned dict is shared — treat it as
+        # read-only; callers that need to tweak it must copy first.
+        profile = getattr(self, 'lightingProfile', None)
+        global_key = (self.nightMode, id(profile), self.previewMinutes,
+                      self.previewDate.month)
+        if self._lighting_state_cache_key != global_key:
+            self._lighting_state_cache_key = global_key
+            self._lighting_state_cache.clear()
+        prelit = self._prelit_cache.get(id(exemplar))
+        if prelit is None:
+            prelit = bool(model_is_prelit(exemplar))
+            self._prelit_cache[id(exemplar)] = prelit
+        cache_id = (lighting_kind, prelit)
+        state = self._lighting_state_cache.get(cache_id)
+        if state is None:
+            state = dict(NIGHT_PRESET if self.nightMode else DAY_PRESET)
+            if profile is not None:
+                state['global_color'] = profile.sample_global_light(
+                    self.previewMinutes, self.previewDate.month,
+                )
+                state['terrain_shadow_amount'] = (
+                    profile.flora_shadow_amount
+                    if lighting_kind == 'flora'
+                    else profile.model_shadow_amount
+                )
+                environment_color = profile.sample_environment_color(
+                    state['terrain_normal'],
+                )
+                state['use_environment_map'] = environment_color is not None
+                if environment_color is not None:
+                    state['environment_color'] = environment_color
+            state['prelit'] = prelit
+            self._lighting_state_cache[cache_id] = state
         return state
 
     def _lot_environment_light(self):
-        return approximate_model_light(self._lot_lighting_state(None))
+        # Copy before mutating: _lot_lighting_state returns its shared cache.
+        state = dict(self._lot_lighting_state(None))
+        profile = getattr(self, 'lightingProfile', None)
+        if profile is not None:
+            state['terrain_shadow_amount'] = profile.terrain_shadow_amount
+        return approximate_model_light(state)
 
     def OnToggleLayerVisibility(self, event):
         view_key, layer_key = self._layer_menu_ids.get(event.GetId(), (None, None))
@@ -2260,6 +2686,18 @@ class LotEditorWin(wx.Frame):
             return
         layers = self.visibleLayers3D if view_key == '3d' else self.visibleLayers2D
         layers[layer_key] = not bool(layers.get(layer_key, True))
+        self.SaveEditorState()
+        self.on_draw()
+
+    def OnToggleShadowLockView(self, event):
+        self.shadowLockToView = not bool(getattr(self, 'shadowLockToView', True))
+        self.SaveEditorState()
+        self.on_draw()
+
+    def OnToggleFpsCounter(self, event):
+        self.showFps = not bool(getattr(self, 'showFps', False))
+        self._fps_last_frame = None
+        self._fps_smoothed = None
         self.SaveEditorState()
         self.on_draw()
 
@@ -2356,6 +2794,8 @@ class LotEditorWin(wx.Frame):
             self.LETools = None
         if hasattr(self, 't2'):
             self.t2.Stop()
+        if hasattr(self, 'previewPlayTimer') and self.previewPlayTimer.IsRunning():
+            self.previewPlayTimer.Stop()
         self.Free()
         event.Skip()
         return True
@@ -2512,6 +2952,7 @@ class LotEditorWin(wx.Frame):
             elif rkt3:
                 buildingViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
             elif rkt4:
+                # RKT4 offset reps are (X, Y, Z) with Y vertical.
                 self.rtk4Offsets[buildingID] = (
                  ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
                 buildingViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -2535,67 +2976,83 @@ class LotEditorWin(wx.Frame):
 
         return name
 
+    def _resolve_lot_desc(self, type_flag, propID, families_seen):
+        """Resolve a lot prop/flora object to its descriptor.
+
+        Returns None when the object should be skipped (unknown, or a family
+        with no members). type_flag is the lot-config object type (1=prop,
+        4=flora). families_seen tracks which family IIDs were already recorded
+        in lotFamiliesPropID so that side effect runs once per family.
+        """
+        if propID in self.virtualDAT.categories:
+            if not self._family_members(propID):
+                return None
+            if propID not in families_seen:
+                families_seen.add(propID)
+                self.lotFamiliesPropID.append(propID)
+            return self._selected_family_desc(propID)
+        cat = 210746660 if type_flag == 1 else 1830116951
+        category = self.virtualDAT.categories.get(cat)
+        if category is not None:
+            for desc in category.descriptors:
+                if desc.exemplar.entry.tgi[2] == propID:
+                    return desc
+        if type_flag == 1:
+            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+            if effect_category is not None:
+                for desc in effect_category.descriptors:
+                    if desc.exemplar.entry.tgi[2] == propID:
+                        return desc
+        return None
+
     def RebuildVars(self):
         self.lotFamiliesPropID = []
         self.lotPropDescs = []
         self.lotEffectDescs = []
         self.lotFloraDescs = []
-        ids = [ tex[3] for tex in self.texBases ]
-        for id in self.lotBaseTextures:
-            if ids.count(id - 3) == 0:
-                self.lotBaseTextures.remove(id)
+        # Drop stale layer entries whose tile no longer exists. Rebuild the
+        # lists rather than removing in place: mutating a list while iterating
+        # it skips elements (the old code's bug), and the membership test is a
+        # set lookup instead of an O(n) list scan per element.
+        base_ids = {tex[3] for tex in self.texBases}
+        self.lotBaseTextures = [t for t in self.lotBaseTextures if (t - 3) in base_ids]
+        over_ids = {tex[3] for tex in self.texOverlays}
+        self.lotOverTextures = [t for t in self.lotOverTextures if (t - 3) in over_ids]
 
-        ids = [ tex[3] for tex in self.texOverlays ]
-        for id in self.lotOverTextures:
-            if ids.count(id - 3) == 0:
-                self.lotOverTextures.remove(id)
-
+        # A lot repeats the same prop/flora model many times. Resolve each
+        # (type, model) to its descriptor once, and dedup the output lists with
+        # parallel sets so membership is O(1) instead of an O(n) list scan.
+        families_seen = set()
+        desc_memo = {}
+        effect_seen, prop_seen, flora_seen = set(), set(), set()
+        lcp_props = self.exemplar.GetPropRange(2297284864, 2297286144)
         for lcp in range(2297284864, 2297286144):
-            values = self.exemplar.GetProp(lcp)
+            values = lcp_props.get(lcp)
             if values is None:
                 break
-            values = values[:]
-            if values[0] == 1 or values[0] == 4:
-                propID = values[12]
-                selectedDesc = None
-                cat = 1830116951
-                if values[0] == 1:
-                    cat = 210746660
-                if propID in self.virtualDAT.categories:
-                    bOk = False
-                    for desc in self._family_members(propID):
-                        self.virtualDAT.categories[propID].Name
-                        bOk = True
-                        selectedDesc = self._selected_family_desc(propID)
-                        if propID not in self.lotFamiliesPropID:
-                            self.lotFamiliesPropID.append(propID)
-                        break
-
-                    if not bOk:
-                        continue
-                if selectedDesc is None:
-                    possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, self.virtualDAT.categories[cat].descriptors)
-                    for desc in possibles:
-                        selectedDesc = desc
-                        continue
-                if selectedDesc is None and values[0] == 1:
-                    effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
-                    if effect_category is not None:
-                        possibles = filter(lambda desc: desc.exemplar.entry.tgi[2] == propID, effect_category.descriptors)
-                        for desc in possibles:
-                            selectedDesc = desc
-                            continue
-
-                if selectedDesc is None:
-                    continue
-                if values[0] == 1 and IsEffectDesc(selectedDesc):
-                    if selectedDesc not in self.lotEffectDescs:
-                        self.lotEffectDescs.append(selectedDesc)
-                elif values[0] == 1:
-                    if selectedDesc not in self.lotPropDescs:
-                        self.lotPropDescs.append(selectedDesc)
-                elif selectedDesc not in self.lotFloraDescs:
-                    self.lotFloraDescs.append(selectedDesc)
+            type_flag = values[0]
+            if type_flag != 1 and type_flag != 4:
+                continue
+            propID = values[12]
+            memo_key = (type_flag, propID)
+            if memo_key in desc_memo:
+                selectedDesc = desc_memo[memo_key]
+            else:
+                selectedDesc = self._resolve_lot_desc(type_flag, propID, families_seen)
+                desc_memo[memo_key] = selectedDesc
+            if selectedDesc is None:
+                continue
+            if type_flag == 1 and IsEffectDesc(selectedDesc):
+                if selectedDesc not in effect_seen:
+                    effect_seen.add(selectedDesc)
+                    self.lotEffectDescs.append(selectedDesc)
+            elif type_flag == 1:
+                if selectedDesc not in prop_seen:
+                    prop_seen.add(selectedDesc)
+                    self.lotPropDescs.append(selectedDesc)
+            elif selectedDesc not in flora_seen:
+                flora_seen.add(selectedDesc)
+                self.lotFloraDescs.append(selectedDesc)
 
         if self.LETools:
             self.LETools.ReBuildLot()
@@ -2647,6 +3104,7 @@ class LotEditorWin(wx.Frame):
         elif rkt3:
             propViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
         elif rkt4:
+            # RKT4 offset reps are (X, Y, Z) with Y vertical.
             self.rtk4Offsets[propID] = (
              ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -2703,6 +3161,7 @@ class LotEditorWin(wx.Frame):
         elif rkt3:
             propViewer = ResourceViewer(662775843, rkt3, self.virtualDAT, None)
         elif rkt4:
+            # RKT4 offset reps are (X, Y, Z) with Y vertical.
             self.rtk4Offsets[propID] = (
              ToCoord(rkt4[1]), ToCoord(rkt4[2]), ToCoord(rkt4[3]))
             propViewer = ResourceViewer(662775844, rkt4, self.virtualDAT, None)
@@ -2711,6 +3170,7 @@ class LotEditorWin(wx.Frame):
         if propViewer is not None:
             propViewer.night_state = night_state_for(selectedDesc.exemplar)
             propViewer.lighting_exemplar = selectedDesc.exemplar
+            propViewer.lighting_kind = 'flora'
         try:
             propViewer.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         except Exception:
@@ -2725,36 +3185,33 @@ class LotEditorWin(wx.Frame):
         return (
          propViewer, name)
 
+    def _collect_effect_model_ids(self):
+        """Model IIDs in the effect category, resolved once per PreCache."""
+        ids = set()
+        effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
+        if effect_category is not None:
+            for desc in effect_category.descriptors:
+                if IsEffectDesc(desc):
+                    ids.add(desc.exemplar.entry.tgi[2])
+        return ids
+
     def PreCacheObject(self, values):
         if values[0] == 0:
             self.building = values
             self.building.append(self.LoadBuildingModel(values[12]))
         if values[0] == 1:
-            is_effect = False
-            effect_category = self.virtualDAT.categories.get(EFFECT_CATEGORY_ID)
-            if effect_category is not None:
-                for desc in effect_category.descriptors:
-                    if desc.exemplar.entry.tgi[2] == values[12] and IsEffectDesc(desc):
-                        is_effect = True
-                        break
-            bOk = False
-            for prop, viewer in zip(self.props, self.propViewers):
-                if prop[12] == values[12]:
-                    values.append(prop[-1])
-                    self.props.append(values)
-                    self.propViewers.append(viewer)
-                    if is_effect:
-                        self.effects.append(values)
-                    bOk = True
-                    break
-
-            if not bOk:
-                propView, name = self.LoadPropModel(values[12])
-                values.append(name)
-                self.props.append(values)
-                self.propViewers.append(propView)
-                if is_effect:
-                    self.effects.append(values)
+            is_effect = values[12] in self._effectModelIds
+            cached = self._propViewerByModel.get(values[12])
+            if cached is not None:
+                viewer, name = cached
+            else:
+                viewer, name = self.LoadPropModel(values[12])
+                self._propViewerByModel[values[12]] = (viewer, name)
+            values.append(name)
+            self.props.append(values)
+            self.propViewers.append(viewer)
+            if is_effect:
+                self.effects.append(values)
         if values[0] == 2:
             texID = values[12]
             bBase = True
@@ -2770,20 +3227,15 @@ class LotEditorWin(wx.Frame):
             else:
                 self.texOverlays.append(texData)
         if values[0] == 4:
-            bOk = False
-            for flora, viewer in zip(self.floras, self.floraViewers):
-                if flora[12] == values[12]:
-                    values.append(flora[-1])
-                    self.floras.append(values)
-                    self.floraViewers.append(viewer)
-                    bOk = True
-                    break
-
-            if not bOk:
+            cached = self._floraViewerByModel.get(values[12])
+            if cached is not None:
+                viewer, name = cached
+            else:
                 viewer, name = self.LoadFloraModel(values[12])
-                values.append(name)
-                self.floras.append(values)
-                self.floraViewers.append(viewer)
+                self._floraViewerByModel[values[12]] = (viewer, name)
+            values.append(name)
+            self.floras.append(values)
+            self.floraViewers.append(viewer)
         if values[0] == 5:
             texData = [
              ToTileOrigin(values[3]), ToTileOrigin(values[5]), values[2], 8960, values[11]]
@@ -2797,6 +3249,13 @@ class LotEditorWin(wx.Frame):
 
     def PreCache(self):
         self.glCanvas2D.SetCurrent()
+        # Exemplar objects are replaced on lot reload; drop id()-keyed caches
+        # so a recycled id can never map to a stale state.
+        self._temporal_cache.clear()
+        self._temporal_cache_key = None
+        self._lighting_state_cache.clear()
+        self._lighting_state_cache_key = None
+        self._prelit_cache.clear()
         self.LEAnimMissing = ResourceViewer(662775840, (698733036, 707025145, 743768064), self.virtualDAT, None)
         self.LEAnimMissing.PreLoad(self.virtualDAT, self.s3DTexturesHolder)
         self.textures = {}
@@ -2817,6 +3276,14 @@ class LotEditorWin(wx.Frame):
         self.lands = []
         self.te = []
         self._sc4path_cache = {}
+        # Dedup: a lot can repeat the same prop/flora model hundreds of times.
+        # Map model IID -> (viewer, name) so each unique model is loaded once
+        # instead of rescanning the growing prop/flora list per object (O(n^2)).
+        self._propViewerByModel = {}
+        self._floraViewerByModel = {}
+        # Effect membership is a fixed set of model IIDs; resolve it once rather
+        # than rescanning the effect category's descriptors for every prop.
+        self._effectModelIds = self._collect_effect_model_ids()
         base, roadTex = self.GetTextures(641146880)
         self.textures[641146880] = [roadTex, base]
         base, waterLandTex = self.GetTexturesLE(3412818905, 1802442183)
@@ -2825,8 +3292,9 @@ class LotEditorWin(wx.Frame):
         self.lotBaseTextures = []
         self.Preload_TE_Tex()
         self.Preload_Background_Tex2()
+        lcp_props = self.exemplar.GetPropRange(2297284864, 2297286144)
         for lcp in range(2297284864, 2297286144):
-            values = self.exemplar.GetProp(lcp)
+            values = lcp_props.get(lcp)
             if values is None:
                 break
             values = values[:]
@@ -2892,7 +3360,6 @@ class LotEditorWin(wx.Frame):
         self.lotSizeXOffset = self.exemplar.GetProp(2297284496)[0] * 8
         self.lotSizeYOffset = self.exemplar.GetProp(2297284496)[1] * 8
         self.virtualDAT = virtualDAT
-        self.nightBegin, self.nightEnd = effective_night_hours(virtualDAT)
         self._apply_preview_night_mode()
         self._update_temporal_controls()
         self.PreCache()
@@ -2962,17 +3429,141 @@ class LotEditorWin(wx.Frame):
                 self.posy -= self.glCanvas2D.dy * 0.25
         self.glCanvas2D.dx = 0
         self.glCanvas2D.dy = 0
+        frame_start = time.perf_counter() if getattr(self, 'showFps', False) else None
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        if self.panel == 3 or self.panel == 2:
+        # In split view a pan drag moves only one half's camera; presenting
+        # the other half from an offscreen snapshot halves the per-frame cost.
+        pan_drag_pane = None
+        if (self.panel == 3 and self.modeEdit == MODE_EDIT_PAN
+                and canvas.HasCapture()):
+            pan_drag_pane = ('2d' if canvas.click_x > canvas.GetClientSize()[0] // 2
+                             else '3d')
+        if pan_drag_pane == '2d':
+            self._draw_pane_cached('3d', self.Draw3D)
             self.Draw2D()
-        if self.panel == 3 or self.panel == 1:
+        elif pan_drag_pane == '3d':
+            self._draw_pane_cached('2d', self.Draw2D)
             self.Draw3D()
+        else:
+            if self.panel == 3 or self.panel == 2:
+                self.Draw2D()
+            if self.panel == 3 or self.panel == 1:
+                self.Draw3D()
+        if frame_start is not None:
+            self._draw_fps_overlay((time.perf_counter() - frame_start) * 1000.0)
         self.glCanvas2D.SwapBuffers()
+
+    def _draw_fps_overlay(self, render_ms):
+        """Corner HUD with the CPU render time of this frame and a smoothed
+        frames-per-second rate over consecutive repaints.
+
+        render_ms measures Draw2D/Draw3D CPU cost (excludes SwapBuffers, so
+        vsync waits don't drown the number); fps is only meaningful while
+        something keeps requesting frames (drag, animation, playback).
+        """
+        canvas = self.glCanvas2D
+        width, height = canvas.GetPhysicalSize()
+        if width <= 0 or height <= 0:
+            return
+        now = time.perf_counter()
+        last = self._fps_last_frame
+        self._fps_last_frame = now
+        if last is not None:
+            delta = now - last
+            if 0.0 < delta < 1.0:
+                fps = 1.0 / delta
+                smoothed = self._fps_smoothed
+                self._fps_smoothed = (fps if smoothed is None
+                                      else smoothed * 0.9 + fps * 0.1)
+        label = '%5.1f ms' % render_ms
+        if self._fps_smoothed is not None:
+            label = '%s | %3.0f fps' % (label, self._fps_smoothed)
+        glViewport(0, 0, width, height)
+        glDisable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        mvp = SC4Matrix.ortho(0, width, 0, height, -1, 1)
+        text_scale = 1.4 * canvas.GetContentScaleFactor()
+        canvas.renderer.primitives.text(
+            10, height - 14 - 12.0 * text_scale, label, mvp,
+            color=(1.0, 0.85, 0.2, 1.0), scale=text_scale,
+        )
+        glDisable(GL_BLEND)
+
+    def _invalidate_pane_cache(self):
+        self._pane_cache_pane = None
+        self._pane_cache_key = None
+
+    def _pane_cache_state_key(self, pane):
+        return (pane, self.zoom, self.rotation, self.viewScale, self.panel,
+                self.nightMode, self.previewMinutes, self.previewDate,
+                tuple(self.glCanvas2D.GetPhysicalSize()))
+
+    def _draw_pane_cached(self, pane, draw_func):
+        """Draw the non-dragged split-view pane from an offscreen snapshot.
+
+        During a pan drag confined to one half of the split view the other
+        half's inputs do not change, so re-rendering its full scene on every
+        motion event doubles the frame cost for nothing. The first drag frame
+        renders the pane once into an offscreen target (MSAA-resolved by
+        RenderTarget); later frames re-present that capture as one textured
+        quad. The cache is invalidated on mouse-up and by any state-key
+        change (zoom, rotation, preview clock, canvas size).
+        """
+        canvas = self.glCanvas2D
+        width, height = canvas.GetPhysicalSize()
+        if width <= 0 or height <= 0:
+            return
+        key = self._pane_cache_state_key(pane)
+        target = self._pane_cache_target
+        if target is not None and (target.width, target.height) != (width, height):
+            target.release_gl()
+            target = self._pane_cache_target = None
+        if target is None or self._pane_cache_pane != pane or self._pane_cache_key != key:
+            if target is None:
+                try:
+                    target = RenderTarget(width, height,
+                                          srgb=getattr(canvas, 'srgb', False))
+                except RuntimeError:
+                    draw_func()
+                    return
+                self._pane_cache_target = target
+            with target.bound():
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+                draw_func()
+            # _resolve leaves the resolve FBO bound as the draw framebuffer;
+            # rebind the default framebuffer or everything after this renders
+            # offscreen and the window shows only the clear colour.
+            target._resolve()
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            self._pane_cache_pane = pane
+            self._pane_cache_key = key
+        scale = canvas.GetContentScaleFactor()
+        half = int((self.size[0] // 2) * scale)
+        if pane == '3d':
+            x0, x1 = 0, half
+        else:
+            x0, x1 = half, min(width, half * 2)
+        if x1 <= x0:
+            return
+        glViewport(x0, 0, x1 - x0, height)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_BLEND)
+        u0, u1 = x0 / float(width), x1 / float(width)
+        sampler = canvas.renderer.samplers.get(
+            GL_NEAREST, GL_NEAREST, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE,
+        )
+        canvas.renderer.primitives.quad(
+            ((-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)),
+            SC4Matrix.identity(),
+            uvs=((u0, 0.0), (u1, 0.0), (u1, 1.0), (u0, 1.0)),
+            texture=target.color, sampler=sampler,
+        )
 
     def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False,
                  tint=(1.0, 1.0, 1.0, 1.0)):
         zoom = self.zoom
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         try:
             texture = self.textures[texID][0][zoom]
@@ -3077,6 +3668,24 @@ class LotEditorWin(wx.Frame):
             self._render_context.mvp, color=(*color, 1.0), filled=False,
         )
 
+    def _DrawConstraintOutlines(self, constraints, color):
+        """Border each constraint tile in its type colour, always on top of
+        the fill tint, so adjacent same-type tiles stay individually
+        readable instead of blending into one blob."""
+        if not constraints:
+            return
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        glDisable(GL_BLEND)
+        primitives = self.glCanvas2D.renderer.primitives
+        for texData in constraints:
+            minx = texData[0] * 16 + offsetX
+            miny = texData[1] * 16 + offsetY
+            primitives.rect(
+                minx, miny, minx + 16, miny + 16,
+                self._render_context.mvp, color=(*color, 1.0), filled=False,
+            )
+
     def DrawQuadsHighLight(self, quads, color=(1, 0, 0)):
         offsetX = -self.lotSizeXOffset
         offsetY = -self.lotSizeYOffset
@@ -3121,6 +3730,56 @@ class LotEditorWin(wx.Frame):
         if bMissing:
             self.missingLines.extend(((minx, miny), (maxx, maxy),
                                       (minx, maxy), (maxx, miny)))
+
+    def DrawQuadColorBatch(self, markers, color):
+        """Batched DrawQuadColor for markers sharing one colour.
+
+        One filled quad_batch, one GL_LINES outline draw and one textured
+        quad_batch for the whole list, instead of three separate GL draws per
+        prop — the per-marker path made panning a large lot bind/upload/draw
+        1000+ times per frame.
+        """
+        if not markers:
+            return
+        offsetX = -self.lotSizeXOffset
+        offsetY = -self.lotSizeYOffset
+        primitives = self.glCanvas2D.renderer.primitives
+        mvp = self._render_context.mvp
+        quads = []
+        uv_quads = []
+        outline = []
+        for flag, minx, miny, maxx, maxy, missing in markers:
+            minx, maxx = minx + offsetX, maxx + offsetX
+            miny, maxy = miny + offsetY, maxy + offsetY
+            quads.append(((minx, maxy, 0), (minx, miny, 0),
+                          (maxx, miny, 0), (maxx, maxy, 0)))
+            uv_quads.append(texture_coords_for_flag(flag))
+            outline.extend(((minx, miny), (maxx, miny),
+                            (maxx, miny), (maxx, maxy),
+                            (maxx, maxy), (minx, maxy),
+                            (minx, maxy), (minx, miny)))
+            if missing:
+                self.missingLines.extend(((minx, miny), (maxx, maxy),
+                                          (minx, maxy), (maxx, miny)))
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        primitives.quad_batch(quads, mvp, color=color)
+        glDisable(GL_BLEND)
+        primitives.draw(GL_LINES, outline, mvp,
+                        color=(color[0], color[1], color[2], 1.0))
+        try:
+            texture = self.textures[1802442183][0][0]
+        except Exception:
+            texture = None
+        if texture is not None:
+            sampler = self.glCanvas2D.renderer.samplers.get(
+                GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
+            )
+            glEnable(GL_BLEND)
+            primitives.quad_batch(
+                quads, mvp, uv_quads=uv_quads, texture=texture, sampler=sampler,
+            )
+            glDisable(GL_BLEND)
 
     def Draw2D(self):
         self.missingLines = []
@@ -3200,9 +3859,18 @@ class LotEditorWin(wx.Frame):
             for is_water, constraints, layer_key in constraint_layers:
                 if not self._is_layer_visible('2d', layer_key):
                     continue
-                tint = (0.2, 0.2, 0.8, 1.0) if is_water else (0.8, 0.5, 0.2, 1.0)
+                # Dim the type that would not be placed by the active
+                # constraint mode, so it's visually obvious which one is live.
+                if self.modeEdit == MODE_EDIT_CONSTRAINT:
+                    alpha = 1.0 if is_water else 0.35
+                elif self.modeEdit == MODE_EDIT_CONSTRAINT_LAND:
+                    alpha = 0.35 if is_water else 1.0
+                else:
+                    alpha = 1.0
+                base_rgb = (0.05, 0.3, 0.95) if is_water else (0.95, 0.55, 0.05)
+                tint = (*base_rgb, alpha)
                 for texData in constraints:
-                    if self.modeEdit == MODE_EDIT_CONSTRAINT:
+                    if self.modeEdit in CONSTRAINT_EDIT_MODES:
                         minx = texData[0] * 16
                         miny = texData[1] * 16
                         maxx = minx + 16
@@ -3217,6 +3885,7 @@ class LotEditorWin(wx.Frame):
                             self.quadHighs = [[minx, miny, maxx, maxy]]
                 records = [(item[0], item[1], item[2], 1802442183) for item in constraints]
                 self.DrawQuads(records, True, tint=tint)
+                self._DrawConstraintOutlines(constraints, base_rgb)
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible('2d', LAYER_TRANSIT):
             for texData in self.te:
@@ -3245,17 +3914,19 @@ class LotEditorWin(wx.Frame):
 
         if self._is_layer_visible('2d', LAYER_ROAD_EDGES):
             road_edges = []
-            if self.exemplar.GetProp(1246398704)[0] & 8:
-                for x in range(self.exemplar.GetProp(2297284496)[0]):
-                    road_edges.append((x, self.exemplar.GetProp(2297284496)[1], 1, 641146880))
+            edge_flags = self.exemplar.GetProp(1246398704)[0]
+            lot_size = self.exemplar.GetProp(2297284496)
+            if edge_flags & 8:
+                for x in range(lot_size[0]):
+                    road_edges.append((x, lot_size[1], 1, 641146880))
 
-            if self.exemplar.GetProp(1246398704)[0] & 1:
-                for y in range(self.exemplar.GetProp(2297284496)[1]):
+            if edge_flags & 1:
+                for y in range(lot_size[1]):
                     road_edges.append((-1, y, 0, 641146880))
 
-            if self.exemplar.GetProp(1246398704)[0] & 4:
-                for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    road_edges.append((self.exemplar.GetProp(2297284496)[0], y, 0, 641146880))
+            if edge_flags & 4:
+                for y in range(lot_size[1]):
+                    road_edges.append((lot_size[0], y, 0, 641146880))
             self.DrawQuads(road_edges, True)
 
         if self.snapSize != 0 and self._is_layer_visible('2d', LAYER_SNAP_GRID):
@@ -3289,6 +3960,9 @@ class LotEditorWin(wx.Frame):
                     self._draw_text(ToCoord(self.building[3]) - lx, ToCoord(self.building[5]) - ly,
                                     '%.02f' % ToCoord(self.building[4]), rot2D)
         if self.modeDisplay & MODE_PROP_ONLY and self._is_layer_visible('2d', LAYER_PROPS):
+            selected_ids = set(self.selected)
+            markers = []
+            labels = []
             for prop, propViewer in zip(self.props, self.propViewers):
                 minx = ToCoord(prop[6])
                 miny = ToCoord(prop[7])
@@ -3303,15 +3977,19 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [prop[11]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                         self.SetStatusText(hex2str(prop[12]) + ':' + prop[-1] + ' ' + hex2str(prop[11]), 5)
-                alphaValue = 0.1
-                if self.modeEdit == MODE_EDIT_PROP:
-                    alphaValue = 0.5
-                self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (1, 1, 0, alphaValue), propViewer is None)
-                if prop[4] != 0 and prop[11] in self.selected:
-                    self._draw_text(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
-                                    '%.02f' % ToCoord(prop[4]), rot2D)
+                markers.append((prop[2], minx, miny, maxx, maxy, propViewer is None))
+                if prop[4] != 0 and prop[11] in selected_ids:
+                    labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
+                                   '%.02f' % ToCoord(prop[4])))
+            alphaValue = 0.5 if self.modeEdit == MODE_EDIT_PROP else 0.1
+            self.DrawQuadColorBatch(markers, (1, 1, 0, alphaValue))
+            for label_x, label_y, label_text in labels:
+                self._draw_text(label_x, label_y, label_text, rot2D)
 
         if self.modeDisplay & MODE_FLORA_ONLY and self._is_layer_visible('2d', LAYER_FLORA):
+            selected_ids = set(self.selected)
+            markers = []
+            labels = []
             for prop in self.floras:
                 minx = ToCoord(prop[6])
                 miny = ToCoord(prop[7])
@@ -3326,10 +4004,13 @@ class LotEditorWin(wx.Frame):
                         self.SetStatusText(hex2str(prop[12]) + ':' + prop[-1], 5)
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                         self.highlighted = [prop[11]]
-                self.DrawQuadColor(prop[2], minx, miny, maxx, maxy, (0, 1.0, 0, 0.9), False)
-                if prop[4] != 0 and prop[11] in self.selected:
-                    self._draw_text(ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
-                                    '%.02f' % ToCoord(prop[4]), rot2D)
+                markers.append((prop[2], minx, miny, maxx, maxy, False))
+                if prop[4] != 0 and prop[11] in selected_ids:
+                    labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly,
+                                   '%.02f' % ToCoord(prop[4])))
+            self.DrawQuadColorBatch(markers, (0, 1.0, 0, 0.9))
+            for label_x, label_y, label_text in labels:
+                self._draw_text(label_x, label_y, label_text, rot2D)
 
         if self._is_layer_visible('2d', LAYER_SELECTION):
             self.DrawQuadsHighLight(self.quadHighs)
@@ -3355,7 +4036,7 @@ class LotEditorWin(wx.Frame):
 
         The labels sit at the lot-edge midpoints in (centred) lot space, so
         they rotate with the lot as the view turns and always point at the
-        true cardinal directions: North is the far edge, South the near edge.
+        true cardinal directions. Lot +y points South.
         """
         x = self.lotSizeXOffset
         y = self.lotSizeYOffset
@@ -3363,8 +4044,8 @@ class LotEditorWin(wx.Frame):
             return
         margin = 6.0
         for label, lx, ly in (
-            (LEXFacingNorth, -1.0, y + margin),
-            (LEXFacingSouth, -1.0, -y - margin),
+            (LEXFacingNorth, -1.0, -y - margin),
+            (LEXFacingSouth, -1.0, y + margin),
             (LEXFacingEast, x + margin, -1.0),
             (LEXFacingWest, -x - margin, -1.0),
         ):
@@ -3383,7 +4064,7 @@ class LotEditorWin(wx.Frame):
             return
         zoom = self.zoom
         LotEditorWin.zoomScale3D[zoom]
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         if self.BackTextures[zoom] is not None and self.BackTextureSizes[zoom] is not None:
             glDisable(GL_DEPTH_TEST)
@@ -3411,7 +4092,7 @@ class LotEditorWin(wx.Frame):
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
         zoom = self.zoom
-        if zoom == 5:
+        if zoom > 4:
             zoom = 4
         try:
             texture = self.textures[texID][0][zoom]
@@ -3440,7 +4121,11 @@ class LotEditorWin(wx.Frame):
     def _flush_model_batches(self, batches):
         if not batches:
             return
-        for (mesh, _prelit), batch in list(batches.items()):
+        # Group same lighting_state dicts together: the shader only re-uploads
+        # its lighting uniforms when handed a different dict, and there are at
+        # most four distinct ones per frame (kind x prelit).
+        ordered = sorted(batches.items(), key=lambda item: id(item[1][0]))
+        for (mesh, _prelit), batch in ordered:
             lighting_state, mvps, normals = batch
             for start in range(0, len(mvps), 32):
                 mesh.draw_instanced(
@@ -3449,20 +4134,62 @@ class LotEditorWin(wx.Frame):
                 )
         batches.clear()
 
-    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches):
+    def _flush_shadow_batches(self, batches):
+        """Instanced flush for the shadow pass: one bind + upload per mesh per
+        chunk of 32 casters instead of a full program/uniform/texture setup
+        per prop."""
+        if not batches:
+            return
+        prog = self._ensure_shadow_program()
+        for mesh, mvps in list(batches.items()):
+            for start in range(0, len(mvps), 32):
+                chunk = mvps[start:start + 32]
+                mesh.draw_instanced(
+                    self.s3DTexturesHolder, prog, None,
+                    chunk, [None] * len(chunk), shadow=True,
+                )
+        batches.clear()
+
+    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches,
+                          shadow=False):
+        if shadow:
+            # Shadow order is irrelevant (GL_LESS + depth-write makes the
+            # first fragment win regardless of caster order), so every caster
+            # batches by mesh with per-instance flattened MVPs. The shadow
+            # shader has no normal input, so no normal-matrix inverse either.
+            if batches is not None:
+                batches.setdefault(mesh, []).append(self._render_context.mvp)
+                return
+            mesh.draw(
+                self.s3DTexturesHolder, shader_program, lighting_state,
+                self._render_context.mvp, None,
+                shadow=True,
+            )
+            return
         # Blended meshes depend on source order. Treat them as barriers while
-        # batching opaque and alpha-tested repetitions around them.
-        batchable = batches is not None and not any(
-            material.get('flags', 0) & 16 for material in getattr(mesh, 'matBlocks', ())
-        )
-        if batchable:
+        # batching opaque and alpha-tested repetitions around them. The flag
+        # scan over matBlocks is cached on the mesh — geometry/materials are
+        # immutable once read.
+        batchable = getattr(mesh, '_le_batchable', None)
+        if batchable is None:
+            batchable = not any(
+                material.get('flags', 0) & 16
+                for material in getattr(mesh, 'matBlocks', ())
+            )
+            try:
+                mesh._le_batchable = batchable
+            except Exception:
+                pass
+        if batches is not None and batchable:
             key = (mesh, bool(lighting_state.get('prelit')))
             batch = batches.get(key)
             if batch is None:
                 batch = [lighting_state, [], []]
                 batches[key] = batch
-            batch[1].append(self._render_context.mvp.copy())
-            batch[2].append(self._render_context.normal_matrix.copy())
+            # mvp is a fresh product per access and the cached normal matrix
+            # is immutable by convention, so neither needs a defensive copy.
+            batch[1].append(self._render_context.mvp)
+            batch[2].append(self._render_context.normal_matrix)
             return
         if batches is not None:
             self._flush_model_batches(batches)
@@ -3472,7 +4199,7 @@ class LotEditorWin(wx.Frame):
         )
 
     def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
-                  model_batches=None):
+                  model_batches=None, shadow=False):
         if viewZoom is None:
             viewZoom = zoom
         if resource is None:
@@ -3496,8 +4223,14 @@ class LotEditorWin(wx.Frame):
             temporal = self._temporal_state_for_exemplar(
                 getattr(resource, 'lighting_exemplar', None))
             state_idx = timer_state_index(temporal, state_count)
-        shader_program = self._ensure_s3d_shader_program()
-        lighting_state = self._lot_lighting_state(getattr(resource, 'lighting_exemplar', None))
+        shader_program = (
+            self._ensure_shadow_program() if shadow else self._ensure_s3d_shader_program()
+        )
+        # The shadow program ignores lighting entirely; skip computing it.
+        lighting_state = None if shadow else self._lot_lighting_state(
+            getattr(resource, 'lighting_exemplar', None),
+            getattr(resource, 'lighting_kind', 'model'),
+        )
         # A state can contain more than one model (e.g. a lamppost's night state
         # is the pole plus its light cone). Draw every model of the state, each
         # at its own per-record offset; props without grouped states fall back
@@ -3514,35 +4247,72 @@ class LotEditorWin(wx.Frame):
                 offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]),
                           ToCoord(raw_offset[2]))
             self._draw_state_member(model, offset, rot2D, rot, rotFlag, zoom,
-                                    shader_program, lighting_state, model_batches)
+                                    shader_program, lighting_state, model_batches,
+                                    shadow=shadow)
         return
 
     def _draw_state_member(self, what, offset, rot2D, rot, rotFlag, zoom,
-                           shader_program, lighting_state, model_batches):
+                           shader_program, lighting_state, model_batches, shadow=False):
         render = self._render_context
         if what.__class__ == SC4Model:
-            rotMapping = [180, -90, 0, 90]
+            # Algebraically fused form of the old chain
+            #   rotate(-a) @ translate(o) @ rotate(a) @ rotate(-rot2D)
+            # = translate(R_y(-a) @ o) @ rotate(-rot2D)
+            # where a is a multiple of 90 degrees, so rotating the offset is a
+            # component swizzle. Two matrix ops per prop instead of four.
+            a = [180, -90, 0, 90][rotFlag]
+            ox, oy, oz = offset
+            if a == 180:
+                ox, oz = -ox, -oz
+            elif a == 90:
+                ox, oz = -oz, ox
+            elif a == -90:
+                ox, oz = oz, -ox
             with render.pushed():
-                render.rotate(-rotMapping[rotFlag], 0, 1, 0)
-                render.translate(offset[0], offset[1], offset[2])
-                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                render.translate(ox, oy, oz)
                 render.rotate(-rot2D, 0, 1, 0)
                 self._submit_s3d_model(
                     what.s3dMeshes[zoom][rot], shader_program, lighting_state, model_batches,
+                    shadow=shadow,
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
             self._submit_s3d_model(
                 what.s3dMeshes[zoom], shader_program, lighting_state, model_batches,
+                shadow=shadow,
             )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
+            # RKT0 is a single mesh pre-projected for one (North) view and reused
+            # at every rotation. SC4 S3D geometry is baked 2.5D -- the dimetric
+            # tilt lives in the vertices, not the camera -- so rotating this mesh
+            # shears it, and it only looks right at North. Capture the unrotated
+            # basis and draw the mesh with it, billboard-style like the ATC path,
+            # so it looks identical at every rotation while still being positioned
+            # in the rotated lot. The 3D pane applies the camera turn as
+            # rotate_y(self.ry) (Draw3D), so cancel it about Y -- Y rotations
+            # commute, so right-multiplying by rotate_y(-rot2D) leaves exactly
+            # the North-view basis scale @ rotate_x(rx) @ rotate_y(-22.5).
+            base_basis = render.model[0:3, 0:3] @ SC4Matrix.rotate_y(-rot2D)[0:3, 0:3]
             with render.pushed():
-                render.rotate(rotMapping[rotFlag], 0, 1, 0)
+                # Position only: rotate the overhang offset into the prop frame
+                # with the same sign as the pole path (-rotMapping) so it points
+                # the right way at every prop rotation.
+                render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
+                # Override the orientation with the unrotated basis (keeping the
+                # placed translation column). Skipped for the shadow pass, whose
+                # ground-flatten matrix must stay intact.
+                if not shadow:
+                    render.model[0:3, 0:3] = base_basis
                 self._submit_s3d_model(
                     what.mainMesh, shader_program, lighting_state, model_batches,
+                    shadow=shadow,
                 )
         elif what.__class__ == ATC:
+            # ATC billboards are screen-facing animated sprites; skip them as
+            # shadow casters (no meaningful planar silhouette).
+            if shadow:
+                return
             if model_batches is not None:
                 self._flush_model_batches(model_batches)
             glDisable(GL_DEPTH_TEST)
@@ -3557,6 +4327,77 @@ class LotEditorWin(wx.Frame):
                 )
             glEnable(GL_DEPTH_TEST)
         return
+
+    def _draw_shadow_pass(self, rot2D, rotation, rotMapping, assetZoom, viewZoom,
+                          lotSizeXOver, lotSizeYOver):
+        """Render building/prop/flora shadows as planar-projected, alpha-masked
+        decals on the ground. Mirrors SC4's projective shadow decal using the
+        models' real S3D geometry + texture alpha; see
+        .claude/docs/sc4-shadow-rendering.md."""
+        prog = self._ensure_shadow_program()
+        profile = getattr(self, 'lightingProfile', None)
+        prog.shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
+        prog.shadow_strength = (
+            profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
+        )
+        flatten = self._shadow_flatten_matrix()
+        render = self._render_context
+        shadow_batches = {}
+
+        def cast(record, viewer):
+            with render.pushed():
+                offsetX = ToCoord(record[3]) - lotSizeXOver / 2
+                offsetZ = ToCoord(record[5]) - lotSizeYOver / 2
+                rtk4 = self.rtk4Offsets.get(record[12], (0, 0, 0))
+                # Flatten in lot space (after the camera, before placement), then
+                # place the caster; the flatten collapses it onto the y=0 ground.
+                render.model = render.model @ flatten
+                render.translate(offsetX, ToCoord(record[4]), offsetZ)
+                self.DrawModel(rtk4, viewer, rot2D,
+                               (rotation + rotMapping[record[2]]) % 4, record[2],
+                               assetZoom, viewZoom, model_batches=shadow_batches,
+                               shadow=True)
+
+        # Shadows write depth (GL_LESS, set per-mesh in S3DReader) so overlapping
+        # faces/casters darken each pixel once instead of multiply-stacking.
+        # Polygon offset pulls the y=0 shadow plane just in front of the coplanar
+        # ground so it wins without z-fighting.
+        glEnable(GL_DEPTH_TEST)
+        glDepthMask(GL_TRUE)
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(-1.0, -1.0)
+        try:
+            if self._is_layer_visible('3d', LAYER_BUILDING):
+                try:
+                    if self.buildingViewer[self.currentBuilding] is not None:
+                        cast(self.building, self.buildingViewer[self.currentBuilding])
+                except IndexError:
+                    pass
+            if self._is_layer_visible('3d', LAYER_PROPS):
+                for prop, propViewer in zip(self.props, self.propViewers):
+                    if propViewer is None or propViewer.viewingData == []:
+                        continue
+                    if not self._viewer_is_temporally_active(propViewer):
+                        continue
+                    if propViewer.viewingData[0].__class__ == ATC:
+                        continue
+                    cast(prop, propViewer)
+            if self._is_layer_visible('3d', LAYER_FLORA):
+                for flora, floraViewer in zip(self.floras, self.floraViewers):
+                    if floraViewer is None or floraViewer.viewingData == []:
+                        continue
+                    if not self._viewer_is_temporally_active(floraViewer):
+                        continue
+                    if floraViewer.viewingData[0].__class__ == ATC:
+                        continue
+                    cast(flora, floraViewer)
+            self._flush_shadow_batches(shadow_batches)
+        finally:
+            glPolygonOffset(0.0, 0.0)
+            glDisable(GL_POLYGON_OFFSET_FILL)
+            glDepthFunc(GL_LEQUAL)   # restore default for later draws
+            glDepthMask(GL_TRUE)
+            glDisable(GL_BLEND)
 
     def Draw3DBackdrop(self, valW, valH):
         glDisable(GL_DEPTH_TEST)
@@ -3644,23 +4485,30 @@ class LotEditorWin(wx.Frame):
         # drawing them while background mode is on.
         if self._is_layer_visible('3d', LAYER_ROAD_EDGES) and not background_drawn:
             road_edges = []
-            if self.exemplar.GetProp(1246398704)[0] & 8:
-                for x in range(self.exemplar.GetProp(2297284496)[0]):
-                    road_edges.append((x, self.exemplar.GetProp(2297284496)[1], 1, 641146880))
+            edge_flags = self.exemplar.GetProp(1246398704)[0]
+            lot_size = self.exemplar.GetProp(2297284496)
+            if edge_flags & 8:
+                for x in range(lot_size[0]):
+                    road_edges.append((x, lot_size[1], 1, 641146880))
 
-            if self.exemplar.GetProp(1246398704)[0] & 1:
-                for y in range(self.exemplar.GetProp(2297284496)[1]):
+            if edge_flags & 1:
+                for y in range(lot_size[1]):
                     road_edges.append((-1, y, 0, 641146880))
 
-            if self.exemplar.GetProp(1246398704)[0] & 4:
-                for y in range(self.exemplar.GetProp(2297284496)[1]):
-                    road_edges.append((self.exemplar.GetProp(2297284496)[0], y, 0, 641146880))
+            if edge_flags & 4:
+                for y in range(lot_size[1]):
+                    road_edges.append((lot_size[0], y, 0, 641146880))
             self.DrawQuads3D(road_edges, True)
 
         glEnable(GL_DEPTH_TEST)
         rotMapping = [2, 1, 0, 3]
         lotSizeXOver = self.lotSizeXOver
         lotSizeYOver = self.lotSizeYOver
+        # Cast shadows onto the ground before the models so the models occlude
+        # their own shadows. Optional, driven by the 3D "Shadows" layer toggle.
+        if self._is_layer_visible('3d', LAYER_SHADOWS):
+            self._draw_shadow_pass(rot2D, rotation, rotMapping, assetZoom, viewZoom,
+                                   lotSizeXOver, lotSizeYOver)
         model_batches = {}
         if self._is_layer_visible('3d', LAYER_BUILDING):
             try:
@@ -4186,13 +5034,12 @@ class LotEditorWin(wx.Frame):
             if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
                 self.PlaceTransitNode(tile_x, tile_y)
                 return
-        if self.modeEdit == MODE_EDIT_CONSTRAINT and self.highlighted == []:
+        if self.modeEdit in CONSTRAINT_EDIT_MODES and self.highlighted == []:
             tile_x = int(math.floor(px / 16.0))
             tile_y = int(math.floor(py / 16.0))
             lot_size = self.exemplar.GetProp(2297284496)
             if 0 <= tile_x < lot_size[0] and 0 <= tile_y < lot_size[1]:
-                # Plain click places a water tile, Shift+click places land.
-                self.PlaceConstraint(tile_x, tile_y, 6 if evt.ShiftDown() else 5)
+                self.PlaceConstraint(tile_x, tile_y, 6 if self.modeEdit == MODE_EDIT_CONSTRAINT_LAND else 5)
                 return
         if not evt.ControlDown():
             for quad in self.quadSelected:
@@ -4227,6 +5074,7 @@ class LotEditorWin(wx.Frame):
     def OnMouseUp(self, evt):
         self.newIds = []
         self._drag_undo_pending = False
+        self._invalidate_pane_cache()
         self.glCanvas2D.on_mouse_up(evt)
         if self.dragSelect:
             self.dragSelect = False
@@ -4520,12 +5368,12 @@ def ComputeStagePurposeWealth(capacitySatisfied, occupantGroup, width, depth):
     return (stage, purpose, wealth)
 
 
-class ImageDBBuilder(wx.Frame):
+class ImageDBBuilder(wx.Panel):
+    """Embedded OpenGL renderer used for startup model thumbnails."""
 
-    def __init__(self, parent, ID, title, pos=wx.DefaultPosition, size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP):
-        wx.Frame.__init__(self, parent, ID, title, pos, size, style)
-        panel = wx.Panel(self, -1)
-        self.glCanvas = MyCanvasBase(panel, size=(256, 256))
+    def __init__(self, parent):
+        wx.Panel.__init__(self, parent, -1)
+        self.glCanvas = MyCanvasBase(self, size=(256, 256))
         self.glCanvas.displayer = self
         self.viewer = S3DViewer(None, self.glCanvas)
         # Batch thumbnail prerender: each model texture is uploaded, rendered
@@ -4537,8 +5385,7 @@ class ImageDBBuilder(wx.Frame):
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         hsizer.Add(self.glCanvas, 1, wx.ALL | wx.EXPAND, 5)
         sizer.Add(hsizer, 1, wx.ALL | wx.EXPAND, 5)
-        panel.SetSizer(sizer)
-        sizer.Fit(self)
+        self.SetSizerAndFit(sizer)
         return
 
     def Draw(self, sc4data):
@@ -4560,10 +5407,7 @@ class ImageDBBuilder(wx.Frame):
             with target.bound():
                 self.viewer.render_frame()
                 data = target.read_rgb()
-            # Mirror the just-captured thumbnail into the on-screen preview so
-            # the window shows live progress instead of staying blank. read_rgb
-            # already resolved MSAA into target.color; a single textured quad is
-            # near-free, so batch throughput is unaffected.
+            # Mirror the just-captured thumbnail into the embedded preview.
             self._present_thumbnail(target.color)
         finally:
             target.release_gl()

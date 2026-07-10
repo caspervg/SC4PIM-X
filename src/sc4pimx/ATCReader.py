@@ -17,6 +17,10 @@ from sc4pimx.SC4DatTools import SC4Entry
 from sc4pimx.SC4VirtualDat import VirtualDat
 
 
+ATC_PREVIEW_FPS = 30
+ATC_PREVIEW_FRAME_MS = 1000 // ATC_PREVIEW_FPS
+
+
 class ATC(object):
     def __init__(self, entry: SC4Entry, virtual_dat: VirtualDat):
         self.entry = entry
@@ -97,10 +101,10 @@ class ATC(object):
         if rot >= len(self.avps[zoom].chunks):
             return False
         # Advance current_frame based on elapsed time. ATC headers don't carry
-        # a frame rate; default to 10 fps to match the viewer/LE tick.
+        # a frame rate, so use the shared preview rate also used by the LE grid.
         total = max(1, getattr(self, "num_frames", 1) or 1)
         if total > 1:
-            interval = 1.0 / 10.0
+            interval = 1.0 / ATC_PREVIEW_FPS
             now = time.monotonic()
             if self._lastFrameTime is None:
                 self._lastFrameTime = now
@@ -152,7 +156,7 @@ class ATC(object):
             return
         texture, sampler = binding
         if max(1, getattr(self, "num_frames", 1) or 1) > 1:
-            s3d_textures_holder.glCanvas.request_animation(100)
+            s3d_textures_holder.glCanvas.request_animation(ATC_PREVIEW_FRAME_MS)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         model = model @ SC4Matrix.translate(self.hotspot[0], -self.hotspot[1], 0)

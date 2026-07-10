@@ -5,6 +5,7 @@ import struct
 import wx
 
 from .SC4DatTools import format_float_value, hex2str
+from .TablerIcons import icon_button
 from .translation import *  # noqa: F401,F403
 
 POLLUTION_VECTOR_IDS = {0x27812851, 0xAA5832F3, 0x68EE9764}
@@ -68,6 +69,10 @@ def editor_kind(prop, prop_def):
     # entries uses the growable table.
     count = getattr(prop_def, "Count", 1)
     n = len(values)
+    # Variable-length + named options: always use the table editor (dropdown
+    # entry + raw hex box), even with one value, so it can grow in place.
+    if count <= 0 and prop_type in _INTEGER_TYPES and _has_named_options(prop_def):
+        return "list"
     if n == 1 and count <= 1:
         if prop_type == "Bool":
             return "bool"
@@ -323,11 +328,11 @@ class DemandPairEditorDialog(wx.Dialog):
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        add_btn = wx.Button(self, -1, "Add")
-        edit_btn = wx.Button(self, -1, "Edit")
-        del_btn = wx.Button(self, -1, "Delete")
-        up_btn = wx.Button(self, -1, "Up")
-        down_btn = wx.Button(self, -1, "Down")
+        add_btn = icon_button(self, "plus", "Add")
+        edit_btn = icon_button(self, "pencil", "Edit")
+        del_btn = icon_button(self, "trash", "Delete")
+        up_btn = icon_button(self, "arrow-up", "Up")
+        down_btn = icon_button(self, "arrow-down", "Down")
         add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         del_btn.Bind(wx.EVT_BUTTON, self._on_delete)
@@ -680,14 +685,14 @@ class TablePropertyDialog(wx.Dialog):
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        edit_btn = wx.Button(self, -1, propEditListEdit)
+        edit_btn = icon_button(self, "pencil", propEditListEdit)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         row_buttons.Add(edit_btn, 0, wx.RIGHT, 4)
         if variable:
-            add_btn = wx.Button(self, -1, propEditListAdd)
-            del_btn = wx.Button(self, -1, propEditListDelete)
-            up_btn = wx.Button(self, -1, propEditListUp)
-            down_btn = wx.Button(self, -1, propEditListDown)
+            add_btn = icon_button(self, "plus", propEditListAdd)
+            del_btn = icon_button(self, "trash", propEditListDelete)
+            up_btn = icon_button(self, "arrow-up", propEditListUp)
+            down_btn = icon_button(self, "arrow-down", propEditListDown)
             add_btn.Bind(wx.EVT_BUTTON, self._on_add)
             del_btn.Bind(wx.EVT_BUTTON, self._on_delete)
             up_btn.Bind(wx.EVT_BUTTON, self._on_up)
@@ -837,9 +842,19 @@ class NumberEntryDialog(wx.Dialog):
         self._prop_def = prop_def
         self._type_value = type_value
         self._value = None
+        self._items = _option_items(prop_def)
+        self._value_by_label = {label: v for v, label in self._items}
 
         sizer = wx.BoxSizer(wx.VERTICAL)
-        self.text = wx.TextCtrl(self, -1, _scalar_to_text(type_value, value, show_as_hex), style=wx.TE_PROCESS_ENTER)
+        current_text = _scalar_to_text(type_value, value, show_as_hex)
+        if self._items:
+            known = next((label for v, label in self._items if v == int(value)), None)
+            self.text = wx.ComboBox(
+                self, -1, known if known is not None else current_text,
+                choices=[label for _, label in self._items], style=wx.CB_DROPDOWN,
+            )
+        else:
+            self.text = wx.TextCtrl(self, -1, current_text, style=wx.TE_PROCESS_ENTER)
         if show_as_hex:
             self.text.SetFont(_monospace_font(self.GetFont()))
         self.text.Bind(wx.EVT_TEXT_ENTER, self._on_ok)
@@ -862,7 +877,12 @@ class NumberEntryDialog(wx.Dialog):
         return self._value
 
     def _on_ok(self, _event):
-        value, error = _parse_checked(self._type_value, self._prop_def, self.text.GetValue().strip())
+        text = self.text.GetValue().strip()
+        if text in self._value_by_label:
+            self._value = self._value_by_label[text]
+            self.EndModal(wx.ID_OK)
+            return
+        value, error = _parse_checked(self._type_value, self._prop_def, text)
         if error:
             wx.MessageBox(error, propEditInvalidTitle, wx.OK | wx.ICON_ERROR, self)
             return

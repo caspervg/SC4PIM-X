@@ -61,3 +61,7 @@ dmypy.json
 *.log
 ImageDB
 ImageDBLarge
+
+# LLM stuff
+.agents
+.claude

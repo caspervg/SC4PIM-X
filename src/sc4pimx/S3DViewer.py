@@ -133,7 +133,7 @@ class S3DViewer(object):
             maxZ = max(zs)
             diffX = maxX - minX
             diffY = maxY - minY
-            diff = max(diffX, diffY) * 1.1
+            diff = max(diffX, diffY, 1e-6) * 1.1
             self.posx = (maxX + minX) / 2.0
             self.posy = (maxY + minY) / 2.0
             self.posz = maxZ
@@ -156,6 +156,8 @@ class S3DViewer(object):
                 angleX = 30
             self.size = self.openGLCanvas.GetClientSize()
             w, h = self.openGLCanvas.GetPhysicalSize()
+            w = max(w, 1)
+            h = max(h, 1)
             valW = w * 20.0 / 400.0
             valH = h * 20.0 / 400.0
             glViewport(0, 0, w, h)

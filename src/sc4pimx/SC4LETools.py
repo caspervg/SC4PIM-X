@@ -25,6 +25,7 @@ from .config import load_lot_editor
 from .paths import asset_path, ensure_user_data_dir, image_db_path, user_data_path
 from .SC4Data import *
 from .SC4OpenGL import *
+from .TablerIcons import icon_bundle, icon_toggle_button, set_button_icon
 from .translation import *
 from .util import basic_cmp
 
@@ -696,6 +697,11 @@ class LEAssetItem(object):
 
     @property
     def search_text(self):
+        # Cached: ApplyFilters reads this for every item on every keystroke,
+        # and none of the inputs change after construction.
+        cached = self.__dict__.get('_search_text')
+        if cached is not None:
+            return cached
         file_name = ''
         try:
             src = self.source
@@ -705,9 +711,19 @@ class LEAssetItem(object):
                 file_name = src.exemplar.entry.fileName or ''
         except Exception:
             file_name = ''
-        return ('%s %s %s %s %s %s %s' % (self.kind, self.badge, self.label,
-                                          self.sublabel, self.hex_id, self.extra_text,
-                                          file_name)).lower()
+        cached = ('%s %s %s %s %s %s %s' % (self.kind, self.badge, self.label,
+                                            self.sublabel, self.hex_id, self.extra_text,
+                                            file_name)).lower()
+        self.__dict__['_search_text'] = cached
+        return cached
+
+    @property
+    def sort_label(self):
+        cached = self.__dict__.get('_sort_label')
+        if cached is None:
+            cached = self.label.upper()
+            self.__dict__['_sort_label'] = cached
+        return cached
 
     @property
     def type_label(self):
@@ -788,7 +804,7 @@ class LEAssetThumbnailProvider(object):
     # ATC previews may contain up to 120 source frames.  Keeping a wx.Bitmap
     # for every frame of every asset quickly consumes hundreds of MB.  Sample
     # the visual frames while retaining repeated references in the playback
-    # list, which preserves the original 10 fps duration.
+    # list, which preserves the original playback duration.
     MAX_ANIM_BITMAPS = 30
     MAX_CACHED_ANIMATIONS = 32
 
@@ -1295,7 +1311,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         self.thumbnail_provider.RestrictTo(visible)
         # Run the animation timer only while an animated card is on screen.
         if self._any_anim and not self._anim_timer.IsRunning():
-            self._anim_timer.Start(100)
+            self._anim_timer.Start(ATC_PREVIEW_FRAME_MS)
         elif not self._any_anim and self._anim_timer.IsRunning():
             self._anim_timer.Stop()
 
@@ -1645,6 +1661,14 @@ class LEAssetList(wx.ListCtrl):
 class LEAssetBrowserPanel(wx.Panel):
 
     THUMB_STEPS = [56, 72, 96, 120]
+    KIND_ORDER = {
+        'base texture': 0,
+        'overlay texture': 1,
+        'prop': 2,
+        'effect': 3,
+        'flora': 4,
+        'family': 5,
+    }
 
     def __init__(self, parent, editor):
         wx.Panel.__init__(self, parent, -1)
@@ -1656,8 +1680,14 @@ class LEAssetBrowserPanel(wx.Panel):
         self.kind_filter = str(settings.get('AssetFilter', 'all'))
         if self.kind_filter not in ('all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'):
             self.kind_filter = 'all'
+        self.sort_key = str(settings.get('AssetSort', 'name'))
+        if self.sort_key not in ('name', 'type', 'id'):
+            self.sort_key = 'name'
+        self.sort_ascending = bool(settings.get('AssetSortAscending', True))
         self.favorites = set(str(k) for k in (settings.get('Favorites') or []))
         self.all_items = []
+        # (fingerprint, items) for the last library-scope build; see _build_items.
+        self._library_cache = None
         self.thumbnail_provider = LEAssetThumbnailProvider()
         self.thumbnail_provider.SetThumbSize(int(settings.get('ThumbSize', 72)))
         root = wx.BoxSizer(wx.VERTICAL)
@@ -1674,12 +1704,13 @@ class LEAssetBrowserPanel(wx.Panel):
         root.Add(self.search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         scopes = wx.BoxSizer(wx.HORIZONTAL)
         self.scope_buttons = {}
-        for scope, label in [
-            ('lot', LEXAssetBrowserCurrentLot),
-            ('library', LEXAssetBrowserLibrary),
-            ('favorites', LEXAssetBrowserFavorites),
+        for scope, label, icon in [
+            ('lot', LEXAssetBrowserCurrentLot, 'building-community'),
+            ('library', LEXAssetBrowserLibrary, 'library'),
+            ('favorites', LEXAssetBrowserFavorites, 'star'),
         ]:
             btn = wx.ToggleButton(self, -1, label)
+            set_button_icon(btn, icon)
             btn.Bind(wx.EVT_TOGGLEBUTTON, lambda evt, value=scope: self.SetScope(value))
             self.scope_buttons[scope] = btn
             scopes.Add(btn, 1, wx.RIGHT, 4)
@@ -1697,7 +1728,18 @@ class LEAssetBrowserPanel(wx.Panel):
         ])
         self.filter_choice.SetSelection(['all', 'textures', 'base_textures', 'overlay_textures', 'props', 'effects', 'flora', 'families'].index(self.kind_filter))
         filters.Add(self.filter_choice, 1, wx.EXPAND)
-        self.presentation = wx.ToggleButton(self, -1, LEXAssetBrowserCompact)
+        self.sort_choice = wx.Choice(self, -1, choices=[
+            LEXAssetBrowserSortName,
+            LEXAssetBrowserSortType,
+            LEXAssetBrowserSortId,
+        ])
+        self.sort_choice.SetSelection(['name', 'type', 'id'].index(self.sort_key))
+        self.sort_choice.SetToolTip(LEXAssetBrowserSortBy)
+        filters.Add(self.sort_choice, 0, wx.LEFT, 6)
+        self.sort_direction = icon_toggle_button(self, 'sort-ascending', LEXAssetBrowserSortDescending)
+        self.sort_direction.SetValue(not self.sort_ascending)
+        filters.Add(self.sort_direction, 0, wx.LEFT, 6)
+        self.presentation = icon_toggle_button(self, 'list', LEXAssetBrowserCompact)
         filters.Add(self.presentation, 0, wx.LEFT, 6)
         thumb_size = int(settings.get('ThumbSize', 72))
         thumb_idx = min(range(len(self.THUMB_STEPS)),
@@ -1716,6 +1758,8 @@ class LEAssetBrowserPanel(wx.Panel):
         self.SetSizer(root)
         self.search.Bind(wx.EVT_TEXT, self.OnSearch)
         self.filter_choice.Bind(wx.EVT_CHOICE, self.OnFilter)
+        self.sort_choice.Bind(wx.EVT_CHOICE, self.OnSort)
+        self.sort_direction.Bind(wx.EVT_TOGGLEBUTTON, self.OnSortDirection)
         self.presentation.Bind(wx.EVT_TOGGLEBUTTON, self.OnPresentation)
         self.thumb_slider.Bind(wx.EVT_SLIDER, self.OnThumbSize)
         self._debounce = None
@@ -1725,12 +1769,15 @@ class LEAssetBrowserPanel(wx.Panel):
         compact = bool(settings.get('AssetCompact', False))
         self.presentation.SetValue(compact)
         self.OnPresentation(None)
+        self.OnSortDirection(None)
         self.SetScope(self.scope)
 
     def GetState(self):
         return {
             'AssetScope': self.scope,
             'AssetFilter': self.kind_filter,
+            'AssetSort': self.sort_key,
+            'AssetSortAscending': self.sort_ascending,
             'AssetSearch': self.search.GetValue(),
             'AssetCompact': bool(self.presentation.GetValue()),
             'Favorites': sorted(self.favorites),
@@ -1760,7 +1807,24 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def RefreshAssets(self):
         self.all_items = self._build_items()
+        self._sort_items()
         self.ApplyFilters()
+
+    def _sort_items(self):
+        if self.sort_key == 'type':
+            key = lambda item: (self.KIND_ORDER.get(item.kind, 99), item.sort_label)
+        elif self.sort_key == 'id':
+            key = lambda item: self._sort_hex_value(item.hex_id)
+        else:
+            key = lambda item: item.sort_label
+        self.all_items.sort(key=key, reverse=not self.sort_ascending)
+
+    @staticmethod
+    def _sort_hex_value(hex_id):
+        try:
+            return int(hex_id, 16)
+        except (TypeError, ValueError):
+            return -1
 
     def SetScope(self, scope):
         self.scope = scope
@@ -1788,9 +1852,27 @@ class LEAssetBrowserPanel(wx.Panel):
         self.kind_filter = labels[self.filter_choice.GetSelection()]
         self.ApplyFilters()
 
+    def OnSort(self, event):
+        keys = ['name', 'type', 'id']
+        self.sort_key = keys[self.sort_choice.GetSelection()]
+        self._sort_items()
+        self.ApplyFilters()
+
+    def OnSortDirection(self, event):
+        self.sort_ascending = not self.sort_direction.GetValue()
+        icon = 'sort-ascending' if self.sort_ascending else 'sort-descending'
+        tooltip = LEXAssetBrowserSortDescending if self.sort_ascending else LEXAssetBrowserSortAscending
+        self.sort_direction.SetBitmap(icon_bundle(icon))
+        self.sort_direction.SetToolTip(tooltip)
+        self._sort_items()
+        self.ApplyFilters()
+
     def OnPresentation(self, event):
         compact = self.presentation.GetValue()
-        self.presentation.SetLabel(LEXAssetBrowserGrid if compact else LEXAssetBrowserCompact)
+        label = LEXAssetBrowserGrid if compact else LEXAssetBrowserCompact
+        icon = 'layout-grid' if compact else 'list'
+        self.presentation.SetBitmap(icon_bundle(icon))
+        self.presentation.SetToolTip(label)
         self.grid.Show(not compact)
         self.list.Show(compact)
         self.Layout()
@@ -1823,22 +1905,29 @@ class LEAssetBrowserPanel(wx.Panel):
         badge = LEXAssetBrowserFloraBadge if flora else LEXAssetBrowserEffectBadge if effect else LEXAssetBrowserPropBadge
         return LEAssetItem(kind, label, sublabel, PropProxy(desc), desc, badge, hex_id=hex_id)
 
-    def _family_member_names(self, cat_id):
-        names = []
+    def _family_member_descs(self, cat_id):
+        """Prop/flora exemplar descriptors belonging to family cat_id.
+
+        Single traversal shared by the "is this a family" test and the member
+        name/count display in :meth:`_family_item`.
+        """
+        members = []
         try:
-            for desc in VirtualDat.this.categories[cat_id].descriptors:
+            descriptors = VirtualDat.this.categories[cat_id].descriptors
+        except Exception:
+            return members
+        for desc in descriptors:
+            try:
                 if desc.exemplar.entry.tgi[0] != 1697917002:
                     continue
                 if desc.exemplar.GetProp(16)[0] not in (30, 15):
                     continue
-                name = desc.exemplar.GetProp(32)
-                if name:
-                    names.append(str(name[0]))
-        except Exception:
-            pass
-        return names
+                members.append(desc)
+            except Exception:
+                pass
+        return members
 
-    def _family_item(self, cat_id):
+    def _family_item(self, cat_id, member_descs=None):
         hex_id = hex2str(cat_id)[2:]
         label = ''
         try:
@@ -1850,10 +1939,19 @@ class LEAssetBrowserPanel(wx.Panel):
             label = VirtualDat.this.builtin_family_names.get(cat_id, '')
         if not label:
             label = hex_id
-        members = self._family_member_names(cat_id)
-        sublabel = '%d %s' % (len(members), LEXAssetBrowserMembers) if members else ''
+        if member_descs is None:
+            member_descs = self._family_member_descs(cat_id)
+        names = []
+        for desc in member_descs:
+            try:
+                name = desc.exemplar.GetProp(32)
+            except Exception:
+                continue
+            if name:
+                names.append(str(name[0]))
+        sublabel = '%d %s' % (len(names), LEXAssetBrowserMembers) if names else ''
         return LEAssetItem('family', label, sublabel, FamilyProxy(cat_id), cat_id,
-                           LEXAssetBrowserFamilyBadge, ' '.join(members), hex_id=hex_id)
+                           LEXAssetBrowserFamilyBadge, ' '.join(names), hex_id=hex_id)
 
     def _build_items(self):
         items = []
@@ -1875,6 +1973,47 @@ class LEAssetBrowserPanel(wx.Panel):
             for cat_id in getattr(self.editor, 'lotFamiliesPropID', []):
                 items.append(self._family_item(cat_id))
             return items
+        # Library/favorites: the full plugin asset universe. Building it walks
+        # every texture/prop/effect/flora/family descriptor with several
+        # GetProp calls each, so the result is cached and reused until the
+        # underlying collections change size (see _library_fingerprint).
+        fingerprint = self._library_fingerprint()
+        if self._library_cache is not None and self._library_cache[0] == fingerprint:
+            items = self._library_cache[1]
+        else:
+            items = self._build_library_items()
+            self._library_cache = (fingerprint, items)
+        if self.scope == 'favorites':
+            return [it for it in items if it.fav_key in self.favorites]
+        return list(items)
+
+    @staticmethod
+    def _library_fingerprint():
+        """Cheap change signal for the library cache.
+
+        Descriptors are only ever appended to categories mid-session (see
+        AddDescRecurs), so collection sizes plus the VirtualDat identity are
+        enough to detect additions and full plugin reloads.
+        """
+        vd = VirtualDat.this
+        counts = [id(vd),
+                  len(getattr(vd, 'baseTexEntries', ())),
+                  len(getattr(vd, 'overTexEntries', ()))]
+        for cat_id in (210746660, EFFECT_CATEGORY_ID, 1830116951):
+            category = vd.categories.get(cat_id)
+            counts.append(len(category.descriptors) if category is not None else 0)
+        for root_id in (4089086497, 4089087265):
+            category = vd.categories.get(root_id)
+            if category is None:
+                counts.append(0)
+                counts.append(0)
+                continue
+            counts.append(len(category.childs))
+            counts.append(sum(len(sub.descriptors) for sub in category.childs))
+        return tuple(counts)
+
+    def _build_library_items(self):
+        items = []
         for entry in getattr(VirtualDat.this, 'baseTexEntries', []):
             items.append(self._texture_item(entry, False))
         for entry in getattr(VirtualDat.this, 'overTexEntries', []):
@@ -1911,22 +2050,10 @@ class LEAssetBrowserPanel(wx.Panel):
             if category is None:
                 continue
             for sub in category.childs:
-                if self._is_prop_family(sub.descriptors):
-                    items.append(self._family_item(sub.ID))
-        if self.scope == 'favorites':
-            return [it for it in items if it.fav_key in self.favorites]
+                member_descs = self._family_member_descs(sub.ID)
+                if member_descs:
+                    items.append(self._family_item(sub.ID, member_descs))
         return items
-
-    def _is_prop_family(self, descriptors):
-        for desc in descriptors:
-            try:
-                if desc.exemplar.entry.tgi[0] != 1697917002:
-                    continue
-                if desc.exemplar.GetProp(16)[0] in (30, 15):
-                    return True
-            except Exception:
-                pass
-        return False
 
     def ApplyFilters(self):
         if self._destroyed:
@@ -2037,6 +2164,8 @@ class TextureDlg(wx.Frame):
         leftBox = wx.BoxSizer(wx.VERTICAL)
         leftBox.Add(self.tree, 1, wx.EXPAND)
         self.bConfig = wx.Button(leftPanel, -1, LEToggleTop, (-1, -1))
+        pin_icon = 'pinned' if self.GetWindowStyleFlag() & wx.FRAME_FLOAT_ON_PARENT else 'pin'
+        set_button_icon(self.bConfig, pin_icon)
         self.bConfig.Bind(wx.EVT_BUTTON, self.OnButton)
         leftBox.Add(self.bConfig, 0, wx.EXPAND)
         leftPanel.SetSizer(leftBox)

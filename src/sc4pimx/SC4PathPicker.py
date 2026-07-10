@@ -28,6 +28,7 @@ from .SC4PathReader import (
     list_sc4path_entries,
     load_catalog_item,
 )
+from .TablerIcons import set_button_icon
 from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
@@ -350,8 +351,7 @@ def populate_sc4path_cache(item: SC4PathCatalogItem,
     entry at startup so the picker can open instantly with everything cached.
     The ``png_path`` argument is non-None only for entries on the
     ``missing_sc4path_pictures`` list — already-cached PNGs are left alone.
-    ``preview`` is an optional :class:`SC4PathImageBuilder` window that the
-    caller has put on screen; each freshly-rendered thumbnail is shown there.
+    The optional preview remains hidden until the first thumbnail is rendered.
     """
     load_catalog_item(item)
     metadata = _metadata_from_item(item)
@@ -370,45 +370,24 @@ def populate_sc4path_cache(item: SC4PathCatalogItem,
 
 
 # ---------------------------------------------------------------------------
-# Live preview window (mirrors ImageDBBuilder for model thumbs)
+# Embedded live preview adapter (mirrors ImageDBBuilder for model thumbs)
 
 
-class SC4PathImageBuilder(wx.Frame):
-    """Tiny on-screen window that displays each SC4Path thumbnail as it is
-    rendered during ``_load_finalize``. Pure eye-candy — purely visual, no
-    side effects beyond what ``populate_sc4path_cache`` already does."""
+class SC4PathImageBuilder:
+    """Route generated SC4Path thumbnails to the in-window startup surface."""
 
-    PREVIEW_SIZE = (288, 192)
+    def __init__(self, target):
+        self.target = target
 
-    def __init__(self, parent: wx.Window, title: str = "SC4Paths"):
-        wx.Frame.__init__(self, parent, -1, title,
-                          style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP)
-        panel = wx.Panel(self, -1)
-        self._bitmap = wx.StaticBitmap(panel, -1,
-                                       _make_missing_bitmap(self.PREVIEW_SIZE))
-        self._label = wx.StaticText(panel, -1, "")
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._bitmap, 0, wx.ALL | wx.ALIGN_CENTER, 6)
-        sizer.Add(self._label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.ALIGN_CENTER, 6)
-        panel.SetSizerAndFit(sizer)
-        outer = wx.BoxSizer(wx.VERTICAL)
-        outer.Add(panel, 1, wx.EXPAND)
-        self.SetSizerAndFit(outer)
-
-    def Show(self, item: Optional[SC4PathCatalogItem] = None,  # type: ignore[override]
+    def Show(self, item: Optional[SC4PathCatalogItem] = None,
              bitmap: Optional[wx.Bitmap] = None, show: bool = True) -> bool:
-        if item is not None and bitmap is not None:
-            # Upscale to the preview size with bicubic so the line art is
-            # readable instead of pixel-blocky.
-            image = bitmap.ConvertToImage().Scale(
-                self.PREVIEW_SIZE[0], self.PREVIEW_SIZE[1], wx.IMAGE_QUALITY_BICUBIC
-            )
-            self._bitmap.SetBitmap(image.ConvertToBitmap())
-            self._label.SetLabel(item.hex_iid)
-            self.Layout()
-            wx.YieldIfNeeded()
-            return True
-        return wx.Frame.Show(self, show)
+        if item is None or bitmap is None or not show:
+            return False
+        self.target.ShowBitmapPreview(item, bitmap)
+        return True
+
+    def Destroy(self) -> None:
+        self.target = None
 
 
 def _load_disk_thumb(iid: int) -> Optional[wx.Bitmap]:
@@ -717,6 +696,8 @@ class SC4PathPickerDialog(wx.Dialog):
                                             style=wx.BU_EXACTFIT)
         self.transportNoneButton = wx.Button(self, -1, LEXSC4PathPickerNone,
                                              style=wx.BU_EXACTFIT)
+        set_button_icon(self.transportAllButton, "select-all")
+        set_button_icon(self.transportNoneButton, "deselect")
         self.transportAllButton.Bind(wx.EVT_BUTTON, self._on_transport_all)
         self.transportNoneButton.Bind(wx.EVT_BUTTON, self._on_transport_none)
         filter_buttons = wx.BoxSizer(wx.HORIZONTAL)
@@ -751,6 +732,7 @@ class SC4PathPickerDialog(wx.Dialog):
         if hasattr(self.hexText, "SetHint"):
             self.hexText.SetHint(LEXSC4PathPickerManualHint)
         self.useHexButton = wx.Button(self, -1, LEXSC4PathPickerUseHex)
+        set_button_icon(self.useHexButton, "check")
         manual_row = wx.BoxSizer(wx.HORIZONTAL)
         manual_row.Add(wx.StaticText(self, -1, LEXSC4PathPickerManualLabel), 0,
                        wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
@@ -759,6 +741,7 @@ class SC4PathPickerDialog(wx.Dialog):
 
         # --- Footer --------------------------------------------------------
         self.clearButton = wx.Button(self, -1, LEXSC4PathPickerClear)
+        set_button_icon(self.clearButton, "route-off")
         self.okButton = wx.Button(self, wx.ID_OK)
         self.okButton.SetDefault()
         cancelButton = wx.Button(self, wx.ID_CANCEL)
@@ -801,8 +784,7 @@ class SC4PathPickerDialog(wx.Dialog):
             return md
         # Fallback: Finalize was skipped (safe mode / env flag) or this is a
         # newly-loaded entry. Parse on demand and cache for the session.
-        populate_sc4path_cache(item, str(sc4path_thumb_path(item.iid)))
-        md = _metadata_from_item(item)
+        md = populate_sc4path_cache(item)
         self._metadata_table[item.iid] = md
         return md
 

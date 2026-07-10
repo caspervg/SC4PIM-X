@@ -7,7 +7,10 @@ from OpenGL.GL import (
     GL_LINK_STATUS,
     GL_TRUE,
     GL_VERTEX_SHADER,
+    glBindVertexArray,
     glDeleteProgram,
+    glDeleteVertexArrays,
+    glGenVertexArrays,
     glGetProgramInfoLog,
     glGetProgramiv,
     glGetUniformLocation,
@@ -19,6 +22,21 @@ from OpenGL.GL import (
     glUseProgram,
 )
 from OpenGL.GL.shaders import compileProgram, compileShader
+
+
+def _compile_program(*shaders):
+    """compileProgram wrapper that binds a temporary VAO.
+
+    macOS Core Profile raises ShaderValidationError if no VAO is bound during
+    glValidateProgram, which PyOpenGL calls inside compileProgram.
+    """
+    tmp_vao = int(glGenVertexArrays(1))
+    glBindVertexArray(tmp_vao)
+    try:
+        return compileProgram(*shaders)
+    finally:
+        glBindVertexArray(0)
+        glDeleteVertexArrays(1, [tmp_vao])
 
 
 def _normalize(vec3):
@@ -40,6 +58,8 @@ DAY_PRESET = {
     'sky_color': (0.0, 0.1, 0.5),
     'terrain_normal': (0.0, 1.0, 0.0),
     'terrain_shadow_amount': 0.40,
+    'use_environment_map': False,
+    'environment_color': (1.0, 1.0, 1.0),
 }
 
 NIGHT_PRESET = {
@@ -51,6 +71,8 @@ NIGHT_PRESET = {
     'sky_color': (0.0, 0.1, 0.5),
     'terrain_normal': (0.0, 1.0, 0.0),
     'terrain_shadow_amount': 0.40,
+    'use_environment_map': False,
+    'environment_color': (1.0, 1.0, 1.0),
 }
 
 
@@ -95,6 +117,8 @@ uniform vec3 u_sky_dir;
 uniform vec3 u_sky_color;
 uniform vec3 u_terrain_normal;
 uniform float u_terrain_shadow_amount;
+uniform int u_use_environment_map;
+uniform vec3 u_environment_color;
 uniform float u_prelit;
 uniform float u_emissive;
 uniform int u_alpha_func;
@@ -119,6 +143,8 @@ bool alpha_passes(float alpha)
 
 vec3 sc4_getcolor(vec3 normal)
 {
+    if (u_use_environment_map != 0)
+        return clamp(u_environment_color, 0.0, 1.0);
     float sun_amount = max(dot(normal, normalize(u_sun_dir)), 0.0);
     float sky_amount = max(dot(normal, normalize(u_sky_dir)), 0.0);
     vec3 lit = u_ambient_color;
@@ -153,7 +179,7 @@ class SC4LightingProgram:
     """Small wrapper around the S3D preview lighting shader."""
 
     def __init__(self):
-        self.program = compileProgram(
+        self.program = _compile_program(
             compileShader(VERTEX_SHADER, GL_VERTEX_SHADER),
             compileShader(FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
         )
@@ -169,6 +195,8 @@ class SC4LightingProgram:
             'sky_color': glGetUniformLocation(self.program, 'u_sky_color'),
             'terrain_normal': glGetUniformLocation(self.program, 'u_terrain_normal'),
             'terrain_shadow_amount': glGetUniformLocation(self.program, 'u_terrain_shadow_amount'),
+            'use_environment_map': glGetUniformLocation(self.program, 'u_use_environment_map'),
+            'environment_color': glGetUniformLocation(self.program, 'u_environment_color'),
             'prelit': glGetUniformLocation(self.program, 'u_prelit'),
             'emissive': glGetUniformLocation(self.program, 'u_emissive'),
             'mvp': glGetUniformLocation(self.program, 'u_mvp'),
@@ -180,9 +208,17 @@ class SC4LightingProgram:
             'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
             'textured': glGetUniformLocation(self.program, 'u_textured'),
         }
+        # Identity of the lighting_state dict whose values are currently
+        # uploaded. Uniforms persist in the program object, so when the same
+        # (cached, immutable) dict comes back the ~12 lighting uploads are
+        # skipped — with per-exemplar states deduped to a handful of shared
+        # dicts this drops lighting uploads from per-mesh to per-transition.
+        self._current_lighting = None
 
-    def bind(self, lighting_state, mvp, normal_matrix):
-        glUseProgram(self.program)
+    def _set_lighting(self, lighting_state):
+        if lighting_state is self._current_lighting:
+            return
+        self._current_lighting = lighting_state
         glUniform1i(self._uniforms['texture'], 0)
         self._set_vec3('global_color', lighting_state['global_color'])
         self._set_vec3('ambient_color', lighting_state['ambient_color'])
@@ -195,7 +231,18 @@ class SC4LightingProgram:
             self._uniforms['terrain_shadow_amount'],
             float(lighting_state['terrain_shadow_amount']),
         )
+        glUniform1i(
+            self._uniforms['use_environment_map'],
+            1 if lighting_state.get('use_environment_map') else 0,
+        )
+        self._set_vec3(
+            'environment_color', lighting_state.get('environment_color', (1.0, 1.0, 1.0)),
+        )
         glUniform1f(self._uniforms['prelit'], 1.0 if lighting_state.get('prelit') else 0.0)
+
+    def bind(self, lighting_state, mvp, normal_matrix):
+        glUseProgram(self.program)
+        self._set_lighting(lighting_state)
         glUniform1i(self._uniforms['instanced'], 0)
         self._upload_explicit_matrices(mvp, normal_matrix)
 
@@ -236,20 +283,160 @@ class SC4LightingProgram:
         glUniform3f(self._uniforms[name], float(value[0]), float(value[1]), float(value[2]))
 
 
+SHADOW_VERTEX_SHADER = """
+#version 330 core
+
+layout(location = 0) in vec3 a_position;
+layout(location = 1) in vec3 a_normal;   // unused; kept for VAO layout parity
+layout(location = 2) in vec2 a_texcoord;
+
+uniform mat4 u_mvp;
+uniform int u_instanced;
+uniform mat4 u_instance_mvp[32];
+
+out vec2 v_texcoord;
+
+void main(void)
+{
+    mat4 model_mvp = u_instanced != 0 ? u_instance_mvp[gl_InstanceID] : u_mvp;
+    v_texcoord = a_texcoord;
+    gl_Position = model_mvp * vec4(a_position, 1.0);
+}
+"""
+
+
+SHADOW_FRAGMENT_SHADER = """
+#version 330 core
+
+uniform sampler2D u_texture;
+uniform int u_alpha_func;
+uniform float u_alpha_threshold;
+uniform int u_textured;
+uniform vec3 u_shadow_color;
+uniform float u_shadow_strength;
+
+in vec2 v_texcoord;
+out vec4 out_color;
+
+bool alpha_passes(float alpha)
+{
+    if (u_alpha_func == 0) return false;
+    if (u_alpha_func == 1) return alpha < u_alpha_threshold;
+    if (u_alpha_func == 2) return abs(alpha - u_alpha_threshold) <= (1.0 / 255.0);
+    if (u_alpha_func == 3) return alpha <= u_alpha_threshold;
+    if (u_alpha_func == 4) return alpha > u_alpha_threshold;
+    if (u_alpha_func == 5) return abs(alpha - u_alpha_threshold) > (1.0 / 255.0);
+    if (u_alpha_func == 6) return alpha >= u_alpha_threshold;
+    return true;
+}
+
+void main(void)
+{
+    // The model's prerendered texture alpha is the silhouette: a fragment that
+    // passes the model's own alpha test belongs to the caster and casts shadow.
+    float alpha = u_textured != 0 ? texture(u_texture, v_texcoord).a : 1.0;
+    if (!alpha_passes(alpha))
+        discard;
+    // SC4 darkens the ground with a MODULATE combiner, not an additive blend:
+    // framebuffer *= mix(1, shadowColor, strength). Output that multiplier and
+    // pair it with glBlendFunc(GL_ZERO, GL_SRC_COLOR). Multiplying preserves the
+    // ground's hue (a faint cool lean) instead of washing it blue, which is what
+    // an additive lerp toward the absolute shadow colour wrongly does.
+    vec3 factor = mix(vec3(1.0), u_shadow_color, u_shadow_strength);
+    out_color = vec4(factor, 1.0);
+}
+"""
+
+
+class SC4ShadowProgram:
+    """Planar-projected shadow caster: SC4-style alpha-masked silhouette.
+
+    Mirrors the ``SC4LightingProgram`` draw interface (``bind_instanced`` /
+    ``set_material`` / ``unbind``) so it can be passed straight to
+    ``S3DMesh.draw``/``draw_instanced``. The caller flattens each caster onto the
+    ground plane via the MVP; this program just stencils the texture-alpha
+    silhouette into a flat shadow colour.
+    """
+
+    def __init__(self):
+        self.program = _compile_program(
+            compileShader(SHADOW_VERTEX_SHADER, GL_VERTEX_SHADER),
+            compileShader(SHADOW_FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
+        )
+        if glGetProgramiv(self.program, GL_LINK_STATUS) != GL_TRUE:
+            raise RuntimeError(glGetProgramInfoLog(self.program))
+        self._uniforms = {
+            'texture': glGetUniformLocation(self.program, 'u_texture'),
+            'mvp': glGetUniformLocation(self.program, 'u_mvp'),
+            'instanced': glGetUniformLocation(self.program, 'u_instanced'),
+            'instance_mvp': glGetUniformLocation(self.program, 'u_instance_mvp[0]'),
+            'alpha_func': glGetUniformLocation(self.program, 'u_alpha_func'),
+            'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
+            'textured': glGetUniformLocation(self.program, 'u_textured'),
+            'shadow_color': glGetUniformLocation(self.program, 'u_shadow_color'),
+            'shadow_strength': glGetUniformLocation(self.program, 'u_shadow_strength'),
+        }
+        self.shadow_color = (0.0, 0.0, 0.0)
+        self.shadow_strength = 0.35
+        # Currently uploaded (color, strength); uniforms persist in the
+        # program, so unchanged params skip their uploads on later binds.
+        self._current_params = None
+
+    def bind(self, lighting_state, mvp, normal_matrix=None):
+        glUseProgram(self.program)
+        params = (tuple(float(c) for c in self.shadow_color), float(self.shadow_strength))
+        if params != self._current_params:
+            self._current_params = params
+            glUniform1i(self._uniforms['texture'], 0)
+            glUniform3f(self._uniforms['shadow_color'], *params[0])
+            glUniform1f(self._uniforms['shadow_strength'], params[1])
+        glUniform1i(self._uniforms['instanced'], 0)
+        mvp = numpy.ascontiguousarray(mvp, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_TRUE, mvp)
+
+    def bind_instanced(self, lighting_state, mvps, normal_matrices=None):
+        if not mvps or len(mvps) > 32:
+            raise ValueError('shadow instance batch must contain 1..32 transforms')
+        self.bind(lighting_state, mvps[0])
+        glUniform1i(self._uniforms['instanced'], 1)
+        mvp_data = numpy.ascontiguousarray(mvps, dtype=numpy.float32)
+        glUniformMatrix4fv(self._uniforms['instance_mvp'], len(mvps), GL_TRUE, mvp_data)
+
+    def set_material(self, alpha_func=7, alpha_threshold=0.0, textured=True,
+                     emissive=False):
+        glUniform1i(self._uniforms['alpha_func'], int(alpha_func))
+        glUniform1f(self._uniforms['alpha_threshold'], float(alpha_threshold))
+        glUniform1i(self._uniforms['textured'], 1 if textured else 0)
+
+    def unbind(self):
+        glUseProgram(0)
+
+    def release_gl(self):
+        if self.program:
+            glDeleteProgram(self.program)
+            self.program = 0
+
+
 def approximate_model_light(lighting_state):
     """CPU-side counterpart to the preview shader's GetModelLight approximation."""
-    terrain_normal = _normalize(lighting_state['terrain_normal'])
-    sun_dir = _normalize(lighting_state['sun_dir'])
-    sky_dir = _normalize(lighting_state['sky_dir'])
-    sun_amount = max(sum(a * b for a, b in zip(terrain_normal, sun_dir)), 0.0)
-    sky_amount = max(sum(a * b for a, b in zip(terrain_normal, sky_dir)), 0.0)
-    base = []
-    for ambient, sun, sky in zip(
-        lighting_state['ambient_color'],
-        lighting_state['sun_color'],
-        lighting_state['sky_color'],
-    ):
-        base.append(min(max(ambient + sun_amount * sun + sky_amount * sky, 0.0), 1.0))
+    if lighting_state.get('use_environment_map'):
+        base = [
+            min(max(float(channel), 0.0), 1.0)
+            for channel in lighting_state.get('environment_color', (1.0, 1.0, 1.0))
+        ]
+    else:
+        terrain_normal = _normalize(lighting_state['terrain_normal'])
+        sun_dir = _normalize(lighting_state['sun_dir'])
+        sky_dir = _normalize(lighting_state['sky_dir'])
+        sun_amount = max(sum(a * b for a, b in zip(terrain_normal, sun_dir)), 0.0)
+        sky_amount = max(sum(a * b for a, b in zip(terrain_normal, sky_dir)), 0.0)
+        base = []
+        for ambient, sun, sky in zip(
+            lighting_state['ambient_color'],
+            lighting_state['sun_color'],
+            lighting_state['sky_color'],
+        ):
+            base.append(min(max(ambient + sun_amount * sun + sky_amount * sky, 0.0), 1.0))
     shadow_mix = 1.0 - float(lighting_state['terrain_shadow_amount'])
     lit = []
     for channel, global_channel in zip(base, lighting_state['global_color']):

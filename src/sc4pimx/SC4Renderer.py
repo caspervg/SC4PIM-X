@@ -7,6 +7,7 @@ through VAOs/VBOs, and textures are paired with immutable sampler objects.
 from __future__ import annotations
 
 import ctypes
+import functools
 import logging
 import math
 from contextlib import contextmanager
@@ -117,6 +118,17 @@ from PIL import Image, ImageDraw, ImageFont
 from . import SC4Matrix
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_rotation(degrees, x, y, z):
+    """Memoized rotation matrix; treat the result as immutable.
+
+    A lot frame issues the same few rotations (camera turn, four 90-degree
+    prop orientations) hundreds of times; rebuilding the matrix each call
+    dominated TransformStack.rotate.
+    """
+    return SC4Matrix.rotate(degrees, x, y, z)
 
 
 # GL_EXT_texture_filter_anisotropic is an OpenGL 3.3 extension (core since 4.6).
@@ -258,6 +270,7 @@ class TransformStack:
             dtype=numpy.float64,
         )
         self._stack = []
+        self._normal_cache = {}
 
     @property
     def mvp(self):
@@ -265,7 +278,18 @@ class TransformStack:
 
     @property
     def normal_matrix(self):
-        return SC4Matrix.normal_matrix(self.model)
+        # The normal matrix depends only on the model's 3x3 rotation/scale
+        # part; a lot scene reuses a handful of orientations (4 rotFlags x
+        # camera turn) across hundreds of props, so cache the inverse by the
+        # 3x3 bytes instead of running numpy.linalg.inv per prop per frame.
+        key = self.model[0:3, 0:3].tobytes()
+        cached = self._normal_cache.get(key)
+        if cached is None:
+            if len(self._normal_cache) >= 256:
+                self._normal_cache.clear()
+            cached = SC4Matrix.normal_matrix(self.model)
+            self._normal_cache[key] = cached
+        return cached
 
     def load_identity(self):
         self.model = SC4Matrix.identity()
@@ -277,7 +301,7 @@ class TransformStack:
         self.model = self.model @ SC4Matrix.scale(x, y, z)
 
     def rotate(self, degrees, x, y, z):
-        self.model = self.model @ SC4Matrix.rotate(degrees, x, y, z)
+        self.model = self.model @ _cached_rotation(degrees, x, y, z)
 
     @contextmanager
     def pushed(self):
@@ -399,6 +423,11 @@ class PrimitiveRenderer:
 
     def __init__(self, samplers):
         self.samplers = samplers
+        # Create and bind VAO before compileProgram: macOS Core Profile requires
+        # a VAO bound during shader validation or it raises ShaderValidationError.
+        self.vao = int(glGenVertexArrays(1))
+        self.vbo = int(glGenBuffers(1))
+        glBindVertexArray(self.vao)
         self.program = compileProgram(
             compileShader(PRIMITIVE_VERTEX_SHADER, GL_VERTEX_SHADER),
             compileShader(PRIMITIVE_FRAGMENT_SHADER, GL_FRAGMENT_SHADER),
@@ -406,10 +435,7 @@ class PrimitiveRenderer:
         self._mvp_location = glGetUniformLocation(self.program, "u_mvp")
         self._texture_location = glGetUniformLocation(self.program, "u_texture")
         self._texture_mode_location = glGetUniformLocation(self.program, "u_texture_mode")
-        self.vao = int(glGenVertexArrays(1))
-        self.vbo = int(glGenBuffers(1))
         self._capacity = 0
-        glBindVertexArray(self.vao)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         stride = self._FLOATS_PER_VERTEX * 4
         glEnableVertexAttribArray(0)

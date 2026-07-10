@@ -25,9 +25,8 @@ try:
     HAS_WIN32 = True
 except ImportError:
     HAS_WIN32 = False
-import wx.adv
-
 from . import SC4IconMakerDlg, config, treeDnD
+from .ATCReader import ATC_PREVIEW_FRAME_MS
 from .ATCViewer import *
 from .DependenciesDlg import *
 from .logsetup import configure_logging
@@ -35,6 +34,7 @@ from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .SC4LotPreview import *
 from .S3DViewer import S3DViewer
 from .settings import *
+from .TablerIcons import icon_bitmap, icon_button, set_button_icon
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
@@ -660,30 +660,34 @@ def _enable_high_dpi():
         pass
 
 
-class ProcessDlg(wx.Dialog):
+class StartupPanel(wx.Panel):
+    """In-window startup status and progress surface."""
 
     def __init__(self, parent, title='please wait'):
-        wx.Dialog.__init__(self, parent, -1, splashTitle)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        self.label_g1 = wx.StaticText(self, -1, title, size=Size(500, -1),
-                                      style=wx.ST_ELLIPSIZE_MIDDLE)
-        sizer.Add(self.label_g1, 0, wx.EXPAND | wx.ALL, 5)
-        self.label_detail = wx.StaticText(self, -1, '', size=Size(500, -1),
-                                          style=wx.ST_ELLIPSIZE_MIDDLE)
-        sizer.Add(self.label_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        self.g1 = wx.Gauge(self, -1, 32)
-        # The following methods no longer exist in modern wxPython versions
-        # self.g1.SetBezelFace(3)
-        # self.g1.SetShadowWidth(3)
-        sizer.Add(self.g1, 0, wx.EXPAND | wx.ALL, 5)
-        self.SetSizer(sizer)
-
-        sizer.Fit(self)
-        self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
-        self.g1.SetRange(1000)
+        wx.Panel.__init__(self, parent, -1)
+        self.SetBackgroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW))
+        self.errors = []
         self.value = 0
-        # The gauge is animated by a main-thread timer so it stays smooth no
-        # matter what the background loader thread is doing.
+
+        outer = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
+        text_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.label_g1 = wx.StaticText(self, -1, title,
+                                      style=wx.ST_ELLIPSIZE_MIDDLE)
+        font = self.label_g1.GetFont()
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.label_g1.SetFont(font)
+        text_sizer.Add(self.label_g1, 0, wx.EXPAND | wx.BOTTOM, 3)
+        self.label_detail = wx.StaticText(self, -1, '',
+                                          style=wx.ST_ELLIPSIZE_MIDDLE)
+        text_sizer.Add(self.label_detail, 0, wx.EXPAND)
+        status_row.Add(text_sizer, 1, wx.EXPAND | wx.RIGHT, 12)
+        self.g1 = wx.Gauge(self, -1, 1000, size=Size(240, -1))
+        status_row.Add(self.g1, 0, wx.ALIGN_CENTER_VERTICAL)
+        outer.Add(status_row, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetSizer(outer)
+
         self._pulse_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_pulse, self._pulse_timer)
 
@@ -699,12 +703,7 @@ class ProcessDlg(wx.Dialog):
         self.g1.Pulse()
 
     def Increment(self):
-        # Called only from the GUI thread (Finalize / missing-picture loop).
-        # A throttled yield keeps the dialog -- and its pulse timer -- alive
-        # while those main-thread phases run.
         self.value += 1
-        if self.value % 200 == 0:
-            wx.Yield()
 
     def SetStatus(self, text, detail=''):
         """Update the visible progress text. Safe to call from any thread."""
@@ -715,11 +714,67 @@ class ProcessDlg(wx.Dialog):
         self.label_detail.SetLabel(detail)
 
     def LogError(self, what):
-        pass
+        self.errors.append(str(what))
 
-    @staticmethod
-    def OnCloseWindow(event):
-        event.Veto()
+    def SetReady(self, background_work=False):
+        if background_work:
+            self.SetStatus('Workspace ready', 'Finishing preview cache in the background...')
+        else:
+            self.SetStatus('Workspace ready', '')
+
+
+class StartupPreviewPanel(wx.Panel):
+    """Startup thumbnail renderer occupying the normal lower-left viewer slot."""
+
+    def __init__(self, parent):
+        wx.Panel.__init__(self, parent, -1, size=Size(288, 256))
+        self.SetMinSize(Size(288, 256))
+        self.SetBackgroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW))
+        self.preview_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.preview_bitmap = wx.StaticBitmap(self, -1, wx.Bitmap(1, 1))
+        self.preview_label = wx.StaticText(self, -1, '')
+        self.preview_sizer.Add(self.preview_bitmap, 0, wx.ALIGN_CENTER | wx.TOP, 6)
+        self.preview_sizer.Add(self.preview_label, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        self.SetSizer(self.preview_sizer)
+        self.preview_bitmap.Hide()
+        self.preview_label.Hide()
+        self._embedded_preview = None
+
+    def AttachPreview(self, panel, label=''):
+        self.ClearPreview(destroy_embedded=True)
+        self._embedded_preview = panel
+        self.preview_sizer.Insert(0, panel, 0, wx.ALIGN_CENTER)
+        self.preview_label.SetLabel(label)
+        self.preview_label.Show(bool(label))
+        panel.Show()
+        self.Layout()
+        self.GetParent().Layout()
+
+    def ShowBitmapPreview(self, item, bitmap):
+        if bitmap is None or not bitmap.IsOk():
+            return
+        if self._embedded_preview is not None:
+            self.ClearPreview(destroy_embedded=True)
+        image = bitmap.ConvertToImage().Scale(256, 171, wx.IMAGE_QUALITY_BICUBIC)
+        self.preview_bitmap.SetBitmap(image.ConvertToBitmap())
+        self.preview_label.SetLabel(getattr(item, 'hex_iid', str(item)))
+        self.preview_bitmap.Show()
+        self.preview_label.Show()
+        self.Layout()
+        self.GetParent().Layout()
+
+    def ClearPreview(self, destroy_embedded=False):
+        panel = self._embedded_preview
+        if panel is not None:
+            self.preview_sizer.Detach(panel)
+            panel.Hide()
+            if destroy_embedded:
+                panel.Destroy()
+            self._embedded_preview = None
+        self.preview_bitmap.Hide()
+        self.preview_label.SetLabel('')
+        self.preview_label.Hide()
+        self.Layout()
 
 
 class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
@@ -771,6 +826,9 @@ class RecomputePreviewListCtrl(ULC.UltimateListCtrl):
         self._apply_text(info, label)
         self._mainWin.SetItem(info)
         return True
+
+    def SetCellImage(self, index, col, image):
+        self.SetItemColumnImage(index, col, image)
 
     def CheckItem(self, index, checked, send_event=False):
         item = ULC.CreateListItem(index, 0)
@@ -835,6 +893,13 @@ class RecomputePreviewDialog(wx.Dialog):
         self.list.InsertColumn(3, recomputePreviewColProperty, width=220)
         self.list.InsertColumn(4, recomputePreviewColCurrent, width=260)
         self.list.InsertColumn(5, recomputePreviewColRecomputed, width=260)
+        self._trend_images = wx.ImageList(16, 16, True)
+        self._trend_icon_indices = {
+            1: self._trend_images.Add(icon_bitmap("arrow-up", 16, "#147337")),
+            -1: self._trend_images.Add(icon_bitmap("arrow-down", 16, "#AA2323")),
+            0: self._trend_images.Add(icon_bitmap("minus", 16, "#5F6469")),
+        }
+        self.list.SetImageList(self._trend_images, wx.IMAGE_LIST_SMALL)
         root.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         self.status = wx.StaticText(self, -1, "")
@@ -843,6 +908,8 @@ class RecomputePreviewDialog(wx.Dialog):
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.selectAll = wx.Button(self, -1, recomputePreviewSelectAll)
         self.selectNone = wx.Button(self, -1, recomputePreviewSelectNone)
+        set_button_icon(self.selectAll, "select-all")
+        set_button_icon(self.selectNone, "deselect")
         row_buttons.Add(self.selectAll, 0, wx.RIGHT, 4)
         row_buttons.Add(self.selectNone, 0, wx.RIGHT, 4)
         root.Add(row_buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
@@ -851,6 +918,8 @@ class RecomputePreviewDialog(wx.Dialog):
         self.applySelected = wx.Button(self, wx.ID_OK, recomputePreviewApplySelected)
         self.applyAll = wx.Button(self, -1, recomputePreviewApplyAll)
         self.cancel = wx.Button(self, wx.ID_CANCEL)
+        set_button_icon(self.applySelected, "check")
+        set_button_icon(self.applyAll, "checks")
         self.applySelected.SetDefault()
         buttons.AddStretchSpacer(1)
         buttons.Add(self.applySelected, 0, wx.RIGHT, 6)
@@ -955,13 +1024,13 @@ class RecomputePreviewDialog(wx.Dialog):
                     item = self.list.InsertItem(self.list.GetItemCount(), "")
                     self._visible_row_indices.append((item, idx))
                     self.list.SetItem(item, 1, self._status_tag(row["status"]))
-                    self.list.SetItem(item, 2, row["trend"])
+                    self.list.SetItem(item, 2, "")
+                    if row["delta"] in self._trend_icon_indices:
+                        self.list.SetCellImage(item, 2, self._trend_icon_indices[row["delta"]])
                     self.list.SetItem(item, 3, row["name"])
                     self.list.SetItem(item, 4, row["current"])
                     self.list.SetItem(item, 5, row["recomputed"])
                     self.list.SetCellTextColour(item, 1, self._status_colour(row["status"]))
-                    if row["trend"]:
-                        self.list.SetCellTextColour(item, 2, self._trend_colour(row["delta"]))
                     if row["delta"] == 1:
                         self.list.SetCellTextColour(item, 5, wx.Colour(20, 115, 55))
                     elif row["delta"] == -1:
@@ -1762,8 +1831,10 @@ class NoteBookPanel(wx.Panel):
         self.virtual_dat = virtual_dat
         self.RebuildViewer()
         self.bClose = wx.Button(self, -1, propertyPageClose)
+        set_button_icon(self.bClose, "x")
         self.Bind(wx.EVT_BUTTON, self.parent.OnCloseTab, self.bClose)
         self.bSave = wx.Button(self, -1, propertyPageSave)
+        set_button_icon(self.bSave, "device-floppy")
         self.bSave.Enable(False)
         self.Bind(wx.EVT_BUTTON, self.OnSaveTab, self.bSave)
         self.listProperties = PropListCtrl(self)
@@ -3134,7 +3205,6 @@ class NoteBookPanel(wx.Panel):
                                                                                      800))
             frame.Display(entry.exemplar, self.virtual_dat)
             frame.Show()
-            frame.Destroy()
         dlg1.Destroy()
         return
 
@@ -3484,7 +3554,6 @@ class NoteBookPanel(wx.Panel):
                                                                                   800))
             frame.Display(entry.exemplar, self.virtual_dat)
             frame.Show()
-            frame.Destroy()
         dlg.Destroy()
         return
 
@@ -4232,6 +4301,7 @@ class ConfigureDialog(sc.SizedDialog):
         self.rootFolderCtrl.SetSizerProp('expand', True)
         self.rootFolderCtrl.SetSizerProp('proportion', 1)
         self.bBrowseRoot = wx.Button(rootPane, -1, configurationDialogBrowse)
+        set_button_icon(self.bBrowseRoot, "folder-open")
         self.bBrowseRoot.Bind(wx.EVT_BUTTON, self.OnBrowseRoot)
         self.game_folders = _existing_unique_paths([parent.maxisFolder] + getattr(parent, 'gameFolders', []))
         self._build_folder_choices()
@@ -4241,6 +4311,10 @@ class ConfigureDialog(sc.SizedDialog):
         self.lb1.SetSizerProp('proportion', 1)
         for checked in self.to_check:
             self.lb1.Check(checked)
+        self.showAtStartup = wx.CheckBox(
+            pane, -1, configurationDialogShowAtStartup
+        )
+        self.showAtStartup.SetValue(self.showFileConfigurationAtStartup)
         buttonPane = sc.SizedPanel(pane, -1)
         self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
         self.Fit()
@@ -4316,6 +4390,10 @@ class ConfigureDialog(sc.SizedDialog):
         self.pathToScan = [
             self._normalise_path(path) for path, _recurse in config.load_folders()
         ]
+        startup = config.load_startup()
+        self.showFileConfigurationAtStartup = bool(
+            startup['ShowFileConfigurationAtStartup']
+        )
 
     @staticmethod
     def _normalise_path(path):
@@ -4340,6 +4418,9 @@ class ConfigureDialog(sc.SizedDialog):
                 recurse = normalised not in (maxis_root, plugins_root)
                 folders.append((path, recurse))
         config.save_folders(folders)
+        config.save_startup({
+            'ShowFileConfigurationAtStartup': bool(self.showAtStartup.GetValue()),
+        })
 
 
 class MainFrame(wx.Frame):
@@ -4367,6 +4448,8 @@ class MainFrame(wx.Frame):
 
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()
+        self.configureMenuItem = menu1.Append(201, configurationDialogTitle + '...')
+        menu1.AppendSeparator()
         menu1.Append(104, menuItem1_1)
         menuBar.Append(menu1, menuItem1)
         self.SetMenuBar(menuBar)
@@ -4379,6 +4462,7 @@ class MainFrame(wx.Frame):
         rightUpPanel = wx.Panel(splitterHoriz)
         rightDownPanel = wx.Panel(splitterHoriz)
         leftPanel = wx.Panel(splitter)
+        self.leftPanel = leftPanel
         self.currentModel = None
         self.listItemsCat = None
         # The tree node whose contents the list currently shows. Used to tell a
@@ -4400,11 +4484,9 @@ class MainFrame(wx.Frame):
         self.treeSearch.Bind(wx.EVT_TEXT_ENTER, self.OnTreeSearchNext)
         self.treeSearch.Bind(wx.EVT_SEARCHCTRL_SEARCH_BTN, self.OnTreeSearchNext)
         self.treeSearch.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, self.OnTreeSearchCancel)
-        self.bTreeExpand = wx.Button(leftPanel, -1, treeExpandAll, style=wx.BU_EXACTFIT)
-        self.bTreeExpand.SetToolTip(treeExpandAllTip)
+        self.bTreeExpand = icon_button(leftPanel, "fold-down", treeExpandAllTip)
         self.bTreeExpand.Bind(wx.EVT_BUTTON, lambda evt: self.tree.ExpandAll())
-        self.bTreeCollapse = wx.Button(leftPanel, -1, treeCollapseAll, style=wx.BU_EXACTFIT)
-        self.bTreeCollapse.SetToolTip(treeCollapseAllTip)
+        self.bTreeCollapse = icon_button(leftPanel, "fold-up", treeCollapseAllTip)
         self.bTreeCollapse.Bind(wx.EVT_BUTTON, self.OnTreeCollapseAll)
         self.virtualDAT.tree = self.tree
         dt = treeDnD.DropTarget(self.tree, self.OnDrop, self.OnDropFile)
@@ -4427,6 +4509,8 @@ class MainFrame(wx.Frame):
             SC4ModelMesh.viewer = self.s3dviewer
             SC4Model1MeshPerZoom.viewer = self.s3dviewer
             self.viewer = self.atcviewer
+        self.startupPreview = StartupPreviewPanel(leftPanel)
+        self.glCanvas.Hide()
         self.cbZoom = wx.ComboBox(leftPanel, -1, viewerZoomBest, style=wx.CB_READONLY)
         choices = [(viewerZoomBest, -1), (viewerZoom1, 0), (viewerZoom2, 1), (viewerZoom3, 2), (viewerZoom4, 3),
                    (viewerZoom5, 4)]
@@ -4470,6 +4554,7 @@ class MainFrame(wx.Frame):
         treeBar.Add(self.bTreeCollapse, 0, wx.ALIGN_CENTRE_VERTICAL, 0)
         boxLeft.Add(treeBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         boxLeft.Add(self.tree, 1, wx.ALL | wx.EXPAND, 5)
+        boxLeft.Add(self.startupPreview, 0, wx.ALL | wx.CENTRE, 5)
         boxLeft.Add(self.glCanvas, 0, wx.ALL | wx.CENTRE, 5)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
         hsizer.Add(self.cbZoom, 0, wx.ALL, 5)
@@ -4492,20 +4577,41 @@ class MainFrame(wx.Frame):
         splitterHoriz.SetMinimumPaneSize(200)
         splitter.SplitVertically(leftPanel, splitterHoriz, int(self._mw_settings['TreeSash']))
         splitter.SetMinimumPaneSize(300)
+        self.startupPanel = StartupPanel(self, loadingDialogMsg)
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
+        root_sizer.Add(self.startupPanel, 0, wx.EXPAND)
+        root_sizer.Add(splitter, 1, wx.EXPAND)
+        self.SetSizer(root_sizer)
+        splitter.Enable(False)
         if self._mw_settings.get('Maximized'):
             self.Maximize(True)
         if not _env_true('SC4PIM_SAFE_MODE'):
             self.nb.LoadPics(self.virtualDAT)
         self.Bind(wx.EVT_CLOSE, self.OnCloseWindow)
-        if self.PreLoadDatas():
-            if _env_true('SC4PIM_SKIP_LOAD'):
-                self.bLoaded = True
-            else:
-                self.LoadDatas()
-                self.bLoaded = True
-        else:
-            self.bLoaded = False
+        self.bLoaded = True
+        self._startup_started = False
+        self._startup_waiting_for_configuration = False
+        self._startup_steps = None
+        self._startup_timer = None
         return
+
+    def StartStartup(self):
+        """Begin configuration and data loading after the frame is visible."""
+        if self._startup_started:
+            return
+        self._startup_started = True
+        self.startupPanel.StartPulse()
+        self.startupPanel.SetStatus('Preparing workspace...', '')
+        if not self.PreLoadDatas():
+            self._startup_waiting_for_configuration = True
+            self.startupPanel.StopPulse()
+            self.startupPanel.SetStatus('Startup paused', 'Open Configuration from the menu to continue.')
+            return
+        if _env_true('SC4PIM_SKIP_LOAD'):
+            self._set_core_ready()
+            self._finish_startup()
+            return
+        self.LoadDatas()
 
     def OnCloseWindow(self, event):
         dlg = wx.MessageDialog(self, quitMsg, appTitle, wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION)
@@ -4547,9 +4653,15 @@ class MainFrame(wx.Frame):
             logger.exception('Failed to save main window state')
 
     def OnConfigure(self, event):
+        global _preload_config_result
         dlg = ConfigureDialog(self)
         if dlg.ShowModal() == wx.ID_OK:
             dlg.OnSave(self)
+            if self._startup_waiting_for_configuration:
+                self._startup_waiting_for_configuration = False
+                _preload_config_result = True
+                self.startupPanel.StartPulse()
+                self.LoadDatas()
         dlg.Destroy()
 
     def OnQuit(self, event):
@@ -4827,7 +4939,27 @@ class MainFrame(wx.Frame):
         self.maxisPluginsFolder = os.path.join(self.maxisFolder, 'Plugins') if self.maxisFolder else ''
         self.mydocs = wx.StandardPaths.Get().GetDocumentsDir()
         default_root = os.path.join(self.mydocs, 'SimCity 4', 'Plugins')
-        self.rootFolder = os.path.normpath(config.load_user_plugins_root(default_root))
+        try:
+            self.rootFolder = os.path.normpath(config.load_user_plugins_root(default_root))
+        except Exception:
+            logger.exception('Could not read local configuration')
+            self.rootFolder = os.path.normpath(default_root)
+        try:
+            configured_folders = config.load_folders()
+        except Exception:
+            logger.exception('Could not read startup configuration')
+            configured_folders = []
+        show_file_configuration = config.should_show_file_configuration()
+        if configured_folders and self.rootFolder and not show_file_configuration:
+            self.pathToScan = configured_folders
+            _preload_config_result = True
+            logger.debug('Using saved startup configuration')
+            _exit_after('preload:ok')
+            return _preload_config_result
+
+        # Configuration is an onboarding/recovery step, not a mandatory stop
+        # on every launch. The regular Configuration command remains available
+        # after startup for intentional changes.
         logger.debug('Showing configuration dialog')
         dlg = ConfigureDialog(parent=self)
         if dlg.ShowModal() == wx.ID_OK:
@@ -4851,10 +4983,10 @@ class MainFrame(wx.Frame):
         thread. The progress dialog stays animated throughout.
         """
         logger.debug('Loading application data')
+        self.configureMenuItem.Enable(False)
         safe_mode = _env_true('SC4PIM_SAFE_MODE')
         if safe_mode:
             logger.debug('Safe mode enabled')
-        wx.BeginBusyCursor()
         if _env_true('SC4PIM_SKIP_DAT_SCAN'):
             self.pathToScan = []
         try:
@@ -4883,10 +5015,9 @@ class MainFrame(wx.Frame):
                     recurse = False
                 jobs.append(('folder', path, recurse))
 
-        logger.debug('Showing data loading progress dialog')
-        dlg = ProcessDlg(self, loadingDialogMsg)
-        dlg.Show()
-        dlg.StartPulse()
+        logger.debug('Starting data load in main window')
+        dlg = self.startupPanel
+        dlg.SetStatus(loadingDialogMsg, '')
         start = time.time()
         logger.debug('Starting background loader thread')
         loader = threading.Thread(target=self._load_worker,
@@ -4946,106 +5077,165 @@ class MainFrame(wx.Frame):
             wx.CallAfter(self._load_finalize, dlg, start, safe_mode)
 
     def _load_finalize(self, dlg, start, safe_mode):
-        """GUI thread: finalize loaded data, build the tree, tear down dialog."""
-        try:
-            dlg.SetStatus('Finalizing data...', '')
-            logger.debug('Finalizing loaded data')
-            if not _env_true('SC4PIM_SKIP_FINALIZE'):
-                self.virtualDAT.Finalize(dlg)
-            else:
-                logger.debug('Skipping data finalization')
-            logger.debug('Loading texture image lists')
-            if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
-                texLoader = ImageListLoaderTexture(self.virtualDAT)
-                texLoader.Start()
-            else:
-                logger.debug('Skipping texture image loading')
-            if self.virtualDAT.missing_pictures and len(self.virtualDAT.missing_pictures) > 0:
-                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
-                    logger.debug('Skipping missing picture generation')
-                else:
-                    logger.debug('Generating %d missing model pictures',
-                                 len(self.virtualDAT.missing_pictures))
-                    dlg2 = ImageDBBuilder(self, -1, imageDbBuilderTitle)
-                    dlg2.Show()
-                    for data in self.virtualDAT.missing_pictures:
-                        dlg2.Draw(data)
-                        dlg.Increment()
+        """Start incremental GUI-thread finalization."""
+        self._startup_steps = self._load_finalize_steps(dlg, start, safe_mode)
+        self._advance_startup()
 
-                    dlg2.Destroy()
-            missing_atcs = getattr(self.virtualDAT, 'missing_atc_pictures', None) or []
-            if missing_atcs:
-                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
-                    logger.debug('Skipping missing ATC thumbnail generation')
-                else:
-                    logger.debug('Generating %d missing ATC thumbnails', len(missing_atcs))
-                    for file_name, atc in missing_atcs:
-                        try:
-                            _generate_atc_thumbnail(self.virtualDAT, atc, file_name)
-                        except Exception:
-                            logger.exception("Could not generate ATC thumbnail for 0x%08X-0x%08X",
-                                             atc.tgi[1], atc.tgi[2])
-                        dlg.Increment()
-            sc4path_entries = getattr(self.virtualDAT, 'sc4path_entries', None) or []
-            if sc4path_entries:
-                if safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS'):
-                    logger.debug('Skipping SC4Path metadata/thumbnail generation')
-                else:
-                    from .SC4PathPicker import SC4PathImageBuilder, populate_sc4path_cache
-                    missing_paths = {item.iid: png for png, item
-                                     in getattr(self.virtualDAT,
-                                                'missing_sc4path_pictures', None) or []}
-                    logger.debug('Caching %d SC4Path metadata entries (%d need thumbs)',
-                                 len(sc4path_entries), len(missing_paths))
-                    preview = None
-                    if missing_paths:
-                        preview = SC4PathImageBuilder(self)
-                        preview.Show(show=True)
-                    metadata_table = {}
-                    try:
-                        for item in sc4path_entries:
-                            png_path = missing_paths.get(item.iid)
-                            try:
-                                metadata_table[item.iid] = populate_sc4path_cache(
-                                    item, png_path, preview=preview
-                                )
-                            except Exception:
-                                logger.exception("Could not cache SC4Path 0x%08X", item.iid)
-                            dlg.Increment()
-                    finally:
-                        if preview is not None:
-                            preview.Destroy()
-                    self.virtualDAT.sc4path_metadata = metadata_table
-            logger.debug('Loading prop image list')
-            if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
-                propLoader = ImageListLoaderProps(self.virtualDAT)
-                propLoader.Start()
-            else:
-                logger.debug('Skipping prop image loading')
-            self.tree.RefreshCounts()
-            self.tree.ApplyExpandedKeys(self._saved_tree_expanded)
-            self.tree.EnsureVisible(self.tree.standard_models_item)
-            if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
-                wx.CallAfter(self.tree.SelectItem, self.tree.standard_models_item)
-            else:
-                logger.debug('Skipping initial tree selection')
-            self.tree.EnsureVisible(self.tree.root)
-            InfoEx()
-            if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
-                self.t2 = wx.CallLater(500, self.RefreshEvent)
-            logger.debug(
-                'LoadDatas completed in %.3fs with %d entries, %d standard models, %d textures',
-                time.time() - start,
-                len(self.virtualDAT.allEntries),
-                len(self.virtualDAT.standardModels),
-                len(self.virtualDAT.allTextures))
+    def _advance_startup(self):
+        """Run one bounded startup batch and schedule the next event-loop turn."""
+        try:
+            next(self._startup_steps)
+        except StopIteration:
+            self._startup_steps = None
+            self._finish_startup()
+            return
         except Exception:
             logger.exception('Data finalization failed')
-        finally:
-            dlg.StopPulse()
-            wx.EndBusyCursor()
-            dlg.Destroy()
-            _exit_after('loaddatas:done')
+            self._startup_steps = None
+            self.startupPanel.StopPulse()
+            self.startupPanel.SetStatus('Startup failed', 'See sc4pimx.log for details.')
+            self.configureMenuItem.Enable(True)
+            return
+        # A short real timer gap lets Windows deliver paint and input messages.
+        self._startup_timer = wx.CallLater(10, self._advance_startup)
+
+    def _load_finalize_steps(self, dlg, start, safe_mode):
+        """Yield after bounded finalization and optional-preview work batches."""
+        dlg.SetStatus('Finalizing data...', '')
+        logger.debug('Finalizing loaded data')
+        if not _env_true('SC4PIM_SKIP_FINALIZE'):
+            yield from self.virtualDAT.FinalizeIncremental(dlg)
+        else:
+            logger.debug('Skipping data finalization')
+
+        logger.debug('Loading texture image lists')
+        if not safe_mode and not _env_true('SC4PIM_SKIP_TEXTURE_IMAGES'):
+            self.texLoader = ImageListLoaderTexture(self.virtualDAT)
+            self.texLoader.Start()
+        else:
+            logger.debug('Skipping texture image loading')
+
+        from .SC4PathPicker import SC4PathImageBuilder, populate_sc4path_cache
+        sc4path_entries = getattr(self.virtualDAT, 'sc4path_entries', None) or []
+        missing_path_items = getattr(self.virtualDAT, 'missing_sc4path_pictures', None) or []
+        if sc4path_entries:
+            # Parsing thousands of SC4Path entries can dominate warm startup
+            # even when every thumbnail PNG is already cached. Keep startup to
+            # catalog + missing-thumbnail work; the picker fills metadata on
+            # demand and reuses this table for the session.
+            self.virtualDAT.sc4path_metadata = {}
+            logger.debug('Deferred SC4Path metadata for %d entries (%d need thumbs)',
+                         len(sc4path_entries), len(missing_path_items))
+
+        logger.debug('Loading prop image list')
+        if not safe_mode and not _env_true('SC4PIM_SKIP_PROP_IMAGES'):
+            self.propLoader = ImageListLoaderProps(self.virtualDAT)
+            self.propLoader.Start()
+        else:
+            logger.debug('Skipping prop image loading')
+
+        self.tree.RefreshCounts()
+        self.tree.ApplyExpandedKeys(self._saved_tree_expanded)
+        self.tree.EnsureVisible(self.tree.standard_models_item)
+        if not _env_true('SC4PIM_SKIP_TREE_SELECT'):
+            self.tree.SelectItem(self.tree.standard_models_item)
+        else:
+            logger.debug('Skipping initial tree selection')
+        self.tree.EnsureVisible(self.tree.root)
+        InfoEx()
+        if not safe_mode and not _env_true('SC4PIM_SKIP_REFRESH_TIMER'):
+            self.t2 = wx.CallLater(500, self.RefreshEvent)
+
+        skip_previews = safe_mode or _env_true('SC4PIM_SKIP_MISSING_PICS')
+        missing_models = self.virtualDAT.missing_pictures or []
+        missing_atcs = getattr(self.virtualDAT, 'missing_atc_pictures', None) or []
+        has_background_work = bool(
+            not skip_previews and (missing_models or missing_atcs or missing_path_items)
+        )
+        logger.debug('Core workspace ready in %.3fs', time.time() - start)
+        self._set_core_ready(background_work=has_background_work)
+        yield
+
+        if has_background_work and missing_models:
+            logger.debug('Generating %d missing model pictures', len(missing_models))
+            builder = ImageDBBuilder(self.startupPreview)
+            self.startupPreview.AttachPreview(builder, 'Model thumbnails')
+            try:
+                total_models = len(missing_models)
+                for index, data in enumerate(missing_models, 1):
+                    dlg.SetStatus('Generating model previews...',
+                                  '%d / %d models' % (index, total_models))
+                    builder.Draw(data)
+                    dlg.Increment()
+                    yield
+            finally:
+                self.startupPreview.ClearPreview(destroy_embedded=True)
+
+        if has_background_work and missing_atcs:
+            logger.debug('Generating %d missing ATC thumbnails', len(missing_atcs))
+            total_atcs = len(missing_atcs)
+            for index, (file_name, atc) in enumerate(missing_atcs, 1):
+                dlg.SetStatus('Generating animated-prop previews...',
+                              '%d / %d props' % (index, total_atcs))
+                try:
+                    _generate_atc_thumbnail(self.virtualDAT, atc, file_name)
+                    bitmap = wx.Bitmap(file_name, wx.BITMAP_TYPE_JPEG)
+                    if bitmap.IsOk():
+                        self.startupPreview.ShowBitmapPreview(
+                            '0x%08X' % atc.tgi[2], bitmap
+                        )
+                except Exception:
+                    logger.exception("Could not generate ATC thumbnail for 0x%08X-0x%08X",
+                                     atc.tgi[1], atc.tgi[2])
+                dlg.Increment()
+                yield
+
+        if has_background_work and missing_path_items:
+            preview = SC4PathImageBuilder(self.startupPreview)
+            total_paths = len(missing_path_items)
+            try:
+                for index, (png_path, item) in enumerate(missing_path_items, 1):
+                    dlg.SetStatus('Generating SC4Path previews...',
+                                  '%d / %d paths' % (index, total_paths))
+                    try:
+                        metadata = populate_sc4path_cache(item, png_path, preview=preview)
+                        self.virtualDAT.sc4path_metadata[item.iid] = metadata
+                    except Exception:
+                        logger.exception("Could not render SC4Path 0x%08X", item.iid)
+                    dlg.Increment()
+                    yield
+            finally:
+                preview.Destroy()
+                self.startupPreview.ClearPreview()
+
+        logger.debug(
+            'LoadDatas completed in %.3fs with %d entries, %d standard models, %d textures',
+            time.time() - start,
+            len(self.virtualDAT.allEntries),
+            len(self.virtualDAT.standardModels),
+            len(self.virtualDAT.allTextures))
+
+    def _set_core_ready(self, background_work=False):
+        self.splitter.Enable(True)
+        self.configureMenuItem.Enable(True)
+        self.startupPanel.SetReady(background_work=background_work)
+        if not background_work:
+            self._show_main_viewer()
+
+    def _finish_startup(self):
+        self.startupPanel.StopPulse()
+        self.startupPreview.ClearPreview(destroy_embedded=True)
+        self._show_main_viewer()
+        self.startupPanel.Hide()
+        self.splitter.Enable(True)
+        self.Layout()
+        _exit_after('loaddatas:done')
+
+    def _show_main_viewer(self):
+        if self.startupPreview.IsShown():
+            self.startupPreview.Hide()
+            self.glCanvas.Show()
+            self.leftPanel.Layout()
 
     def RefreshEvent(self):
         if not hasattr(self, 'viewer') or not hasattr(self.viewer, 's3d_mesh'):
@@ -5279,6 +5469,10 @@ class MainFrame(wx.Frame):
         return
 
     def OnItemListSelected(self, event):
+        # Once the core workspace is available, explicit user interaction
+        # takes precedence over the optional startup-preview feed.
+        if self.splitter.IsEnabled():
+            self._show_main_viewer()
         item = event.GetItem()
         idx = event.GetIndex()
         if self.viewer is not None and self.viewer.s3d_mesh is not None:
@@ -5363,39 +5557,13 @@ class MainFrame(wx.Frame):
         return
 
 
-class SplashScreen(wx.adv.SplashScreen):
-
-    def __init__(self):
-        bmp = wx.Image(str(asset_path('other', 'splash.jpg')), wx.BITMAP_TYPE_JPEG).ConvertToBitmap()
-        wx.adv.SplashScreen.__init__(self, bmp, wx.adv.SPLASH_CENTRE_ON_SCREEN | wx.adv.SPLASH_TIMEOUT, 500, None, -1)
-        self.Bind(wx.EVT_CLOSE, self.OnClose)
-        self._show_main_called = False
-        return
-
-    def OnClose(self, evt):
-        evt.Skip()
-        self.Hide()
-        # Build the main window *after* this handler returns. Doing it inline
-        # opens a modal dialog whose nested event loop lets wx destroy this
-        # splash screen while OnClose is still on the stack -> access violation.
-        wx.CallAfter(self.ShowMain)
-
-    def ShowMain(self):
-        if self._show_main_called:
-            return
-        self._show_main_called = True
-        frame = MainFrame()
-        if frame.bLoaded:
-            frame.Show()
-        else:
-            frame.Destroy()
-
-
 class App(wx.App):
 
     def OnInit(self):
-        splash = SplashScreen()
-        splash.Show()
+        frame = MainFrame()
+        self.SetTopWindow(frame)
+        frame.Show()
+        wx.CallAfter(frame.StartStartup)
         return True
 
     def OnExceptionInMainLoop(self):
@@ -5476,7 +5644,7 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
     # so the asset browser can play a preview on hover/selection. Frames walk the
     # sheet exactly like the live renderer (ATCReader.draw_le, rotation 0): step
     # +w across the layer, wrap a row by +h, wrap onto the next layer at the
-    # bottom. 10 fps (duration=100) matches the live viewer's default tick.
+    # bottom. The frame duration matches the live viewer and LE asset grid.
     num_frames = min(int(getattr(atc, 'num_frames', 1) or 1), _ATC_GIF_MAX_FRAMES)
     if num_frames > 1:
         frames = []
@@ -5497,7 +5665,7 @@ def _generate_atc_thumbnail(virtual_dat, atc, dest_path):
             gif_path = os.path.join(large_dir, os.path.splitext(name)[0] + '.gif')
             frames[0].save(
                 gif_path, save_all=True, append_images=frames[1:],
-                duration=100, loop=0, disposal=2, optimize=False,
+                duration=ATC_PREVIEW_FRAME_MS, loop=0, disposal=2, optimize=False,
             )
 
 

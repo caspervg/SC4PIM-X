@@ -14,6 +14,7 @@ from typing import Iterable, Optional
 import wx
 import wx.lib.agw.ultimatelistctrl as ULC
 
+from .TablerIcons import set_button_icon
 from .translation import *  # noqa: F401,F403
 
 PROP_OCCUPANT_GROUPS = 0xAA1DD396
@@ -162,7 +163,7 @@ class OccupantGroupPickerDialog(wx.Dialog):
         self._selected = set(self.current_ogs & set(self._all_values)) | self.force_include
         self._visible: list[OccupantGroupItem] = []
         self._refreshing = False
-        self._sort_col = 1
+        self._sort_col = 0
         self._sort_ascending = True
 
         self.search = wx.SearchCtrl(self, -1, style=wx.TE_PROCESS_ENTER)
@@ -192,6 +193,8 @@ class OccupantGroupPickerDialog(wx.Dialog):
 
         self.okButton = wx.Button(self, wx.ID_OK)
         self.okButton.SetDefault()
+        if allow_manual:
+            self.okButton.Bind(wx.EVT_BUTTON, self._on_ok)
         cancelButton = wx.Button(self, wx.ID_CANCEL)
 
         top = wx.BoxSizer(wx.HORIZONTAL)
@@ -203,10 +206,15 @@ class OccupantGroupPickerDialog(wx.Dialog):
             if hasattr(self.hexText, "SetHint"):
                 self.hexText.SetHint(LEXOccupantGroupHexHint)
             self.addButton = wx.Button(self, -1, LEXOccupantGroupAddHex)
+            set_button_icon(self.addButton, "plus")
             add_row = wx.BoxSizer(wx.HORIZONTAL)
             add_row.Add(wx.StaticText(self, -1, LEXOccupantGroupManualHex), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
             add_row.Add(self.hexText, 1, wx.RIGHT | wx.EXPAND, 6)
             add_row.Add(self.addButton, 0)
+
+            self.rawText = wx.TextCtrl(self, -1, "", style=wx.TE_MULTILINE)
+            self.rawText.SetFont(_monospace_font(self.GetFont()))
+            self.rawText.SetMinSize((-1, 48))
 
         btns = wx.StdDialogButtonSizer()
         btns.AddButton(self.okButton)
@@ -219,6 +227,8 @@ class OccupantGroupPickerDialog(wx.Dialog):
         sizer.Add(self.countText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         if allow_manual:
             sizer.Add(add_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+            sizer.Add(wx.StaticText(self, -1, LEXOccupantGroupRawLabel), 0, wx.LEFT | wx.RIGHT, 8)
+            sizer.Add(self.rawText, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 8)
         self.SetSizerAndFit(sizer)
 
@@ -229,6 +239,7 @@ class OccupantGroupPickerDialog(wx.Dialog):
         if allow_manual:
             self.addButton.Bind(wx.EVT_BUTTON, self._on_add_hex)
             self.hexText.Bind(wx.EVT_TEXT_ENTER, self._on_add_hex)
+            self.rawText.Bind(wx.EVT_KILL_FOCUS, self._on_raw_focus)
 
         self._refresh()
 
@@ -302,6 +313,8 @@ class OccupantGroupPickerDialog(wx.Dialog):
         finally:
             self._refreshing = False
         self._update_count()
+        if self.allow_manual:
+            self.rawText.ChangeValue(",".join("0x%08X" % v for v in sorted(self._selected | self._preserved)))
 
     def _update_count(self) -> None:
         self.countText.SetLabel(
@@ -363,6 +376,46 @@ class OccupantGroupPickerDialog(wx.Dialog):
         self.hexText.SetValue("")
         self._refresh()
         event.Skip()
+
+    def _parse_raw(self) -> Optional[list[int]]:
+        text = self.rawText.GetValue().strip()
+        tokens = [tok.strip() for tok in text.split(",")] if text else []
+        values = []
+        for tok in tokens:
+            try:
+                if not tok.lower().startswith("0x") or len(tok) <= 2:
+                    raise ValueError
+                value = int(tok[2:], 16)
+                if value < 0 or value > 0xFFFFFFFF:
+                    raise ValueError
+            except ValueError:
+                return None
+            values.append(value)
+        return values
+
+    def _on_raw_focus(self, event: wx.Event) -> None:
+        event.Skip()
+        values = self._parse_raw()
+        if values is None:
+            return
+        for value in values:
+            if value not in self._all_values:
+                self._all_values.append(value)
+        self._all_values.sort()
+        self._selected = (set(values) | self.force_include) - self._preserved
+        self._refresh()
+
+    def _on_ok(self, event: wx.Event) -> None:
+        values = self._parse_raw()
+        if values is None:
+            wx.MessageBox(LEXOccupantGroupInvalidHex, LEXOccupantGroupPickerTitle, wx.OK | wx.ICON_ERROR, self)
+            return
+        for value in values:
+            if value not in self._all_values:
+                self._all_values.append(value)
+        self._all_values.sort()
+        self._selected = (set(values) | self.force_include) - self._preserved
+        self.EndModal(wx.ID_OK)
 
     def GetOccupantGroups(self) -> list[int]:
         values = sorted(self._preserved | self._selected | self.force_include)

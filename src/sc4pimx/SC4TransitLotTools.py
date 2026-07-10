@@ -20,6 +20,7 @@ from OpenGL.GL import (
 from .SC4DataFunctions import ToCoord, ToUnsigned
 from .SC4PathPicker import pick_sc4path
 from .SC4PathReader import point_to_lot_2d, point_to_lot_3d
+from .TablerIcons import set_button_icon
 from .translation import *
 
 # Maps the lot-editor "network" value (NETWORK_TYPES) to SC4Path transport
@@ -91,10 +92,19 @@ EDGE_PRESET_BY_MASK = {mask: label for label, mask in EDGE_PRESETS}
 
 DEFAULT_TRANSIT_SETTINGS = {
     "network": 0,
+    "rotation": 0,
     "rep14": 0,
     "direction_mask": 0x00020002,
     "rep16": 0,
 }
+
+# Rep 3 orientation: South=0, West=1, North=2, East=3; 0 is unrotated.
+ROTATION_CHOICES = [
+    (0, LEXFacingSouth),
+    (1, LEXFacingWest),
+    (2, LEXFacingNorth),
+    (3, LEXFacingEast),
+]
 
 DIR_BITS = [
     ("N", 0x02000000, 0x04000000, 0),
@@ -103,10 +113,12 @@ DIR_BITS = [
     ("W", 0x00020000, 0x00040000, 3),
 ]
 
+# Edge midpoints indexed N, E, S, W. Lot +y points South, so North is the
+# miny edge.
 DIR_GEOMETRY = [
-    ((0.5, 1.0), (0.5, 0.62)),
-    ((1.0, 0.5), (0.62, 0.5)),
     ((0.5, 0.0), (0.5, 0.38)),
+    ((1.0, 0.5), (0.62, 0.5)),
+    ((0.5, 1.0), (0.5, 0.62)),
     ((0.0, 0.5), (0.38, 0.5)),
 ]
 
@@ -197,7 +209,7 @@ def make_transit_values(object_id, tile_x, tile_y, settings=None):
     return [
         TRANSIT_OBJECT_TYPE,
         0,
-        2,
+        int(settings.get("rotation", DEFAULT_TRANSIT_SETTINGS["rotation"])) & 0xF,
         ToUnsigned(cx * 65536),
         0,
         ToUnsigned(cy * 65536),
@@ -311,21 +323,26 @@ class TransitInspectorPanel(wx.Panel):
             -1,
             choices=["%d - %s" % (value, label) for value, label, _short in NETWORK_TYPES],
         )
+        self.rotationChoice = wx.Choice(
+            self,
+            -1,
+            choices=["%d - %s" % (value, label) for value, label in ROTATION_CHOICES],
+        )
         self.directionPresetChoice = wx.Choice(self, -1, choices=EDGE_PRESET_LABELS)
         self.directionHex = wx.TextCtrl(self, -1, "", style=wx.TE_READONLY | wx.TE_CENTER)
         self.rep14Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.rep16Hex = wx.TextCtrl(self, -1, "", style=wx.TE_PROCESS_ENTER)
         self.pickPathButton = wx.Button(self, -1, LEXTransitPickPath, style=wx.BU_EXACTFIT)
         self.clearPathButton = wx.Button(self, -1, LEXTransitClearPath, style=wx.BU_EXACTFIT)
+        set_button_icon(self.pickPathButton, "route")
+        set_button_icon(self.clearPathButton, "route-off")
         rep16_row = wx.BoxSizer(wx.HORIZONTAL)
         rep16_row.Add(self.rep16Hex, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         rep16_row.Add(self.pickPathButton, 0, wx.RIGHT, 2)
         rep16_row.Add(self.clearPathButton, 0)
 
-        # Per-edge direction bytes laid out as a cross. The 2D lot view is
-        # South-up (an orientation-0 / South-facing object faces up), so the
-        # cross is South-top / North-bottom to match the viewport; East is on
-        # the right, West on the left.
+        # Per-edge direction bytes laid out as a compass cross matching the
+        # 2D lot view: North on top, East on the right.
         self.dirCtrls = []
         for _name, _shift in DIRECTION_BYTE_SHIFTS:
             ctrl = wx.TextCtrl(self, -1, "00", size=(36, 22),
@@ -334,9 +351,9 @@ class TransitInspectorPanel(wx.Panel):
             self.dirCtrls.append(ctrl)
         dir_n, dir_w, dir_s, dir_e = self.dirCtrls
         cross = wx.GridSizer(3, 3, 2, 2)
-        for cell in (None, (LEXFacingSouth, dir_s), None,
+        for cell in (None, (LEXFacingNorth, dir_n), None,
                      (LEXFacingWest, dir_w), None, (LEXFacingEast, dir_e),
-                     None, (LEXFacingNorth, dir_n), None):
+                     None, (LEXFacingSouth, dir_s), None):
             if cell is None:
                 cross.Add((0, 0))
             else:
@@ -348,6 +365,7 @@ class TransitInspectorPanel(wx.Panel):
 
         for label, ctrl in [
             (LEXTransitNetworkType, self.networkChoice),
+            (LEXInspectorFacing, self.rotationChoice),
             (LEXTransitDirectionPreset, self.directionPresetChoice),
             (LEXTransitDirectionHex, self.directionHex),
             (LEXTransitRep14, self.rep14Hex),
@@ -367,6 +385,7 @@ class TransitInspectorPanel(wx.Panel):
         self.SetSizer(sizer)
 
         self.networkChoice.Bind(wx.EVT_CHOICE, self.OnControl)
+        self.rotationChoice.Bind(wx.EVT_CHOICE, self.OnControl)
         self.directionPresetChoice.Bind(wx.EVT_CHOICE, self.OnPreset)
         for ctrl in self.dirCtrls + [self.rep14Hex, self.rep16Hex]:
             ctrl.Bind(wx.EVT_TEXT_ENTER, self.OnTextControl)
@@ -383,6 +402,7 @@ class TransitInspectorPanel(wx.Panel):
             self.status.SetLabel(LEXTransitSelectedObjects % len(values_list))
             settings = {
                 "network": first[12],
+                "rotation": first[2] & 3,
                 "rep14": first[13],
                 "direction_mask": first[14],
                 "rep16": first[15],
@@ -391,6 +411,7 @@ class TransitInspectorPanel(wx.Panel):
             self.status.SetLabel(LEXTransitDefaults)
             settings = defaults
         self.networkChoice.SetSelection(_network_index(settings["network"]))
+        self.rotationChoice.SetSelection(int(settings.get("rotation", 0)) & 3)
         self._set_direction_fields(settings["direction_mask"])
         self.rep14Hex.SetValue(format_hex32(settings["rep14"]))
         self.rep16Hex.SetValue(format_hex32(settings["rep16"]))
@@ -468,6 +489,7 @@ class TransitInspectorPanel(wx.Panel):
         try:
             values = {
                 "network": self._choice_network(),
+                "rotation": max(self.rotationChoice.GetSelection(), 0),
                 "direction_mask": direction_mask,
                 "rep14": parse_hex32(self.rep14Hex.GetValue()),
                 "rep16": parse_hex32(self.rep16Hex.GetValue()),
@@ -619,13 +641,12 @@ def draw_sc4path_overlay_3d(editor, tex_data, active=False):
 def _draw_mask_edges(primitives, mvp, minx, miny, mask, orientation, color, width):
     cx = minx + 8
     cy = miny + 8
-    # Lot-object rotation flag 2 is the unrotated tile orientation used by
-    # the rest of the lot editor texture rendering.
-    rotation_steps = ((int(orientation) & 15) - 2) % 4
+    # Orientation 0 is unrotated; each step is 90 degrees clockwise (N -> E).
+    rotation_steps = int(orientation) & 3
     positions = []
     for _name, normal_bit, alt_bit, direction in DIR_BITS:
         if mask & (normal_bit | alt_bit):
-            edge, inner = DIR_GEOMETRY[(direction - rotation_steps) % 4]
+            edge, inner = DIR_GEOMETRY[(direction + rotation_steps) % 4]
             ex = minx + edge[0] * 16
             ey = miny + edge[1] * 16
             ix = minx + inner[0] * 16

@@ -61,6 +61,32 @@ def test_transport_filter_accepts_matching_transport():
     assert SC4PathPicker.SC4PathPickerDialog._passes_filters(dialog, item)
 
 
+def test_metadata_fallback_parses_without_rendering_thumbnail(monkeypatch):
+    dialog = SC4PathPicker.SC4PathPickerDialog.__new__(
+        SC4PathPicker.SC4PathPickerDialog
+    )
+    dialog._metadata_table = {}
+    calls = []
+
+    def fake_populate(item, png_path=None, preview=None):
+        calls.append((item.iid, png_path, preview))
+        return {"transports": {1}, "paths": 1}
+
+    monkeypatch.setattr(SC4PathPicker, "populate_sc4path_cache", fake_populate)
+
+    item = SC4PathCatalogItem(
+        iid=0x1234,
+        gid=0,
+        entry=None,
+    )
+
+    md = SC4PathPicker.SC4PathPickerDialog._metadata_for(dialog, item)
+
+    assert md == {"transports": {1}, "paths": 1}
+    assert dialog._metadata_table[item.iid] is md
+    assert calls == [(item.iid, None, None)]
+
+
 def test_path_picker_metadata_includes_file_and_warning_text():
     item = SC4PathCatalogItem(
         iid=0x1234,
@@ -80,3 +106,21 @@ def test_path_picker_metadata_includes_file_and_warning_text():
     assert md["file_name"] == r"C:\Plugins\NetworkAddon.dat"
     assert md["warnings"] == 2
     assert md["warning_text"] == "Line 10: first warning\nLine 20: second warning"
+
+
+def test_path_image_builder_routes_preview_to_embedded_target():
+    calls = []
+
+    class Target:
+        def ShowBitmapPreview(self, item, bitmap):
+            calls.append((item, bitmap))
+
+    item = SC4PathCatalogItem(iid=0x1234, gid=0, entry=None)
+    bitmap = object()
+    builder = SC4PathPicker.SC4PathImageBuilder(Target())
+
+    assert builder.Show(item, bitmap)
+    assert calls == [(item, bitmap)]
+
+    builder.Destroy()
+    assert builder.target is None

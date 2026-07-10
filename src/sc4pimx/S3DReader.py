@@ -338,13 +338,15 @@ class S3D(object):
 
         return buffer
 
-    def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix):
+    def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix,
+             shadow=False):
         return self.draw_instanced(
             s3DTexturesHolder, shader_program, lighting_state, [mvp], [normal_matrix],
+            shadow=shadow,
         )
 
     def draw_instanced(self, s3DTexturesHolder, shader_program, lighting_state,
-                       mvps, normal_matrices):
+                       mvps, normal_matrices, shadow=False):
         if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
             raise ValueError('S3D instance batch must contain 1..32 matching transforms')
         if self.entry is None:
@@ -433,11 +435,21 @@ class S3D(object):
                     wrap_t=texInfo.get('wrapT'),
                 ))
             flags = material['flags']
+            # Self-illuminated glow meshes (framebuffer-blended: light flares,
+            # lit windows) are not solid geometry and must not cast a shadow.
+            if shadow and (flags & 16):
+                continue
             if flags & 1:
                 alpha_func = material['alphaFunc']
-                glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE)
             else:
                 alpha_func = 7
+            if shadow:
+                # Plain alpha-test discard in the shadow shader gives the crisp
+                # silhouette; alpha-to-coverage would fringe it.
+                glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE)
+            elif flags & 1:
+                glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE)
+            else:
                 glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE)
             shader_program.set_material(
                 alpha_func=alpha_func,
@@ -448,6 +460,55 @@ class S3D(object):
                 # lighting does not dim them away under additive blending.
                 emissive=bool(flags & 16),
             )
+            if shadow:
+                # SC4-style ground decal: blend the flat shadow colour over the
+                # already-drawn ground, never write depth or cull (the planar
+                # flatten can flip winding). Depth bias + LEQUAL is set by the
+                # caller so shadows win the z-fight against the y=0 ground.
+                glEnable(GL_DEPTH_TEST)
+                # Darken each ground pixel ONCE. SC4 projects the texture onto the
+                # footprint a single time (uniform coverage); we instead flatten
+                # every triangle, so a box's front/roof/side faces -- and adjacent
+                # casters -- all land on the same y=0 pixel and would multiply-
+                # stack into an unnatural dark core. All flattened shadows are
+                # coplanar, so a screen pixel has identical shadow depth no matter
+                # which face/caster drew it: GL_LESS + depth-write lets the first
+                # fragment win and rejects the rest -> single uniform darkening
+                # = the union of silhouettes, matching SC4's single decal.
+                glDepthFunc(GL_LESS)
+                glDepthMask(GL_TRUE)
+                glDisable(GL_CULL_FACE)
+                glEnable(GL_BLEND)
+                # Modulate: framebuffer *= shadow factor (SC4 combiner), not an
+                # additive lerp -- keeps the ground hue instead of a blue wash.
+                glBlendFunc(GL_ZERO, GL_SRC_COLOR)
+                normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
+                idx_bytes = indexBuffer[0]
+                idx_count = indexBuffer[1]
+                buffers = s3DTexturesHolder.get_mesh_buffers(self)
+                vert_block = frameInfo['vertBlock']
+                norm_key = (vert_block, frameInfo['indexBlock'], frameInfo['primBlock'])
+                vao_key = (vert_block, norm_key, frameInfo['indexBlock'])
+                vao = buffers.mesh_vao(
+                    vao_key, vertexBuffer['positions'], normals, vertexBuffer['uvs'], idx_bytes,
+                )
+                glBindVertexArray(vao)
+                for typePrim, first, length in primBlock:
+                    if length == 0 or first + length > idx_count:
+                        continue
+                    if typePrim == 0:
+                        glDrawElementsInstanced(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
+                                                ctypes.c_void_p(first * 2), instance_count)
+                    elif typePrim == 1:
+                        glDrawElementsInstanced(GL_TRIANGLE_STRIP, length, GL_UNSIGNED_SHORT,
+                                                ctypes.c_void_p(first * 2), instance_count)
+                    elif typePrim == 2:
+                        for quad_first in range(first, first + length - 3, 4):
+                            glDrawElementsInstanced(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT,
+                                                    ctypes.c_void_p(quad_first * 2), instance_count)
+                glBindVertexArray(0)
+                glBindSampler(0, 0)
+                continue
             if flags & 2:
                 glEnable(GL_DEPTH_TEST)
                 glDepthFunc(funcTable[material['depthFunc']])
