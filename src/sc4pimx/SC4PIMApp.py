@@ -7,7 +7,9 @@ import re
 import sys
 import threading
 import time
+import xml.dom.minidom
 from math import *
+from xml.sax.saxutils import quoteattr
 
 import wx.lib.agw.ultimatelistctrl as ULC
 import wx.lib.mixins.listctrl as listmix
@@ -699,6 +701,9 @@ class StartupPanel(wx.Panel):
     def StopPulse(self):
         if self._pulse_timer.IsRunning():
             self._pulse_timer.Stop()
+        # Stopping the timer leaves the native marquee animating; setting a
+        # value returns the gauge to determinate mode and freezes it.
+        self.g1.SetValue(0)
 
     def _on_pulse(self, event):
         self.g1.Pulse()
@@ -1387,13 +1392,14 @@ class MyTreeCtrl(wx.TreeCtrl):
                             parent_family_cat_id = 4089086497
                             is_named_family = True
 
-                    xml_str = '<?xml version="1.0" encoding="UTF-8"?><temp><CATEGORY Name="%s" ID="%s" ParentID="%s">' % (
-                        name, hex2str(family), hex2str(parent_family_cat_id))
+                    xml_str = '<?xml version="1.0" encoding="UTF-8"?><temp><CATEGORY Name=%s ID="%s" ParentID="%s">' % (
+                        quoteattr(name), hex2str(family), hex2str(parent_family_cat_id))
                     xml_str += '</CATEGORY></temp>'
                     try:
                         xml_doc = xml.dom.minidom.parseString(xml_str)
                     except Exception:
-                        logger.warning('Problem with family %s 0x%08X', name, family)
+                        logger.warning('Problem with family %s 0x%08X', name, family,
+                                       exc_info=True)
                         return
 
                     for subNode in xml_doc.documentElement.childNodes:
@@ -5192,7 +5198,10 @@ class MainFrame(wx.Frame):
                 for index, data in enumerate(missing_models, 1):
                     dlg.SetStatus(startupGeneratingModelPreviews,
                                   startupModelProgress % (index, total_models))
-                    builder.Draw(data)
+                    try:
+                        builder.Draw(data)
+                    except Exception:
+                        logger.exception('Could not generate thumbnail for model %s', data[0])
                     dlg.Increment()
                     yield
             finally:

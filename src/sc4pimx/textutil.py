@@ -1,4 +1,26 @@
 import codecs
+import xml.dom.minidom
+
+
+def parse_sc4_xml(data):
+    """Parse an SC4 XML payload (e.g. SC4PLUGINDESC), tolerating 8-bit text.
+
+    BAT and the Plugin Manager write these entries with a UTF-8 declaration but
+    8-bit Windows-1252 bytes, so a single accented character ("Friedrichstraße")
+    makes expat reject the whole document. Decoding here and handing minidom a
+    str sidesteps the declared encoding, which expat only honours for bytes.
+    """
+    if isinstance(data, (bytes, bytearray, memoryview)):
+        raw = bytes(data)
+        for encoding in ('utf-8', 'cp1252', 'latin-1'):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+    else:
+        text = data
+    return xml.dom.minidom.parseString(text)
 
 
 def decode_sc4_text(data: bytes) -> str:
