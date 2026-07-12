@@ -66,6 +66,9 @@ ignore = [
     "F405",  # name may be undefined from star imports (legacy decompiled modules)
 ]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
