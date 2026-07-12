@@ -227,6 +227,17 @@ def save_main_window(settings: dict) -> Path:
     return target
 
 
+def save_language(code: str) -> Path:
+    """Persist the selected UI language as a top-level setting."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    doc["Language"] = str(code)
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
+
+
 def save_folders(folders) -> Path:
     """Persist the plugin-scan folder list, preserving the existing settings.
 

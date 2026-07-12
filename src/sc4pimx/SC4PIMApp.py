@@ -26,13 +26,14 @@ try:
 except ImportError:
     HAS_WIN32 = False
 from . import SC4IconMakerDlg, config, treeDnD
+from . import translation as translation_catalog
 from .ATCReader import ATC_PREVIEW_FRAME_MS
 from .ATCViewer import *
 from .DependenciesDlg import *
 from .logsetup import configure_logging
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
-from .SC4LotPreview import *
 from .S3DViewer import S3DViewer
+from .SC4LotPreview import *
 from .settings import *
 from .TablerIcons import icon_bitmap, icon_button, set_button_icon
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
@@ -718,9 +719,9 @@ class StartupPanel(wx.Panel):
 
     def SetReady(self, background_work=False):
         if background_work:
-            self.SetStatus('Workspace ready', 'Finishing preview cache in the background...')
+            self.SetStatus(startupWorkspaceReady, startupFinishingPreviewCache)
         else:
-            self.SetStatus('Workspace ready', '')
+            self.SetStatus(startupWorkspaceReady, '')
 
 
 class StartupPreviewPanel(wx.Panel):
@@ -4449,6 +4450,19 @@ class MainFrame(wx.Frame):
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()
         self.configureMenuItem = menu1.Append(201, configurationDialogTitle + '...')
+        self.languageMenu = wx.Menu()
+        self._language_menu_codes = {}
+        selected_language = str(config.load_settings().get('Language', translation_catalog.DEFAULT_LANGUAGE))
+        available_language_codes = translation_catalog.available_languages()
+        if selected_language not in available_language_codes:
+            selected_language = translation_catalog.DEFAULT_LANGUAGE
+        for code in available_language_codes:
+            item_id = wx.NewIdRef()
+            item = self.languageMenu.AppendRadioItem(item_id, translation_catalog.language_display_name(code))
+            self._language_menu_codes[int(item_id)] = code
+            item.Check(code == selected_language)
+            self.Bind(wx.EVT_MENU, self.OnSelectLanguage, id=int(item_id))
+        menu1.AppendSubMenu(self.languageMenu, languageMenuLabel)
         menu1.AppendSeparator()
         menu1.Append(104, menuItem1_1)
         menuBar.Append(menu1, menuItem1)
@@ -4601,11 +4615,11 @@ class MainFrame(wx.Frame):
             return
         self._startup_started = True
         self.startupPanel.StartPulse()
-        self.startupPanel.SetStatus('Preparing workspace...', '')
+        self.startupPanel.SetStatus(startupPreparingWorkspace, '')
         if not self.PreLoadDatas():
             self._startup_waiting_for_configuration = True
             self.startupPanel.StopPulse()
-            self.startupPanel.SetStatus('Startup paused', 'Open Configuration from the menu to continue.')
+            self.startupPanel.SetStatus(startupPaused, startupOpenConfiguration)
             return
         if _env_true('SC4PIM_SKIP_LOAD'):
             self._set_core_ready()
@@ -4662,6 +4676,19 @@ class MainFrame(wx.Frame):
                 _preload_config_result = True
                 self.startupPanel.StartPulse()
                 self.LoadDatas()
+        dlg.Destroy()
+
+    def OnSelectLanguage(self, event):
+        code = self._language_menu_codes.get(event.GetId())
+        if code is None:
+            return
+        current = str(config.load_settings().get('Language', translation_catalog.DEFAULT_LANGUAGE))
+        if code == current:
+            return
+        config.save_language(code)
+        dlg = wx.MessageDialog(self, languageRestartMessage, languageMenuLabel,
+                               wx.OK | wx.ICON_INFORMATION)
+        dlg.ShowModal()
         dlg.Destroy()
 
     def OnQuit(self, event):
@@ -5056,8 +5083,8 @@ class MainFrame(wx.Frame):
                         logger.debug('Skipping missing file %s', fileName)
                 else:
                     _, folderName, recurse = job
-                    dlg.SetStatus('Scanning folder: %s' % folderName,
-                                  'Building file list...')
+                    dlg.SetStatus(startupScanningFolder % folderName,
+                                  startupBuildingFileList)
                     try:
                         for f in self.virtualDAT.gather_container_files(folderName, recurse):
                             file_list.append((f, False))
@@ -5066,7 +5093,7 @@ class MainFrame(wx.Frame):
 
             def _progress(done, total, fileName):
                 if done % 15 == 0 or done == total:
-                    dlg.SetStatus('Loading plugins  (%d / %d files)' % (done, total),
+                    dlg.SetStatus(startupLoadingPlugins % (done, total),
                                   os.path.basename(fileName))
 
             self.virtualDAT.load_files_parallel(file_list, progress_cb=_progress)
@@ -5093,7 +5120,7 @@ class MainFrame(wx.Frame):
             logger.exception('Data finalization failed')
             self._startup_steps = None
             self.startupPanel.StopPulse()
-            self.startupPanel.SetStatus('Startup failed', 'See sc4pimx.log for details.')
+            self.startupPanel.SetStatus(startupFailed, startupLogDetails)
             self.configureMenuItem.Enable(True)
             return
         # A short real timer gap lets Windows deliver paint and input messages.
@@ -5101,7 +5128,7 @@ class MainFrame(wx.Frame):
 
     def _load_finalize_steps(self, dlg, start, safe_mode):
         """Yield after bounded finalization and optional-preview work batches."""
-        dlg.SetStatus('Finalizing data...', '')
+        dlg.SetStatus(startupFinalizing, '')
         logger.debug('Finalizing loaded data')
         if not _env_true('SC4PIM_SKIP_FINALIZE'):
             yield from self.virtualDAT.FinalizeIncremental(dlg)
@@ -5159,12 +5186,12 @@ class MainFrame(wx.Frame):
         if has_background_work and missing_models:
             logger.debug('Generating %d missing model pictures', len(missing_models))
             builder = ImageDBBuilder(self.startupPreview)
-            self.startupPreview.AttachPreview(builder, 'Model thumbnails')
+            self.startupPreview.AttachPreview(builder, startupModelThumbnails)
             try:
                 total_models = len(missing_models)
                 for index, data in enumerate(missing_models, 1):
-                    dlg.SetStatus('Generating model previews...',
-                                  '%d / %d models' % (index, total_models))
+                    dlg.SetStatus(startupGeneratingModelPreviews,
+                                  startupModelProgress % (index, total_models))
                     builder.Draw(data)
                     dlg.Increment()
                     yield
@@ -5175,8 +5202,8 @@ class MainFrame(wx.Frame):
             logger.debug('Generating %d missing ATC thumbnails', len(missing_atcs))
             total_atcs = len(missing_atcs)
             for index, (file_name, atc) in enumerate(missing_atcs, 1):
-                dlg.SetStatus('Generating animated-prop previews...',
-                              '%d / %d props' % (index, total_atcs))
+                dlg.SetStatus(startupGeneratingAnimatedPropPreviews,
+                              startupPropProgress % (index, total_atcs))
                 try:
                     _generate_atc_thumbnail(self.virtualDAT, atc, file_name)
                     bitmap = wx.Bitmap(file_name, wx.BITMAP_TYPE_JPEG)
@@ -5195,8 +5222,8 @@ class MainFrame(wx.Frame):
             total_paths = len(missing_path_items)
             try:
                 for index, (png_path, item) in enumerate(missing_path_items, 1):
-                    dlg.SetStatus('Generating SC4Path previews...',
-                                  '%d / %d paths' % (index, total_paths))
+                    dlg.SetStatus(startupGeneratingPathPreviews,
+                                  startupPathProgress % (index, total_paths))
                     try:
                         metadata = populate_sc4path_cache(item, png_path, preview=preview)
                         self.virtualDAT.sc4path_metadata[item.iid] = metadata
