@@ -49,6 +49,16 @@ from OpenGL.GL import (
 
 logger = logging.getLogger(__name__)
 
+# A handful of published models are malformed: stale bytes left inside a chunk
+# by a hex edit, a chunk length that does not match its payload, or a truncated
+# tail. Rather than failing the whole model (and, at startup, the whole plugin
+# load), skip forward to the next chunk tag when the parser lands on junk.
+_RESYNC_LIMIT = 4096
+
+
+class S3DParseError(OSError):
+    """A malformed S3D payload that cannot be decoded."""
+
 
 class S3D(object):
 
@@ -59,6 +69,37 @@ class S3D(object):
         self.tgi = entry.tgi
         return
 
+    def _describe(self):
+        tgi = getattr(self, 'tgi', None)
+        if not tgi:
+            return '<unknown>'
+        return '0x%08X-0x%08X-0x%08X' % tgi
+
+    def _seek_chunk(self, buffer, tag):
+        """Return buffer positioned at `tag`, skipping junk bytes before it."""
+        if buffer[:4] == tag:
+            return buffer
+        offset = buffer.find(tag)
+        if offset < 0 or offset > _RESYNC_LIMIT:
+            raise S3DParseError('S3D %s: expected %s chunk, got %r'
+                                % (self._describe(), tag.decode('ascii'), bytes(buffer[:4])))
+        logger.warning('S3D %s: skipped %d junk bytes before %s chunk',
+                       self._describe(), offset, tag.decode('ascii'))
+        return buffer[offset:]
+
+    def _set_empty(self):
+        """Degrade to an empty mesh so a broken model renders as nothing."""
+        self.vertexBuffers = []
+        self.IndexBlocks = []
+        self.primBlocks = []
+        self.matBlocks = []
+        self.anims = {'frameCount': 1, 'frameRate': 0, 'animMode': 1, 'animatedMeshes': []}
+        self._normal_cache = {}
+        self.minx = self.maxx = self.miny = self.maxy = self.minz = self.maxz = 0.0
+        self.bboxX = self.bboxY = self.bboxZ = 0.0
+        self.currentFrame = 0
+        self._lastFrameTime = None
+
     def ReadFile(self):
         if hasattr(self, 'vertexBuffers'):
             return
@@ -66,47 +107,64 @@ class S3D(object):
             return
         entry = self.entry
         entry.read_file(None, True, True)
-        buffer = entry.content
-        if buffer[:4] != b'3DMD':
-            logger.error('Invalid S3D header: expected 3DMD, got %r', buffer[:4])
-            buffer = None
-            del buffer
+        try:
+            self._parse(entry.content)
+        except (S3DParseError, struct.error, ValueError, IndexError) as exc:
+            logger.error('Unreadable S3D %s in %s: %s',
+                         self._describe(), entry.fileName, exc)
+            self._set_empty()
+        finally:
             entry.content = None
             entry.rawContent = None
-            self.entry = None
-            raise IOError
+        return
+
+    def _parse(self, buffer):
+        if buffer[:4] != b'3DMD':
+            raise S3DParseError('S3D %s: expected 3DMD header, got %r'
+                                % (self._describe(), bytes(buffer[:4])))
         struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
-        buffer = self.ReadHead(buffer)
-        buffer = self.ReadVert(buffer)
-        buffer = self.ReadIndx(buffer)
-        buffer = self.ReadPrim(buffer)
-        buffer = self.ReadMats(buffer)
-        buffer = self.ReadAnim(buffer)
+        readers = ((b'HEAD', self.ReadHead), (b'VERT', self.ReadVert),
+                   (b'INDX', self.ReadIndx), (b'PRIM', self.ReadPrim),
+                   (b'MATS', self.ReadMats), (b'ANIM', self.ReadAnim))
+        chunkStart = None
+        for tag, reader in readers:
+            if buffer[:4] != tag and chunkStart is not None and chunkStart.find(tag) > 0:
+                # The previous chunk was malformed and consumed past this tag;
+                # rewind to where it began and search forward from there.
+                logger.warning('S3D %s: rewinding to recover the %s chunk',
+                               self._describe(), tag.decode('ascii'))
+                buffer = chunkStart
+            chunkStart = buffer
+            try:
+                buffer = reader(buffer)
+            except (struct.error, ValueError, IndexError) as exc:
+                # Geometry chunks are load-bearing, but a garbled material or
+                # animation list still leaves a drawable model, so keep what was
+                # decoded and let the next chunk resync from this one's start.
+                if tag not in (b'MATS', b'ANIM'):
+                    raise
+                logger.warning('S3D %s: truncated %s chunk (%s)',
+                               self._describe(), tag.decode('ascii'), exc)
+                buffer = b''
+        if not hasattr(self, 'anims'):
+            self.anims = {'frameCount': 1, 'frameRate': 0, 'animMode': 1, 'animatedMeshes': []}
         self.bboxX = self.maxx - self.minx
         self.bboxY = self.maxy - self.miny
         self.bboxZ = self.maxz - self.minz
-        buffer = None
-        del buffer
-        entry.content = None
-        entry.rawContent = None
         self.currentFrame = 0
         self._lastFrameTime = None
         return
 
     def ReadHead(self, buffer):
-        if buffer[:4] != b'HEAD':
-            logger.error('Invalid S3D HEAD chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'HEAD')
         struct.unpack('I', buffer[4:8])[0]
         self.majorRevision = struct.unpack('H', buffer[8:10])[0]
         self.minorRevision = struct.unpack('H', buffer[10:12])[0]
         return buffer[12:]
 
     def ReadVert(self, buffer):
-        if buffer[:4] != b'VERT':
-            logger.error('Invalid S3D VERT chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'VERT')
         struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
@@ -212,9 +270,7 @@ class S3D(object):
         return buffer
 
     def ReadIndx(self, buffer):
-        if buffer[:4] != b'INDX':
-            logger.error('Invalid S3D INDX chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'INDX')
         struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
@@ -232,9 +288,7 @@ class S3D(object):
         return buffer
 
     def ReadPrim(self, buffer):
-        if buffer[:4] != b'PRIM':
-            logger.error('Invalid S3D PRIM chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'PRIM')
         length = struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
@@ -255,9 +309,7 @@ class S3D(object):
         return buffer
 
     def ReadMats(self, buffer):
-        if buffer[:4] != b'MATS':
-            logger.error('Invalid S3D MATS chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'MATS')
         struct.unpack('I', buffer[4:8])[0]
         nbrBlock = struct.unpack('I', buffer[8:12])[0]
         buffer = buffer[12:]
@@ -299,9 +351,7 @@ class S3D(object):
         return buffer
 
     def ReadAnim(self, buffer):
-        if buffer[:4] != b'ANIM':
-            logger.error('Invalid S3D ANIM chunk: got %r', buffer[:4])
-            raise IOError
+        buffer = self._seek_chunk(buffer, b'ANIM')
         struct.unpack('I', buffer[4:8])[0]
         buffer = buffer[8:]
         frameCount = struct.unpack('H', buffer[0:2])[0]
@@ -672,8 +722,8 @@ class S3D(object):
         NIGHT_OFFSET = 0x8000       # RKT1 group-of-20 convention per the
                                     # S3D Mats wiki; widely applied by modders.
         for mi, mesh in enumerate(meshes):
-            frameInfo = mesh['frames'][0]
             try:
+                frameInfo = mesh['frames'][0]
                 material = self.matBlocks[frameInfo['matsBlock']]
             except IndexError:
                 continue

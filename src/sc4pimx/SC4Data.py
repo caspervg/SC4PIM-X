@@ -8,7 +8,6 @@ import functools
 import logging
 import os
 import threading
-import xml.dom.minidom
 from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image, ImageDraw, ImageFont
@@ -18,6 +17,7 @@ from .paths import asset_path, image_db_path
 from .S3DReader import S3D
 from .SC4DataFunctions import ToTile
 from .SC4DatTools import *
+from .textutil import parse_sc4_xml
 from .translation import *
 from .util import basic_cmp
 
@@ -903,7 +903,7 @@ class SC4ModelMesh():
         if xmlEntry:
             xmlEntry.read_file(None, True, True)
             try:
-                xmlDoc = xml.dom.minidom.parseString(xmlEntry.content)
+                xmlDoc = parse_sc4_xml(xmlEntry.content)
                 for node in xmlDoc.childNodes:
                     if node.nodeType == node.ELEMENT_NODE and node.tagName == 'SC4PLUGINDESC':
                         self.name = self.name + ' [' + node.getAttribute('Name') + ']'
@@ -992,7 +992,7 @@ class SC4Model():
         if xmlEntry:
             xmlEntry.read_file(None, True, True)
             try:
-                xmlDoc = xml.dom.minidom.parseString(xmlEntry.content)
+                xmlDoc = parse_sc4_xml(xmlEntry.content)
                 for node in xmlDoc.childNodes:
                     if node.nodeType == node.ELEMENT_NODE and node.tagName == 'SC4PLUGINDESC':
                         self.name = self.name + ' [' + node.getAttribute('Name') + ']'
