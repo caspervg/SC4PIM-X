@@ -8,7 +8,6 @@ import wx
 
 from .dat_cache import DatFileCache, serialize_entries
 from .paths import data_file_path, image_db_path, sc4path_thumb_path
-from .SC4PathReader import list_sc4path_entries
 from .SC4DataFunctions import (
     DuplicateProp,
     FinalizeCategory,
@@ -18,6 +17,16 @@ from .SC4DataFunctions import (
     readPropertyDef,
 )
 from .SC4DatTools import BuildSortedFilesList, DatFile, hex2str
+from .SC4PathReader import list_sc4path_entries
+from .translation import (
+    startupBuildingFileList,
+    startupBuildingResourceIndex,
+    startupEntriesLoaded,
+    startupEntryProgress,
+    startupFinalizing,
+    startupLoadingFolder,
+    startupScanningFolder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +231,7 @@ class VirtualDat(object):
         logger.debug('Scanning folder %s (recurse=%s, standard=%s)', folderName, bool(bRecurse), bool(bStandard))
         can_report = dlg is not None and hasattr(dlg, 'SetStatus')
         if can_report:
-            dlg.SetStatus('Scanning folder: %s' % folderName, 'Building file list...')
+            dlg.SetStatus(startupScanningFolder % folderName, startupBuildingFileList)
         filesName = BuildSortedFilesList(folderName, bRecurse)
         total = len(filesName)
         logger.debug('Found %d candidate files in %s', total, folderName)
@@ -233,7 +242,7 @@ class VirtualDat(object):
                 continue
             # Refresh the progress text periodically so large scans look alive.
             if can_report and (index % 10 == 0 or index == total):
-                dlg.SetStatus('Loading %s  (%d / %d files)' % (folderLabel, index, total),
+                dlg.SetStatus(startupLoadingFolder % (folderLabel, index, total),
                               os.path.basename(fileName))
             try:
                 self.addFile(dlg, fileName, bStandard)
@@ -459,8 +468,8 @@ class VirtualDat(object):
         start = time.time()
         logger.debug('Finalizing virtual DAT with %d entries', len(self.allEntries))
         if dlg is not None and hasattr(dlg, 'SetStatus'):
-            dlg.SetStatus('Finalizing data...',
-                          '%d entries loaded' % len(self.allEntries))
+            dlg.SetStatus(startupFinalizing,
+                          startupEntriesLoaded % len(self.allEntries))
         # Single pass over allEntries, dispatching by tgi[0]. The previous
         # version walked the 500k+ entry list twice with filter+lambda, and
         # also assigned ``self.cohorts = filter(...)`` -- an iterator that
@@ -482,8 +491,8 @@ class VirtualDat(object):
                 update_entry(entry, self, entry.bStandard, dlg)
             if batch_size and entry_index % batch_size == 0:
                 if dlg is not None and hasattr(dlg, 'SetStatus'):
-                    dlg.SetStatus('Building resource index...',
-                                  '%d / %d entries' % (entry_index, total_entries))
+                    dlg.SetStatus(startupBuildingResourceIndex,
+                                  startupEntryProgress % (entry_index, total_entries))
                 yield
         self.cohorts = cohorts_list
 
