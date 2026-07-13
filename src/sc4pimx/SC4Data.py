@@ -8,6 +8,7 @@ import functools
 import logging
 import os
 import threading
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image, ImageDraw, ImageFont
@@ -22,6 +23,70 @@ from .translation import *
 from .util import basic_cmp
 
 logger = logging.getLogger(__name__)
+
+
+ConvertibleCategory = namedtuple(
+    'ConvertibleCategory', ('category', 'breadcrumb', 'target_kind')
+)
+
+_CONVERT_BUILDING_ROOT = 0x0C8FBB55
+_CONVERT_GROWABLE_ROOTS = frozenset((0xAC8FBB73, 0x2CAA4E2A))
+_CONVERT_PLOPPABLE_ROOT = 0xCC8FBC2D
+_CONVERT_EXCLUDED_CATEGORIES = frozenset((0xD30E71DF, 0xCC8ABC2D))
+
+
+def conversion_target_kind(category):
+    """Return ``growable``/``ploppable`` for a Building category leaf."""
+    current = category
+    while current is not None:
+        category_id = getattr(current, 'ID', None)
+        if category_id in _CONVERT_GROWABLE_ROOTS:
+            return 'growable'
+        if category_id == _CONVERT_PLOPPABLE_ROOT:
+            return 'ploppable'
+        current = getattr(current, 'parent', None)
+    return None
+
+
+def _category_has_generation_rules(category):
+    return bool(
+        len(category.setProperties)
+        + len(category.factorProperties)
+        + len(category.pairedFactorProperties)
+        + len(category.programProperties)
+        + len(category.evalProperties)
+        + len(category.code)
+    )
+
+
+def list_convertible_categories(building_root):
+    """List usable Building-category leaves with localized breadcrumbs.
+
+    ``building_root`` is passed explicitly so this enumeration has no virtual
+    DAT or wx dependency and can be tested with ordinary category objects.
+    Unknown/Unused branches and leaves without generation rules are omitted.
+    """
+    if building_root is None or getattr(building_root, 'ID', None) != _CONVERT_BUILDING_ROOT:
+        return []
+
+    result = []
+
+    def visit(category, breadcrumb):
+        if getattr(category, 'ID', None) in _CONVERT_EXCLUDED_CATEGORIES:
+            return
+        path = breadcrumb + (str(category.Name),)
+        children = list(category.childs)
+        if children:
+            for child in children:
+                visit(child, path)
+            return
+        target_kind = conversion_target_kind(category)
+        if target_kind is not None and _category_has_generation_rules(category):
+            result.append(ConvertibleCategory(category, path[1:], target_kind))
+
+    visit(building_root, ())
+    result.sort(key=lambda item: tuple(part.casefold() for part in item.breadcrumb))
+    return result
 
 
 def _text_size(font, text):
