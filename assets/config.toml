@@ -105,6 +105,19 @@ BackupCount = 3
 # platform default Documents\SimCity 4\Plugins path.
 UserPluginsRoot = ""
 
+# --- Paired lot/building conversion output ---
+[Conversion]
+# Filename stems only. SC4PIM-X appends .SC4Lot for independent conversions
+# and .dat for overrides. Available placeholders: {name}, {source},
+# {category}, {gid}, {building_iid}, and {lot_iid}. IDs are uppercase,
+# eight-digit hexadecimal.
+ConvertedLotBuildingFilename = "{source}_Converted_{lot_iid}"
+OverrideLotBuildingFilename = "{source}_Override"
+
+# Relative to UserPluginsRoot. Use "." to write overrides directly there.
+# Absolute paths and paths which escape the Plugins root are rejected.
+OverrideOutputDirectory = "895-my-overrides"
+
 # --- LotEditor workbench ---
 [LotEditor]
 BrowserWidth = 330

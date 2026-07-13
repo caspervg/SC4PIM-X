@@ -92,6 +92,14 @@ DEFAULT_STARTUP = {
     "ShowFileConfigurationAtStartup": True,
 }
 
+DEFAULT_CONVERSION = {
+    # Filename stems only; SC4PIM-X appends the required package extension.
+    "ConvertedLotBuildingFilename": "{source}_Converted_{lot_iid}",
+    "OverrideLotBuildingFilename": "{source}_Override",
+    # Relative to the configured user Plugins root (SC4Pac convention).
+    "OverrideOutputDirectory": "895-my-overrides",
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -198,6 +206,18 @@ def load_startup() -> dict:
     settings = DEFAULT_STARTUP.copy()
     if isinstance(value, dict):
         settings.update(value)
+    return settings
+
+
+def load_conversion() -> dict:
+    """Lot/building conversion output conventions."""
+    value = load().get("Conversion", {})
+    settings = DEFAULT_CONVERSION.copy()
+    if isinstance(value, dict):
+        for key in settings:
+            configured = value.get(key)
+            if isinstance(configured, str) and configured.strip():
+                settings[key] = configured.strip()
     return settings
 
 
