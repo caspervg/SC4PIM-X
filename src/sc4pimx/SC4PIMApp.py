@@ -58,6 +58,11 @@ offsetGID = [
 _preload_config_result = None
 _faulthandler_file = None
 
+# Keep incremental GUI-thread startup work within roughly one display frame.
+# The continuation is queued with CallAfter, so wx can service pending paint
+# and input events without imposing a fixed sleep after every generator yield.
+_STARTUP_TIMESLICE_SECONDS = 0.010
+
 _PLOP_LOT_SEAPORT_CATEGORY = 0xCCB2391F
 _PLOP_LOT_AIRPORT_CATEGORY = 0x0C8FBD1C
 _PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
@@ -5806,22 +5811,31 @@ class MainFrame(wx.Frame):
         self._advance_startup()
 
     def _advance_startup(self):
-        """Run one bounded startup batch and schedule the next event-loop turn."""
-        try:
-            next(self._startup_steps)
-        except StopIteration:
-            self._startup_steps = None
-            self._finish_startup()
-            return
-        except Exception:
-            logger.exception('Data finalization failed')
-            self._startup_steps = None
-            self.startupPanel.StopPulse()
-            self.startupPanel.SetStatus(startupFailed, startupLogDetails)
-            self.configureMenuItem.Enable(True)
-            return
-        # A short real timer gap lets Windows deliver paint and input messages.
-        self._startup_timer = wx.CallLater(10, self._advance_startup)
+        """Run startup batches for one time slice, then yield back to wx."""
+        deadline = time.perf_counter() + _STARTUP_TIMESLICE_SECONDS
+        while True:
+            try:
+                next(self._startup_steps)
+            except StopIteration:
+                self._startup_steps = None
+                self._startup_timer = None
+                self._finish_startup()
+                return
+            except Exception:
+                logger.exception('Data finalization failed')
+                self._startup_steps = None
+                self._startup_timer = None
+                self.startupPanel.StopPulse()
+                self.startupPanel.SetStatus(startupFailed, startupLogDetails)
+                self.configureMenuItem.Enable(True)
+                return
+            if time.perf_counter() >= deadline:
+                break
+
+        # CallAfter queues the continuation behind pending GUI work without
+        # charging every yield the fixed 10 ms delay that CallLater imposed.
+        self._startup_timer = None
+        wx.CallAfter(self._advance_startup)
 
     def _load_finalize_steps(self, dlg, start, safe_mode):
         """Yield after bounded finalization and optional-preview work batches."""

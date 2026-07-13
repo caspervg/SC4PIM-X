@@ -1078,7 +1078,6 @@ class SC4Model():
         else:
             self.name = self.name + xmlNotFound
             self.descName = self.name
-        wx.Yield()
         for zoom in range(0, 5):
             self.s3dMeshes[zoom] = [S3D(entry) for entry in self.s3dMeshes[zoom]]
 
