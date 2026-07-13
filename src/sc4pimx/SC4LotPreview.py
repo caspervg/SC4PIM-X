@@ -544,11 +544,17 @@ class LotEditorWin(wx.Frame):
         self.s3d_shader_program = None
         self.s3d_shadow_program = None
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
-        self.zoom = 3
+        self.zoom2D = 3
+        self.zoom3D = 3
         # Continuous multiplier on top of the discrete zoom level, so Fit view
         # can frame the lot exactly. Reset to 1.0 by any explicit zoom.
-        self.viewScale = 1.0
-        self.rotation = 0
+        self.viewScale2D = 1.0
+        self.viewScale3D = 1.0
+        self.rotation2D = 0
+        self.rotation3D = 0
+        # Which pane keyboard/wheel input scopes to when Shift is held; tracked
+        # from mouse position (see _update_active_pane), defaults to 3D.
+        self._activePane = '3d'
         self.panel = 3
         self.highlighted = []
         self._build_workbench(panel)
@@ -562,6 +568,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.Bind(wx.EVT_MOTION, self.OnMouseMotion)
         self.glCanvas2D.Bind(wx.EVT_LEFT_DOWN, self.OnMouseDown)
         self.glCanvas2D.Bind(wx.EVT_LEFT_UP, self.OnMouseUp)
+        self.glCanvas2D.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
         self.snapSize = 0
         self.currentSnapSize = 4
         self.BackPosx = 0
@@ -735,6 +742,8 @@ class LotEditorWin(wx.Frame):
         viewport_sizer = wx.BoxSizer(wx.VERTICAL)
         self.temporalBar = self._build_temporal_bar(viewport_panel)
         viewport_sizer.Add(self.temporalBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        self.paneActionBar = self._build_pane_action_bar(viewport_panel)
+        viewport_sizer.Add(self.paneActionBar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
         viewport_sizer.Add(self.glCanvas2D, 1, wx.EXPAND | wx.ALL, 6)
         viewport_panel.SetSizer(viewport_sizer)
         self.inspector = LEInspectorPanel(self.rightSplitter, self)
@@ -748,6 +757,7 @@ class LotEditorWin(wx.Frame):
         root.Add(self.mainSplitter, 1, wx.EXPAND)
         panel.SetSizer(root)
         self._sync_mode_buttons()
+        self._sync_pane_action_bar()
         # The constructor size is only the "restore" size; the lot editor is
         # cramped at 800x600, so open it maximized.
         self.Maximize(True)
@@ -933,6 +943,52 @@ class LotEditorWin(wx.Frame):
     def _days_in_preview_month(self):
         import calendar
         return calendar.monthrange(self.previewDate.year, self.previewDate.month)[1]
+
+    def _build_pane_action_bar(self, parent):
+        """Per-pane zoom/rotate/fit controls: 3D cluster left, 2D cluster right.
+
+        Each button targets its own pane explicitly -- no active-pane
+        resolution needed for clicks. Keyboard/wheel equivalents (which have
+        no inherent pane of their own) apply to both panes by default and
+        scope to the hovered pane when Shift is held; see OnZoom/OnUnzoom/
+        OnFitView/OnRotateViewLeft/OnRotateViewRight.
+        """
+        bar = wx.Panel(parent, -1)
+        bar.SetBackgroundColour(wx.Colour(244, 246, 248))
+        row = wx.BoxSizer(wx.HORIZONTAL)
+
+        self._paneClusterItems = {'3d': [], '2d': []}
+
+        def add_cluster(pane, label):
+            items = self._paneClusterItems[pane]
+            text = wx.StaticText(bar, -1, label)
+            row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 6)
+            items.append(text)
+            for icon, tooltip, handler, hint in [
+                ('rotate-2', LEXPaneRotateLeft, lambda e, p=pane: self._rotate_pane(p, -1), 'Shift+PgDn'),
+                ('rotate-clockwise-2', LEXPaneRotateRight, lambda e, p=pane: self._rotate_pane(p, 1), 'Shift+PgUp'),
+                ('zoom-out', LEXPaneZoomOut, lambda e, p=pane: self._zoom_pane(p, -1), 'Shift+-'),
+                ('zoom-in', LEXPaneZoomIn, lambda e, p=pane: self._zoom_pane(p, 1), 'Shift++'),
+                ('focus-centered', LEXPaneFitView, lambda e, p=pane: self._fit_pane(p), 'Shift+C'),
+            ]:
+                btn = self._make_toolbar_button(bar, icon, tooltip, handler, hint)
+                row.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
+                items.append(btn)
+
+        add_cluster('3d', LEXPaneCluster3D)
+        row.AddStretchSpacer(1)
+        add_cluster('2d', LEXPaneCluster2D)
+
+        bar.SetSizer(row)
+        return bar
+
+    def _sync_pane_action_bar(self):
+        """Show only the cluster(s) for panes currently visible in self.panel."""
+        visible = {1: {'3d'}, 2: {'2d'}, 3: {'3d', '2d'}}.get(self.panel, {'3d', '2d'})
+        for pane, items in self._paneClusterItems.items():
+            for item in items:
+                item.Show(pane in visible)
+        self.paneActionBar.Layout()
 
     def OnTemporalChange(self, event=None):
         if getattr(self, '_updatingTemporalControls', False):
@@ -1782,78 +1838,146 @@ class LotEditorWin(wx.Frame):
         if hasattr(self, 'temporalBar'):
             self.temporalBar.Show(self.panel != 2)
             self.viewportPanel.Layout()
+        self._update_active_pane()
+        if hasattr(self, 'paneActionBar'):
+            self._sync_pane_action_bar()
         self.glCanvas2D.Refresh(False)
 
-    def SetZoom(self, zoom):
-        self.zoom = zoom
-        self.viewScale = 1.0
+    def _update_active_pane(self):
+        """Which pane keyboard/wheel Shift-scoped actions apply to.
+
+        Clicks in the pane action bar always target their own pane
+        unambiguously; this is only consulted for Shift+keyboard shortcuts
+        and plain mouse-wheel zoom, which have no inherent pane of their own.
+        """
+        if self.panel != 3:
+            self._activePane = '3d' if self.panel == 1 else '2d'
+            return
+        half = self.glCanvas2D.GetClientSize()[0] // 2
+        self._activePane = '3d' if self.glCanvas2D.mouseX < half else '2d'
+
+    @staticmethod
+    def _event_shift_scoped(event):
+        """True if event is a real (keyboard/wheel) event with Shift held.
+
+        Button clicks deliver a plain wx.CommandEvent, which has no
+        ShiftDown() -- treat those as unscoped (acts on both panes), matching
+        the existing hasattr guard used by OnRotateLeft/OnRotateRight.
+        """
+        return bool(event is not None and hasattr(event, 'ShiftDown') and event.ShiftDown())
+
+    def SetZoomPane(self, pane, zoom):
+        if pane == '2d':
+            self.zoom2D = zoom
+            self.viewScale2D = 1.0
+        else:
+            self.zoom3D = zoom
+            self.viewScale3D = 1.0
         self.glCanvas2D.Refresh(False)
+
+    def SetZoom(self, zoom, pane=None):
+        if pane is None:
+            self.SetZoomPane('2d', zoom)
+            self.SetZoomPane('3d', zoom)
+        else:
+            self.SetZoomPane(pane, zoom)
+
+    def _zoom_pane(self, pane, delta):
+        zoom = self.zoom2D if pane == '2d' else self.zoom3D
+        zoom = max(0, min(7, zoom + delta))
+        self.SetZoomPane(pane, zoom)
 
     def OnZoom(self, event):
-        if self.zoom < 7:
-            self.SetZoom(self.zoom + 1)
+        # '+'/'_' are the shifted glyphs of '='/'-' on most layouts, so typing
+        # them already implies Shift is held -- scoping to the active pane in
+        # that case is a natural side effect, not a case worth special-casing.
+        if self._event_shift_scoped(event):
+            self._zoom_pane(self._activePane, 1)
+        else:
+            self._zoom_pane('2d', 1)
+            self._zoom_pane('3d', 1)
 
     def OnUnzoom(self, event):
-        if self.zoom > 0:
-            self.SetZoom(self.zoom - 1)
+        if self._event_shift_scoped(event):
+            self._zoom_pane(self._activePane, -1)
+        else:
+            self._zoom_pane('2d', -1)
+            self._zoom_pane('3d', -1)
 
-    def _exact_fit_scale(self):
-        """The 2D world scale at which the whole lot exactly fills the viewport."""
+    def _exact_fit_scale(self, pane):
+        """The world scale at which the whole lot exactly fills one pane's viewport."""
         size = self.glCanvas2D.GetClientSize()
         w = size[0] // 2 if self.panel == 3 else size[0]
         h = size[1]
         x_half = getattr(self, 'lotSizeXOver', 16) / 2.0 + 8
         y_half = getattr(self, 'lotSizeYOver', 16) / 2.0 + 8
         if w <= 0 or h <= 0:
-            return LotEditorWin.zoomScale[self.zoom]
+            table = LotEditorWin.zoomScale if pane == '2d' else LotEditorWin.zoomScale3D
+            zoom = self.zoom2D if pane == '2d' else self.zoom3D
+            return table[zoom]
         return min((w / 20.0) / x_half, (h / 20.0) / y_half)
 
-    def OnFitView(self, event=None):
-        """Recentre and scale so the whole lot exactly fills the 2D viewport.
+    def _fit_pane(self, pane):
+        """Recentre and scale one pane so the whole lot exactly fills it.
 
         The discrete zoom still selects the texture LOD; viewScale is the
-        fractional remainder that makes the fit exact.
+        fractional remainder that makes the fit exact. Draw3D never applies
+        the viewScale multiplier (see its scaling formula), so only the 2D
+        pane's fit is pixel-exact -- the 3D pane's is the nearest discrete
+        zoom level, same as before this pane split.
         """
-        self.posx = 0
-        self.posy = 0
-        self.posz = 10
-        self.pos3Dx = 0
-        self.pos3Dy = 0
-        self.pos3Dz = -10
-        self.BackPosx = 0
-        self.BackPosy = 0
-        exact = self._exact_fit_scale()
+        exact = self._exact_fit_scale(pane)
+        table = LotEditorWin.zoomScale if pane == '2d' else LotEditorWin.zoomScale3D
         zoom = 0
-        for idx, scale in enumerate(LotEditorWin.zoomScale):
+        for idx, scale in enumerate(table):
             if scale <= exact:
                 zoom = idx
-        self.zoom = zoom
-        self.viewScale = exact / LotEditorWin.zoomScale[zoom]
+        if pane == '2d':
+            self.posx = 0
+            self.posy = 0
+            self.posz = 10
+            self.zoom2D = zoom
+            self.viewScale2D = exact / table[zoom]
+        else:
+            self.pos3Dx = 0
+            self.pos3Dy = 0
+            self.pos3Dz = -10
+            self.BackPosx = 0
+            self.BackPosy = 0
+            self.zoom3D = zoom
+            self.viewScale3D = exact / table[zoom]
         self.glCanvas2D.Refresh(False)
 
+    def OnFitView(self, event=None):
+        if self._event_shift_scoped(event):
+            self._fit_pane(self._activePane)
+        else:
+            self._fit_pane('2d')
+            self._fit_pane('3d')
+
     def OnSetZoom1(self, event):
-        self.SetZoom(0)
+        self.SetZoom(0, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom2(self, event):
-        self.SetZoom(1)
+        self.SetZoom(1, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom3(self, event):
-        self.SetZoom(2)
+        self.SetZoom(2, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom4(self, event):
-        self.SetZoom(3)
+        self.SetZoom(3, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom5(self, event):
-        self.SetZoom(4)
+        self.SetZoom(4, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom6(self, event):
-        self.SetZoom(5)
+        self.SetZoom(5, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom7(self, event):
-        self.SetZoom(6)
+        self.SetZoom(6, self._activePane if self._event_shift_scoped(event) else None)
 
     def OnSetZoom8(self, event):
-        self.SetZoom(7)
+        self.SetZoom(7, self._activePane if self._event_shift_scoped(event) else None)
 
     def Rotate(self, rotOrder, rotFunc):
         for id, q in zip(self.selected, self.quadSelected):
@@ -2034,12 +2158,17 @@ class LotEditorWin(wx.Frame):
 
         return
 
-    def OnRotateViewRight(self, event):
-        rot = self.rotation
-        rot += 1
-        rot %= 4
-        self.rotation = rot
+    def _rotate_pane(self, pane, delta):
+        attr = 'rotation2D' if pane == '2d' else 'rotation3D'
+        setattr(self, attr, (getattr(self, attr) + delta) % 4)
         self.glCanvas2D.Refresh(False)
+
+    def OnRotateViewRight(self, event):
+        if self._event_shift_scoped(event):
+            self._rotate_pane(self._activePane, 1)
+        else:
+            self._rotate_pane('2d', 1)
+            self._rotate_pane('3d', 1)
 
     def OnRotateRight(self, event):
         if self.selected:
@@ -2055,13 +2184,11 @@ class LotEditorWin(wx.Frame):
         self.UpdateSelectionInspector()
 
     def OnRotateViewLeft(self, event):
-        rot = self.rotation
-        if rot > 0:
-            rot -= 1
+        if self._event_shift_scoped(event):
+            self._rotate_pane(self._activePane, -1)
         else:
-            rot = 3
-        self.rotation = rot
-        self.glCanvas2D.Refresh(False)
+            self._rotate_pane('2d', -1)
+            self._rotate_pane('3d', -1)
 
     def OnRotateLeft(self, event):
         if self.selected:
@@ -2466,7 +2593,7 @@ class LotEditorWin(wx.Frame):
             return True
         key = self._event_shortcut_key(event)
         funcAlign = {0: [self.OnAlignRight, self.OnAlignLeft, self.OnAlignBottom, self.OnAlignTop],1: [self.OnAlignBottom, self.OnAlignTop, self.OnAlignLeft, self.OnAlignRight],2: [self.OnAlignLeft, self.OnAlignRight, self.OnAlignTop, self.OnAlignBottom],3: [self.OnAlignTop, self.OnAlignBottom, self.OnAlignRight, self.OnAlignLeft]}
-        rot = self.rotation
+        rot = self.rotation2D  # align works in 2D object space regardless of active pane
         func2call = {97: self.OnCycleViewMode,366: self.OnRotateViewRight,367: self.OnRotateViewLeft,312: self.OnRotateRight,313: self.OnRotateLeft,112: self.OnModeProp,43: self.OnZoom,45: self.OnUnzoom,61: self.OnZoom,95: self.OnUnzoom,wx.WXK_NUMPAD_ADD: self.OnZoom,wx.WXK_NUMPAD_SUBTRACT: self.OnUnzoom,104: self.OnModePan,98: self.OnModeBuilding,116: self.OnModeBaseTex,118: self.OnModeOverTex,102: self.OnModeFlora,101: self.OnModeTransit,119: self.OnModeConstraintWater,108: self.OnModeConstraintLand,110: self.OnCycleFamily,103: self.OnCycleDisplayMode,49: self.OnSetZoom1,50: self.OnSetZoom2,51: self.OnSetZoom3,52: self.OnSetZoom4,53: self.OnSetZoom5,54: self.OnSetZoom6,55: self.OnSetZoom7,56: self.OnSetZoom8,wx.WXK_NUMPAD1: self.OnSetZoom1,wx.WXK_NUMPAD2: self.OnSetZoom2,wx.WXK_NUMPAD3: self.OnSetZoom3,wx.WXK_NUMPAD4: self.OnSetZoom4,wx.WXK_NUMPAD5: self.OnSetZoom5,wx.WXK_NUMPAD6: self.OnSetZoom6,wx.WXK_NUMPAD7: self.OnSetZoom7,wx.WXK_NUMPAD8: self.OnSetZoom8,109: self.OnMirror,100: self.OnDuplicate,127: self.OnDelete,18: funcAlign[rot][0],12: funcAlign[rot][1],2: funcAlign[rot][2],20: funcAlign[rot][3],314: self.OnKeyMove,315: self.OnKeyMove,316: self.OnKeyMove,317: self.OnKeyMove,115: self.OnToggleSnap,19: self.OnSetSnap,26: self.OnUndo,25: self.OnRedo,99: self.OnFitView}
         if key in func2call.keys():
             func2call[key](event)
@@ -2611,7 +2738,7 @@ class LotEditorWin(wx.Frame):
             # degenerate pure-axis shears (lot azimuth 90/0/...) that warp the
             # silhouette. Stepping by rotation*90 keeps the shadow on the same
             # off-axis lattice world mode uses, held at its reference appearance.
-            azimuth = azimuth - self.rotation * 90.0
+            azimuth = azimuth - self.rotation3D * 90.0
         az = math.radians(azimuth)
         return (length * math.sin(az), -1.0, length * math.cos(az))
 
@@ -3495,7 +3622,11 @@ class LotEditorWin(wx.Frame):
         self._pane_cache_key = None
 
     def _pane_cache_state_key(self, pane):
-        return (pane, self.zoom, self.rotation, self.viewScale, self.panel,
+        zoom, rotation, view_scale = (
+            (self.zoom2D, self.rotation2D, self.viewScale2D) if pane == '2d'
+            else (self.zoom3D, self.rotation3D, self.viewScale3D)
+        )
+        return (pane, zoom, rotation, view_scale, self.panel,
                 self.nightMode, self.previewMinutes, self.previewDate,
                 tuple(self.glCanvas2D.GetPhysicalSize()))
 
@@ -3562,7 +3693,7 @@ class LotEditorWin(wx.Frame):
 
     def DrawQuad(self, x, y, flag, texID, bAlpha, bHighlighted=False,
                  tint=(1.0, 1.0, 1.0, 1.0)):
-        zoom = self.zoom
+        zoom = self.zoom2D
         if zoom > 4:
             zoom = 4
         try:
@@ -3606,7 +3737,7 @@ class LotEditorWin(wx.Frame):
     def _draw_tile_batches(self, records, bAlpha, tint, three_d):
         if not records:
             return
-        zoom = min(self.zoom, 4)
+        zoom = min(self.zoom3D if three_d else self.zoom2D, 4)
         sampler = self.glCanvas2D.renderer.samplers.get(
             GL_NEAREST, GL_NEAREST, GL_REPEAT, GL_REPEAT,
         )
@@ -3801,9 +3932,9 @@ class LotEditorWin(wx.Frame):
         viewport = (int(s * scale), 0, int(w * scale), int(h * scale))
         glViewport(*viewport)
         projection = SC4Matrix.ortho(-valW, valW, -valH, valH, 40000, -40000)
-        zoom = self.zoom
-        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
-        rot2D = -self.rotation * 90.0
+        zoom = self.zoom2D
+        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale2D
+        rot2D = -self.rotation2D * 90.0
         model = SC4Matrix.scale(scaling, -scaling, scaling)
         model = model @ SC4Matrix.translate(-self.posx, -self.posy, -self.posz)
         model = model @ SC4Matrix.rotate_z(rot2D)
@@ -4062,7 +4193,7 @@ class LotEditorWin(wx.Frame):
     def DrawBackGround2(self, x=0, y=0):
         if not getattr(self, 'BackTextures', None):
             return
-        zoom = self.zoom
+        zoom = self.zoom3D
         LotEditorWin.zoomScale3D[zoom]
         if zoom > 4:
             zoom = 4
@@ -4091,7 +4222,7 @@ class LotEditorWin(wx.Frame):
         return
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
-        zoom = self.zoom
+        zoom = self.zoom3D
         if zoom > 4:
             zoom = 4
         try:
@@ -4413,7 +4544,7 @@ class LotEditorWin(wx.Frame):
         )
 
     def Draw3D(self):
-        viewZoom = self.zoom
+        viewZoom = self.zoom3D
         assetZoom = min(viewZoom, 4)
         if assetZoom == 4 or assetZoom == 3:
             angleX = 45
@@ -4457,7 +4588,7 @@ class LotEditorWin(wx.Frame):
                          vp[2] / (2 * valW) if valW else 0,
                          vp[3] / (2 * valH) if valH else 0)
         self.Draw3DBackdrop(valW, valH)
-        rotation = self.rotation
+        rotation = self.rotation3D
         rot2D = rotation * 90.0
         self.rx = angleX
         self.ry = rot2D - 22.5
@@ -4645,9 +4776,9 @@ class LotEditorWin(wx.Frame):
         valW = w * 20.0 / 400.0
         valH = h * 20.0 / 400.0
         viewport = (int(s * scale), 0, int(w * scale), int(h * scale))
-        zoom = self.zoom
-        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale
-        rot2D = -self.rotation * 90.0
+        zoom = self.zoom2D
+        scaling = LotEditorWin.zoomScale[zoom] * self.viewScale2D
+        rot2D = -self.rotation2D * 90.0
         projection = SC4Matrix.ortho(-valW, valW, -valH, valH, 40000, -40000)
         model = SC4Matrix.scale(scaling, -scaling, scaling)
         model = model @ SC4Matrix.translate(-self.posx, -self.posy, -self.posz)
@@ -4679,7 +4810,7 @@ class LotEditorWin(wx.Frame):
         dx = 0
         dy = 0
         dz = 0
-        rot = self.rotation
+        rot = self.rotation2D  # nudges move the object in 2D grid space
         amount = [
          -0.1, 0, 0.1, 0, -0.1, 0, 0.1, 0]
         if evt.GetKeyCode() == 314:
@@ -4962,8 +5093,23 @@ class LotEditorWin(wx.Frame):
 
         return
 
+    def OnMouseWheel(self, event):
+        # Wheel is inherently positional -- default to the pane under the
+        # cursor with no modifier; Shift is the escape hatch for "both".
+        # Wheel events don't run through on_mouse_motion, so refresh mouseX
+        # from the event itself (matters right after focus, before any move).
+        self.glCanvas2D.mouseX, self.glCanvas2D.mouseY = event.GetPosition()
+        self._update_active_pane()
+        delta = 1 if event.GetWheelRotation() > 0 else -1
+        if event.ShiftDown():
+            self._zoom_pane('2d', delta)
+            self._zoom_pane('3d', delta)
+        else:
+            self._zoom_pane(self._activePane, delta)
+
     def OnMouseMotion(self, evt):
         self.glCanvas2D.on_mouse_motion(evt)
+        self._update_active_pane()
         if evt.ControlDown() and not self.dragSelect:
             return
         if evt.Dragging() and evt.LeftIsDown():

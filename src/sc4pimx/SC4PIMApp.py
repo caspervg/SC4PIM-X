@@ -1,13 +1,21 @@
 """Main SC4PIM application with lot editor and data browser."""
+import datetime
 import faulthandler
 import functools
+import io
 import logging
 import os.path
+import random
 import re
+import struct
 import sys
+import tempfile
 import threading
 import time
+import xml.dom.minidom
 from math import *
+from pathlib import Path
+from xml.sax.saxutils import quoteattr
 
 import wx.lib.agw.ultimatelistctrl as ULC
 import wx.lib.mixins.listctrl as listmix
@@ -26,13 +34,16 @@ try:
 except ImportError:
     HAS_WIN32 = False
 from . import SC4IconMakerDlg, config, treeDnD
+from . import translation as translation_catalog
 from .ATCReader import ATC_PREVIEW_FRAME_MS
 from .ATCViewer import *
+from .ConvertLotBuildingDlg import MODE_OVERRIDE, ConvertLotBuildingDialog
 from .DependenciesDlg import *
 from .logsetup import configure_logging
 from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
-from .SC4LotPreview import *
 from .S3DViewer import S3DViewer
+from .SC4Data import conversion_target_kind, list_convertible_categories
+from .SC4LotPreview import *
 from .settings import *
 from .TablerIcons import icon_bitmap, icon_button, set_button_icon
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
@@ -47,6 +58,11 @@ offsetGID = [
 _preload_config_result = None
 _faulthandler_file = None
 
+# Keep incremental GUI-thread startup work within roughly one display frame.
+# The continuation is queued with CallAfter, so wx can service pending paint
+# and input events without imposing a fixed sleep after every generator yield.
+_STARTUP_TIMESLICE_SECONDS = 0.010
+
 _PLOP_LOT_SEAPORT_CATEGORY = 0xCCB2391F
 _PLOP_LOT_AIRPORT_CATEGORY = 0x0C8FBD1C
 _PLOP_LOT_MUNICIPAL_AIRPORT_CATEGORY = 0x0C8FBD30
@@ -58,6 +74,23 @@ _BUILDING_EXEMPLAR_TYPE = 0x6534284A
 _ATC_GIF_MAX_FRAMES = 120
 _LOT_CONFIG_PROPERTY_FIRST = 0x88EDC900
 _LOT_CONFIG_PROPERTY_LAST = 0x88EDCDFF
+_LOT_CONFIG_BUILDING_TYPE = 0
+_LOT_CONFIG_TRANSIT_SWITCH_TYPE = 7
+_LOT_EXEMPLAR_GROUP = 0xA8FBD372
+_LTEXT_TYPE = 0x2026960B
+_PIM_RESOURCE_GROUP = 0x6A386D26
+_PNG_ICON_TYPE = 0x856DDBAC
+_BUILDING_UVNK = 0x8A416A99
+_BUILDING_IDK = 0xCA416AB5
+_BUILDING_ITEM_NAME = 0x899AFBAD
+_BUILDING_ITEM_DESCRIPTION = 0x8A2602A9
+_BUILDING_LOT_RESOURCE_KEY = 0xEA260589
+_BUILDING_ITEM_ICON = 0x8A2602B8
+_BUILDING_APPEARANCE_PROPERTIES = (
+    0x27812820, 0x27812821, 0x27812822, 0x27812823, 0x27812824, 0x27812825,
+    0x27812920, 0x27812921, 0x27812922, 0x27812923, 0x27812924, 0x27812925,
+    0x49C9C93C, 0x6A845768,
+)
 _PLOP_LOT_SEAPORT_STAGES = tuple(
     (_PLOP_LOT_SEAPORT_CATEGORY + stage + 1, stage) for stage in range(1, 16)
 )
@@ -131,6 +164,422 @@ def _non_building_lot_object_rows(props, row_offset=3):
         if (_LOT_CONFIG_PROPERTY_FIRST <= prop.id <= _LOT_CONFIG_PROPERTY_LAST
             and prop.values and prop.values[0] != 0)
     ]
+
+
+def _lot_config_rows(exemplar):
+    """Return resolved lot-config rows ordered by property ID."""
+    rows = exemplar.GetPropRange(_LOT_CONFIG_PROPERTY_FIRST, _LOT_CONFIG_PROPERTY_LAST + 1)
+    return [(prop_id, list(values)) for prop_id, values in sorted(rows.items())]
+
+
+def _lot_building_rows(exemplar):
+    return [
+        (prop_id, values) for prop_id, values in _lot_config_rows(exemplar)
+        if values and values[0] == _LOT_CONFIG_BUILDING_TYPE
+    ]
+
+
+def _converted_lot_row_values(rows, building_iid, preserve_transit_switches):
+    """Patch one building row and apply the target-dependent TE policy."""
+    converted = []
+    building_rows = 0
+    removed_transit_rows = 0
+    for prop_id, source_values in rows:
+        values = list(source_values)
+        if not values:
+            converted.append((prop_id, values))
+            continue
+        if values[0] == _LOT_CONFIG_BUILDING_TYPE:
+            if len(values) <= 12:
+                raise ValueError('The lot building row is shorter than 13 values.')
+            values[12] = building_iid
+            building_rows += 1
+        if values[0] == _LOT_CONFIG_TRANSIT_SWITCH_TYPE and not preserve_transit_switches:
+            removed_transit_rows += 1
+            continue
+        converted.append((prop_id, values))
+    if building_rows != 1:
+        raise ValueError('Conversion requires exactly one type-0 building row; found %d.' % building_rows)
+    return converted, removed_transit_rows
+
+
+def _new_entry(tgi, file_name, content):
+    buffer = struct.pack('<IIIII', tgi[0], tgi[1], tgi[2], 0, 0)
+    entry = SC4Entry(buffer, 0, file_name)
+    entry.content = entry.rawContent = content
+    entry.Maj()
+    return entry
+
+
+def _new_exemplar_entry(tgi, file_name, virtual_dat, content=None):
+    if content is None:
+        content = (
+            'EQZT1###\r\n'
+            'ParentCohort=Key:{0x00000000,0x00000000,0x00000000}\r\n'
+            'PropCount=0x00000000\r\n'
+        )
+    entry = _new_entry(tgi, file_name, content)
+    exemplar = SC4Exemplar(entry, virtual_dat)
+    exemplar.entry = entry
+    entry.exemplar = exemplar
+    return entry
+
+
+def _clone_exemplar_entry(source_exemplar, tgi, file_name, virtual_dat):
+    return _new_exemplar_entry(tgi, file_name, virtual_dat, source_exemplar.Rep())
+
+
+def _build_converted_building_entry(virtual_dat, source_exemplar, category, name,
+                                    tgi, lot_size, file_name, app_gid):
+    """Build fresh target semantics while retaining the source appearance."""
+    occupant_size = source_exemplar.GetProp(0x27812810)
+    if occupant_size is None or len(occupant_size) < 3:
+        raise ValueError(convertBuildingMissingOccupantSize)
+    filling = source_exemplar.GetProp(0x27812811)
+    filling_degree = float(filling[0]) if filling else 0.5
+    entry = _new_exemplar_entry(tgi, file_name, virtual_dat)
+    exemplar = entry.exemplar
+    exemplar.AddTextProp(CreateAPropFromString(virtual_dat.properties[32], name))
+    exemplar.AddTextProp(CreateAProp(virtual_dat.properties[0x27812810], tuple(occupant_size)))
+    exemplar.AddTextProp(CreateAProp(virtual_dat.properties[0x27812811], (filling_degree,)))
+
+    width, height, depth = occupant_size[:3]
+    scope = {
+        'Height': height, 'height': height,
+        'Width': width, 'width': width,
+        'Depth': depth, 'depth': depth,
+        'LotSizeX': int(lot_size[0]), 'LotSizeY': int(lot_size[1]),
+        'fillingDegree': filling_degree,
+        'Volume': width * height * depth * filling_degree,
+        'volume': width * height * depth * filling_degree,
+        'IID': tgi[2], 'GID': app_gid, 'exemplarName': name,
+    }
+    for prop_id in category.removeProperties.keys():
+        exemplar.RemoveProp(prop_id)
+    for line in build_category_props_for_preset(virtual_dat, exemplar, category, scope):
+        exemplar.AddTextProp(line)
+
+    # Category rules define function. These properties define the visual model
+    # and are deliberately copied afterwards so a reskin remains a reskin.
+    for prop_id in _BUILDING_APPEARANCE_PROPERTIES:
+        values = source_exemplar.GetProp(prop_id)
+        if values is not None and prop_id in virtual_dat.properties:
+            exemplar.AddTextProp(CreateAProp(virtual_dat.properties[prop_id], tuple(values)))
+    exemplar.Maj()
+    return entry
+
+
+def _conversion_lot_configuration(virtual_dat, building_exemplar, category, lot_size):
+    target_kind = conversion_target_kind(category)
+    if target_kind == 'ploppable':
+        stage, zoning, wealth_types = _plop_lot_configuration(
+            lambda category_id: IsAChild(category, category_id)
+        )
+        result = {
+            'kind': target_kind, 'stage': stage, 'zoning': tuple((zoning,)),
+            'wealth': tuple(wealth_types), 'purpose': (0,),
+        }
+        if IsAChild(category, _PLOP_LOT_SEAPORT_CATEGORY):
+            result['max_slope_before_foundation'] = (0.0,)
+        return result
+    if target_kind != 'growable':
+        raise ValueError(convertBuildingUnsupportedCategory)
+    if IsAChild(category, _GROWABLE_LOT_AGRICULTURAL_FIELD_CATEGORY):
+        stage, purpose, wealth = 1, 'IR', 0
+    else:
+        stage, purpose, wealth = ComputeStagePurposeWealth(
+            building_exemplar.GetProp(0x27812834),
+            building_exemplar.GetProp(0xAA1DD396),
+            int(lot_size[0]), int(lot_size[1]),
+        )
+    purposes = {'R': 1, 'CS': 2, 'CO': 3, 'IM': 7, 'ID': 6, 'IHT': 8, 'IR': 5}
+    if purpose not in purposes:
+        raise ValueError(convertBuildingUnsupportedPurpose % purpose)
+    zoning = virtual_dat.ComputeZoning(purpose, building_exemplar.GetProp(0x27812810)[1])
+    return {
+        'kind': target_kind, 'stage': int(stage), 'zoning': tuple(zoning),
+        'wealth': (int(wealth) + 1,), 'purpose': (purposes[purpose],),
+    }
+
+
+def _build_converted_lot_entry(virtual_dat, source_exemplar, building_iid,
+                               target_config, name, tgi, file_name, override_mode):
+    entry = _clone_exemplar_entry(source_exemplar, tgi, file_name, virtual_dat)
+    exemplar = entry.exemplar
+    rows = _lot_config_rows(source_exemplar)
+    preserve_te = target_config['kind'] == 'ploppable'
+    converted_rows, removed_te = _converted_lot_row_values(rows, building_iid, preserve_te)
+    if not preserve_te:
+        local_ids = {prop.id for prop in source_exemplar.props}
+        inherited_te = [
+            prop_id for prop_id, values in rows
+            if values and values[0] == _LOT_CONFIG_TRANSIT_SWITCH_TYPE and prop_id not in local_ids
+        ]
+        if inherited_te:
+            raise ValueError(convertBuildingInheritedTransitSwitches)
+    for prop_id, values in rows:
+        if values and values[0] == _LOT_CONFIG_TRANSIT_SWITCH_TYPE and not preserve_te:
+            exemplar.RemoveProp(prop_id)
+    for prop_id, values in converted_rows:
+        if values and values[0] == _LOT_CONFIG_BUILDING_TYPE:
+            exemplar.AddTextProp(CreateAProp(virtual_dat.properties[prop_id], tuple(values)))
+
+    exemplar.AddTextProp(CreateAPropFromString(virtual_dat.properties[32], name))
+    replacements = {
+        0x27812837: (target_config['stage'],),
+        0x88EDC793: target_config['zoning'],
+        0x88EDC795: target_config['wealth'],
+        0x88EDC796: target_config['purpose'],
+    }
+    if 'max_slope_before_foundation' in target_config:
+        replacements[0x88EDC792] = target_config['max_slope_before_foundation']
+    for prop_id, values in replacements.items():
+        exemplar.AddTextProp(CreateAProp(virtual_dat.properties[prop_id], tuple(values)))
+    if not override_mode:
+        exemplar.RemoveProp(0x88EDC791)  # LotConfigPropertyFamily: clones are independent.
+    exemplar.Maj()
+    return entry, removed_te
+
+
+def _candidate_iid():
+    init = datetime.datetime(2005, 5, 5, 21, 24, 15)
+    elapsed = datetime.datetime.today() - init
+    seconds = elapsed.days * 24 * 3600 + elapsed.seconds
+    return random.randrange(1, 16) * 0x10000000 + (seconds & 0x0FFFFFFF)
+
+
+def _allocate_conversion_iid(virtual_dat, tgi_prefixes, candidate_factory=None):
+    for attempt in range(256):
+        if candidate_factory is not None:
+            candidate = int(candidate_factory()) & 0xFFFFFFFF
+        else:
+            candidate = _candidate_iid()
+        if attempt and candidate_factory is None:
+            candidate = (candidate + attempt * 0x00100001) & 0xFFFFFFFF
+        if candidate and all(virtual_dat.getEntry(t, g, candidate) is None for t, g in tgi_prefixes):
+            return candidate
+    raise RuntimeError(convertBuildingNoFreeIID)
+
+
+def _entry_content_copy(entry):
+    old_raw = entry.rawContent
+    old_content = getattr(entry, 'content', None)
+    old_compressed = entry.compressed
+    if old_content is None:
+        entry.read_file(None, True, True)
+    content = bytes(entry.content)
+    if old_content is None:
+        entry.rawContent = old_raw
+        entry.content = old_content
+        entry.compressed = old_compressed
+    return content
+
+
+def _copy_ltext_chain(virtual_dat, source_key, target_key, file_name):
+    entries = []
+    if not source_key or len(source_key) < 3 or source_key[0] != _LTEXT_TYPE:
+        return entries
+    for offset in offsetGID:
+        source = virtual_dat.getEntry(source_key[0], source_key[1] + offset, source_key[2])
+        if source is None:
+            continue
+        target_tgi = (target_key[0], target_key[1] + offset, target_key[2])
+        entries.append(_new_entry(target_tgi, file_name, _entry_content_copy(source)))
+    return entries
+
+
+def _finish_building_text_resources(virtual_dat, source_exemplar, building_entry,
+                                    file_name, override_mode):
+    exemplar = building_entry.exemplar
+    entries = []
+    keys = (
+        (_BUILDING_UVNK, _BUILDING_ITEM_NAME, _PIM_RESOURCE_GROUP),
+        (_BUILDING_IDK, _BUILDING_ITEM_DESCRIPTION, building_entry.tgi[1]),
+    )
+    for key_prop, direct_prop, clone_group in keys:
+        source_key = source_exemplar.GetProp(key_prop)
+        if source_key and tuple(source_key) != (0, 0, 0):
+            target_key = tuple(source_key)
+            copied = []
+            if not override_mode and source_key[0] == _LTEXT_TYPE:
+                proposed_key = (source_key[0], clone_group, building_entry.tgi[2])
+                copied = _copy_ltext_chain(
+                    virtual_dat, source_key, proposed_key, file_name
+                )
+                if copied:
+                    target_key = proposed_key
+            elif override_mode:
+                copied = _copy_ltext_chain(
+                    virtual_dat, source_key, target_key, file_name
+                )
+            exemplar.AddTextProp(CreateAProp(virtual_dat.properties[key_prop], target_key))
+            exemplar.RemoveProp(direct_prop)
+            entries.extend(copied)
+        else:
+            exemplar.RemoveProp(key_prop)
+            direct = source_exemplar.GetProp(direct_prop)
+            if direct is None and direct_prop == _BUILDING_ITEM_NAME:
+                direct = exemplar.GetProp(32)
+            if direct is not None:
+                exemplar.AddTextProp(CreateAProp(virtual_dat.properties[direct_prop], tuple(direct)))
+    exemplar.Maj()
+    return entries
+
+
+def _write_entries_atomic(file_name, entries):
+    directory = os.path.dirname(file_name) or os.curdir
+    fd, temporary = tempfile.mkstemp(prefix='.sc4pimx-convert-', suffix='.tmp', dir=directory)
+    os.close(fd)
+    try:
+        for entry in entries:
+            entry.fileName = file_name
+        WriteADat(temporary, entries, None, True)
+        os.replace(temporary, file_name)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _source_building_candidates(virtual_dat, lot_exemplar, preferred_exemplar=None):
+    rows = _lot_building_rows(lot_exemplar)
+    if len(rows) != 1 or len(rows[0][1]) <= 12:
+        return []
+    building_iid = rows[0][1][12]
+    root = virtual_dat.categories.get(0x0C8FBB55)
+    descriptors = list(root.descriptors) if root is not None else []
+    direct = [
+        desc for desc in descriptors
+        if desc.exemplar.entry.tgi[0] == _BUILDING_EXEMPLAR_TYPE
+        and desc.exemplar.entry.tgi[2] == building_iid
+        and desc.exemplar.GetProp(16) == [2]
+    ]
+    if direct:
+        candidates = direct
+    else:
+        family = virtual_dat.categories.get(building_iid)
+        candidates = [] if family is None else [
+            desc for desc in family.descriptors
+            if desc.exemplar.entry.tgi[0] == _BUILDING_EXEMPLAR_TYPE
+            and desc.exemplar.GetProp(16) == [2]
+        ]
+    unique = {}
+    for desc in candidates:
+        unique[desc.exemplar.entry.tgi] = desc
+    result = sorted(unique.values(), key=lambda desc: (desc.name.casefold(), desc.exemplar.entry.tgi))
+    if preferred_exemplar is not None:
+        result.sort(key=lambda desc: desc.exemplar is not preferred_exemplar)
+    return result
+
+
+def _safe_conversion_file_stem(name):
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1F]+', '_', name).strip(' ._')
+    return stem[:80] or 'Converted_Building'
+
+
+def _conversion_tgi_text(tgi):
+    return '0x%08X-0x%08X-0x%08X' % tuple(tgi)
+
+
+def _conversion_pair_tgis(source_building_tgi, source_lot_tgi, author_gid,
+                          override_mode, new_iid=None):
+    """Apply the identity contract for override packages and new clones."""
+    if override_mode:
+        return tuple(source_building_tgi), tuple(source_lot_tgi)
+    if new_iid is None:
+        raise ValueError('A new independent conversion requires a fresh IID.')
+    return (
+        (_BUILDING_EXEMPLAR_TYPE, int(author_gid), int(new_iid)),
+        (_BUILDING_EXEMPLAR_TYPE, _LOT_EXEMPLAR_GROUP, int(new_iid)),
+    )
+
+
+def _conversion_filename_stem(template, *, name, source, category, gid,
+                              building_iid, lot_iid):
+    values = {
+        'name': str(name),
+        'source': str(source),
+        'category': str(category),
+        'gid': '%08X' % (int(gid) & 0xFFFFFFFF),
+        'building_iid': '%08X' % (int(building_iid) & 0xFFFFFFFF),
+        'lot_iid': '%08X' % (int(lot_iid) & 0xFFFFFFFF),
+    }
+    try:
+        rendered = str(template).format_map(values).strip()
+    except KeyError as exc:
+        raise ValueError(convertBuildingUnknownFilenamePlaceholder % exc.args[0]) from exc
+    except ValueError as exc:
+        raise ValueError(convertBuildingInvalidFilenameTemplate % exc) from exc
+    root, extension = os.path.splitext(rendered)
+    if extension.casefold() in ('.dat', '.sc4lot'):
+        rendered = root
+    return _safe_conversion_file_stem(rendered)
+
+
+def _override_output_directory(plugins_root, configured_directory, create=True):
+    """Resolve a configured relative override directory inside Plugins."""
+    root = Path(plugins_root).resolve()
+    configured = Path(str(configured_directory).strip() or '.')
+    if configured.is_absolute():
+        raise ValueError(convertBuildingOverrideDirectoryRelative)
+    target = (root / configured).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(convertBuildingOverrideDirectoryOutside)
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return str(target)
+
+
+def _unused_output_path(root_folder, stem, extension):
+    candidate = os.path.join(root_folder, stem + extension)
+    index = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(root_folder, '%s_%d%s' % (stem, index, extension))
+        index += 1
+    return candidate
+
+
+def _render_conversion_icon(parent, virtual_dat, source_lot_exemplar, file_name, icon_iid):
+    frame = LotEditorWin(parent, -1, convertBuildingIconPreviewTitle, size=(800, 800))
+    try:
+        frame.Display(source_lot_exemplar, virtual_dat, True)
+        frame.Show()
+        frame.on_draw()
+        frame.on_draw()
+        image = frame.Save()
+        icon_image = SC4IconMakerDlg.compose_lot_icon(image)
+        output = io.BytesIO()
+        try:
+            icon_image.save(output, 'PNG')
+            return _new_entry(
+                (_PNG_ICON_TYPE, _PIM_RESOURCE_GROUP, icon_iid),
+                file_name, output.getvalue(),
+            )
+        finally:
+            output.close()
+    finally:
+        frame.Destroy()
+
+
+def _deduplicate_entries(entries):
+    by_tgi = {}
+    order = []
+    for entry in entries:
+        if entry.tgi not in by_tgi:
+            order.append(entry.tgi)
+        by_tgi[entry.tgi] = entry
+    return [by_tgi[tgi] for tgi in order]
+
+
+def _remove_descriptors_for_tgis(virtual_dat, tgis):
+    tgis = set(tgis)
+    for category in virtual_dat.categories.values():
+        category.descriptors[:] = [
+            desc for desc in category.descriptors
+            if desc.exemplar.entry.tgi not in tgis
+        ]
 
 
 def build_category_props_for_preset(virtual_dat, exemplar, category, scope, emit_prop_ids=None):
@@ -698,6 +1147,9 @@ class StartupPanel(wx.Panel):
     def StopPulse(self):
         if self._pulse_timer.IsRunning():
             self._pulse_timer.Stop()
+        # Stopping the timer leaves the native marquee animating; setting a
+        # value returns the gauge to determinate mode and freezes it.
+        self.g1.SetValue(0)
 
     def _on_pulse(self, event):
         self.g1.Pulse()
@@ -718,9 +1170,9 @@ class StartupPanel(wx.Panel):
 
     def SetReady(self, background_work=False):
         if background_work:
-            self.SetStatus('Workspace ready', 'Finishing preview cache in the background...')
+            self.SetStatus(startupWorkspaceReady, startupFinishingPreviewCache)
         else:
-            self.SetStatus('Workspace ready', '')
+            self.SetStatus(startupWorkspaceReady, '')
 
 
 class StartupPreviewPanel(wx.Panel):
@@ -1386,13 +1838,14 @@ class MyTreeCtrl(wx.TreeCtrl):
                             parent_family_cat_id = 4089086497
                             is_named_family = True
 
-                    xml_str = '<?xml version="1.0" encoding="UTF-8"?><temp><CATEGORY Name="%s" ID="%s" ParentID="%s">' % (
-                        name, hex2str(family), hex2str(parent_family_cat_id))
+                    xml_str = '<?xml version="1.0" encoding="UTF-8"?><temp><CATEGORY Name=%s ID="%s" ParentID="%s">' % (
+                        quoteattr(name), hex2str(family), hex2str(parent_family_cat_id))
                     xml_str += '</CATEGORY></temp>'
                     try:
                         xml_doc = xml.dom.minidom.parseString(xml_str)
                     except Exception:
-                        logger.warning('Problem with family %s 0x%08X', name, family)
+                        logger.warning('Problem with family %s 0x%08X', name, family,
+                                       exc_info=True)
                         return
 
                     for subNode in xml_doc.documentElement.childNodes:
@@ -2507,6 +2960,7 @@ class NoteBookPanel(wx.Panel):
             self.popupID38 = wx.NewIdRef()  # Edit Transit Switches…
             self.popupID39 = wx.NewIdRef()  # Apply Transit Preset…
             self.popupID40 = wx.NewIdRef()
+            self.popupID41 = wx.NewIdRef()
             self.popupID1 = wx.NewIdRef()
             self.popupID2 = wx.NewIdRef()
             self.popupID3 = wx.NewIdRef()
@@ -2560,6 +3014,7 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnEditTransitSwitches, id=self.popupID38)
             self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
             self.Bind(wx.EVT_MENU, self.OnEditBuildingSubmenus, id=self.popupID40)
+            self.Bind(wx.EVT_MENU, self.OnConvertLotBuilding, id=self.popupID41)
         menu = wx.Menu()
         if self.exemplar.GetProp(16)[0] == 16:
             menu.Append(self.selectLotObjectsID, popupPropertyMenuSelectLotObjects)
@@ -2696,6 +3151,8 @@ class NoteBookPanel(wx.Panel):
                 menu.AppendSeparator()
             menu.Append(self.popupID17, popupPropertyMenuItem17)
             menu.Append(self.popupID40, LEXBuildingSubmenuMenuItem)
+            if self.virtual_dat.FindAllLotsFromBuilding(self.exemplar):
+                menu.Append(self.popupID41, popupPropertyMenuItem41)
             if _can_create_growable_lot(
                     lambda category_id: IsFromCategory(self.virtual_dat.categories[category_id], self.exemplar),
                     self.exemplar.entry.tgi[0]):
@@ -2752,6 +3209,10 @@ class NoteBookPanel(wx.Panel):
             menu.Append(self.popupID19, popupPropertyMenuItem19)
             menu.Append(self.popupID27, popupPropertyMenuItem27)
             bSep = False
+            if len(_lot_building_rows(self.exemplar)) == 1:
+                bSep = True
+                menu.AppendSeparator()
+                menu.Append(self.popupID41, popupPropertyMenuItem41)
             desc = self.virtual_dat.FindBuildingFromLot(self.exemplar)
             if desc:
                 if desc.exemplar.entry.tgi[0] == 1697917002:
@@ -3175,15 +3636,10 @@ class NoteBookPanel(wx.Panel):
             props.append(
                 CreateAProp(self.virtual_dat.properties[2298271863], CopyPropOrDefault(2298271863, (2299228948,))))
             props.append(CreateAProp(self.virtual_dat.properties[3919251084], CopyPropOrDefault(3919251084, (90.0,))))
-            for lcp in range(2297284864, 2297286143):
-                z = self.exemplar.GetProp(lcp)
-                if z is None:
-                    break
-                v = z[:]
-                if v[0] == 0:
-                    v[12] = IID
-                if v[0] == 7:
-                    continue
+            converted_rows, _removed_te = _converted_lot_row_values(
+                _lot_config_rows(self.exemplar), IID, False
+            )
+            for lcp, v in converted_rows:
                 props.append(CreateAProp(self.virtual_dat.properties[lcp], v))
 
             props.sort(key=functools.cmp_to_key(lambda x, y: basic_cmp(x[2:2 + 8], y[2:2 + 8])))
@@ -3850,6 +4306,218 @@ class NoteBookPanel(wx.Panel):
         for desc in self.virtual_dat.categories[family].descriptors:
             self.parent.AddNewDesc(desc, self.virtual_dat, False)
 
+    def OnConvertLotBuilding(self, event):
+        """Run the clone/override wizard for an existing lot/building pair."""
+        try:
+            exemplar_type = self.exemplar.GetProp(16)[0]
+            preferred_building = self.exemplar if exemplar_type == 2 else None
+            if exemplar_type == 16:
+                lot_descriptor = self.descriptor
+            elif exemplar_type == 2:
+                lots = self.virtual_dat.FindAllLotsFromBuilding(self.exemplar)
+                if not lots:
+                    raise ValueError(convertBuildingSourceNotFound)
+                lot_descriptor = lots[0]
+                if len(lots) > 1:
+                    choices = [
+                        '%s  [%s]' % (desc.name, _conversion_tgi_text(desc.exemplar.entry.tgi))
+                        for desc in lots
+                    ]
+                    dialog = wx.SingleChoiceDialog(
+                        self, convertBuildingSelectLotMessage, convertBuildingSelectLotTitle,
+                        choices, wx.CHOICEDLG_STYLE,
+                    )
+                    try:
+                        if dialog.ShowModal() != wx.ID_OK:
+                            return
+                        lot_descriptor = lots[dialog.GetSelection()]
+                    finally:
+                        dialog.Destroy()
+            else:
+                raise ValueError(convertBuildingSourceNotFound)
+
+            lot_exemplar = lot_descriptor.exemplar
+            building_rows = _lot_building_rows(lot_exemplar)
+            if len(building_rows) != 1:
+                raise ValueError(convertBuildingAmbiguousRow)
+            candidates = _source_building_candidates(
+                self.virtual_dat, lot_exemplar, preferred_building
+            )
+            if not candidates:
+                raise ValueError(convertBuildingSourceNotFound)
+            building_descriptor = candidates[0]
+            if len(candidates) > 1:
+                choices = [
+                    '%s  [%s]' % (desc.name, _conversion_tgi_text(desc.exemplar.entry.tgi))
+                    for desc in candidates
+                ]
+                dialog = wx.SingleChoiceDialog(
+                    self, convertBuildingSelectFamilyMessage, convertBuildingSelectFamilyTitle,
+                    choices, wx.CHOICEDLG_STYLE,
+                )
+                try:
+                    if dialog.ShowModal() != wx.ID_OK:
+                        return
+                    building_descriptor = candidates[dialog.GetSelection()]
+                finally:
+                    dialog.Destroy()
+
+            categories = list_convertible_categories(
+                self.virtual_dat.categories.get(0x0C8FBB55)
+            )
+            if not categories:
+                raise ValueError(convertBuildingNoCategories)
+            default_name = building_descriptor.name
+            wizard = ConvertLotBuildingDialog(
+                self, categories,
+                lot_descriptor.name, lot_exemplar.entry.tgi,
+                building_descriptor.name, building_descriptor.exemplar.entry.tgi,
+                default_name,
+            )
+            try:
+                if wizard.ShowModal() != wx.ID_OK:
+                    return
+                selection = wizard.GetSelection()
+            finally:
+                wizard.Destroy()
+
+            category = selection['category']
+            target_kind = selection['target_kind']
+            name = selection['name']
+            override_mode = selection['mode'] == MODE_OVERRIDE
+            lot_size = lot_exemplar.GetProp(0x88EDC790)
+            if lot_size is None or len(lot_size) < 2:
+                raise ValueError(convertBuildingMissingLotSize)
+
+            if override_mode:
+                building_tgi, lot_tgi = _conversion_pair_tgis(
+                    building_descriptor.exemplar.entry.tgi,
+                    lot_exemplar.entry.tgi,
+                    self.parent.parent.GID, True,
+                )
+            else:
+                prefixes = [
+                    (_BUILDING_EXEMPLAR_TYPE, self.parent.parent.GID),
+                    (_BUILDING_EXEMPLAR_TYPE, _LOT_EXEMPLAR_GROUP),
+                    (_PNG_ICON_TYPE, _PIM_RESOURCE_GROUP),
+                ]
+                prefixes.extend(
+                    (_LTEXT_TYPE, _PIM_RESOURCE_GROUP + offset) for offset in offsetGID
+                )
+                prefixes.extend(
+                    (_LTEXT_TYPE, self.parent.parent.GID + offset) for offset in offsetGID
+                )
+                iid = _allocate_conversion_iid(self.virtual_dat, prefixes)
+                building_tgi, lot_tgi = _conversion_pair_tgis(
+                    building_descriptor.exemplar.entry.tgi,
+                    lot_exemplar.entry.tgi,
+                    self.parent.parent.GID, False, iid,
+                )
+
+            conversion_settings = config.load_conversion()
+            template_key = (
+                'OverrideLotBuildingFilename'
+                if override_mode
+                else 'ConvertedLotBuildingFilename'
+            )
+            stem = _conversion_filename_stem(
+                conversion_settings[template_key],
+                name=name,
+                source=building_descriptor.name,
+                category=category.Name,
+                gid=self.parent.parent.GID,
+                building_iid=building_tgi[2],
+                lot_iid=lot_tgi[2],
+            )
+            if override_mode:
+                output_directory = _override_output_directory(
+                    self.parent.parent.rootFolder,
+                    conversion_settings['OverrideOutputDirectory'],
+                )
+                file_name = _unused_output_path(output_directory, stem, '.dat')
+            else:
+                file_name = _unused_output_path(self.parent.parent.rootFolder, stem, '.SC4Lot')
+
+            building_entry = _build_converted_building_entry(
+                self.virtual_dat, building_descriptor.exemplar, category, name,
+                building_tgi, lot_size, file_name, self.parent.parent.GID,
+            )
+            target_config = _conversion_lot_configuration(
+                self.virtual_dat, building_entry.exemplar, category, lot_size
+            )
+            if target_config['kind'] != target_kind:
+                raise ValueError(convertBuildingUnsupportedCategory)
+            lot_entry, _removed_te = _build_converted_lot_entry(
+                self.virtual_dat, lot_exemplar, building_tgi[2], target_config,
+                name, lot_tgi, file_name, override_mode,
+            )
+            entries = [building_entry, lot_entry]
+            entries.extend(_finish_building_text_resources(
+                self.virtual_dat, building_descriptor.exemplar, building_entry,
+                file_name, override_mode,
+            ))
+
+            if target_kind == 'ploppable':
+                source_icon = building_descriptor.exemplar.GetProp(_BUILDING_ITEM_ICON)
+                icon_iid = (
+                    source_icon[0]
+                    if override_mode and source_icon
+                    else lot_tgi[2]
+                )
+                building_entry.exemplar.AddTextProp(CreateAProp(
+                    self.virtual_dat.properties[0x6A871B82], (building_tgi[2],)
+                ))
+                building_entry.exemplar.AddTextProp(CreateAProp(
+                    self.virtual_dat.properties[_BUILDING_ITEM_ICON], (icon_iid,)
+                ))
+                building_entry.exemplar.AddTextProp(CreateAProp(
+                    self.virtual_dat.properties[_BUILDING_LOT_RESOURCE_KEY], (lot_tgi[2],)
+                ))
+                building_entry.exemplar.Maj()
+                entries.append(_render_conversion_icon(
+                    self, self.virtual_dat, lot_exemplar, file_name, icon_iid
+                ))
+
+            entries = _deduplicate_entries(entries)
+            _write_entries_atomic(file_name, entries)
+
+            if override_mode:
+                _remove_descriptors_for_tgis(
+                    self.virtual_dat, (building_tgi, lot_tgi)
+                )
+            self.virtual_dat.addEntries(entries, None, False, False)
+            new_building_descriptor = BuildingDesc(building_entry)
+            new_lot_descriptor = LotDesc(lot_entry)
+            self.parent.parent.tree.Recategorize(new_building_descriptor, False, False)
+            self.parent.parent.tree.Recategorize(new_lot_descriptor, False, True)
+            if override_mode:
+                # The source tabs may still hold descriptors for the original
+                # entries with these same TGIs. Refresh them before normal tab
+                # de-duplication can select the stale objects again.
+                self.parent.RefreshOpenDescriptor(new_building_descriptor, self.virtual_dat)
+                self.parent.RefreshOpenDescriptor(new_lot_descriptor, self.virtual_dat)
+            self.parent.AddNewDesc(new_lot_descriptor, self.virtual_dat, False)
+            frame = LotEditorWin(
+                self, -1, 'LotPreview ' + new_lot_descriptor.name, size=(800, 800)
+            )
+            frame.Display(lot_entry.exemplar, self.virtual_dat)
+            frame.Show()
+            logger.info(
+                'Converted lot "%s" with building "%s" to %s (%s), wrote %s',
+                lot_descriptor.name, building_descriptor.name,
+                category.Name, target_kind, file_name,
+            )
+            wx.MessageBox(
+                convertBuildingSuccess % file_name,
+                convertBuildingSuccessTitle, wx.OK | wx.ICON_INFORMATION, self,
+            )
+        except Exception as exc:
+            logger.exception('Lot/building conversion failed')
+            wx.MessageBox(
+                str(exc), convertBuildingFailedTitle,
+                wx.OK | wx.ICON_ERROR, self,
+            )
+
     def DuplicateLTEXTEntry(self, exemplar, utxt, t, g, i):
         newVal = encode_sc4_text(utxt)
         buffer = struct.pack('III', t, g, i)
@@ -4250,6 +4918,37 @@ class SC4NoteBook(wx.Notebook):
         self.Thaw()
         return
 
+    def RefreshOpenDescriptor(self, descriptor, virtualDAT):
+        """Replace a stale open tab when *descriptor* is now authoritative.
+
+        Override packages deliberately reuse TGIs. An existing tab therefore
+        cannot be identified as current by TGI alone: it may still point at
+        the superseded entry object even though VirtualDat has registered the
+        new one. This refresh intentionally does not call ``Change`` because
+        its undo path would reread and recategorize the superseded source.
+        """
+        tgi = descriptor.exemplar.entry.tgi
+        if virtualDAT.getEntry(*tgi) is not descriptor.exemplar.entry:
+            return False
+        title = decode_unicode_escape(str(descriptor.name))
+        for index, existing in enumerate(self.descriptors):
+            if existing.exemplar.entry.tgi != tgi:
+                continue
+            if existing is descriptor:
+                self.SetPageText(index, title)
+                return True
+            panel = self.GetPage(index)
+            self.descriptors[index] = descriptor
+            panel.listProperties.DeleteAllItems()
+            panel.descriptor = descriptor
+            panel.exemplar = descriptor.exemplar
+            panel.virtual_dat = virtualDAT
+            panel.FillTheList()
+            panel.bSave.Enable(False)
+            self.SetPageText(index, title)
+            return True
+        return False
+
     def AddNewDesc(self, descriptor, virtualDAT, bAdd):
         try:
             img = virtualDAT.categories[descriptor.cats[0]].imgIdx
@@ -4268,6 +4967,10 @@ class SC4NoteBook(wx.Notebook):
             self.parent.viewer.refresh(False)
         for i, desc in enumerate(self.descriptors):
             if descriptor.exemplar.entry.tgi == desc.exemplar.entry.tgi:
+                self.RefreshOpenDescriptor(descriptor, virtualDAT)
+                # Keep the visible title synchronized even when the tab was
+                # already refreshed earlier in the override commit path.
+                self.SetPageText(i, decode_unicode_escape(str(descriptor.name)))
                 self.ChangeSelection(i)
                 self.RestorePage(i)
                 self.SetPageImage(i, img)
@@ -4449,6 +5152,19 @@ class MainFrame(wx.Frame):
         menuBar = wx.MenuBar()
         menu1 = wx.Menu()
         self.configureMenuItem = menu1.Append(201, configurationDialogTitle + '...')
+        self.languageMenu = wx.Menu()
+        self._language_menu_codes = {}
+        selected_language = str(config.load_settings().get('Language', translation_catalog.DEFAULT_LANGUAGE))
+        available_language_codes = translation_catalog.available_languages()
+        if selected_language not in available_language_codes:
+            selected_language = translation_catalog.DEFAULT_LANGUAGE
+        for code in available_language_codes:
+            item_id = wx.NewIdRef()
+            item = self.languageMenu.AppendRadioItem(item_id, translation_catalog.language_display_name(code))
+            self._language_menu_codes[int(item_id)] = code
+            item.Check(code == selected_language)
+            self.Bind(wx.EVT_MENU, self.OnSelectLanguage, id=int(item_id))
+        menu1.AppendSubMenu(self.languageMenu, languageMenuLabel)
         menu1.AppendSeparator()
         menu1.Append(104, menuItem1_1)
         menuBar.Append(menu1, menuItem1)
@@ -4601,11 +5317,11 @@ class MainFrame(wx.Frame):
             return
         self._startup_started = True
         self.startupPanel.StartPulse()
-        self.startupPanel.SetStatus('Preparing workspace...', '')
+        self.startupPanel.SetStatus(startupPreparingWorkspace, '')
         if not self.PreLoadDatas():
             self._startup_waiting_for_configuration = True
             self.startupPanel.StopPulse()
-            self.startupPanel.SetStatus('Startup paused', 'Open Configuration from the menu to continue.')
+            self.startupPanel.SetStatus(startupPaused, startupOpenConfiguration)
             return
         if _env_true('SC4PIM_SKIP_LOAD'):
             self._set_core_ready()
@@ -4662,6 +5378,19 @@ class MainFrame(wx.Frame):
                 _preload_config_result = True
                 self.startupPanel.StartPulse()
                 self.LoadDatas()
+        dlg.Destroy()
+
+    def OnSelectLanguage(self, event):
+        code = self._language_menu_codes.get(event.GetId())
+        if code is None:
+            return
+        current = str(config.load_settings().get('Language', translation_catalog.DEFAULT_LANGUAGE))
+        if code == current:
+            return
+        config.save_language(code)
+        dlg = wx.MessageDialog(self, languageRestartMessage, languageMenuLabel,
+                               wx.OK | wx.ICON_INFORMATION)
+        dlg.ShowModal()
         dlg.Destroy()
 
     def OnQuit(self, event):
@@ -5056,8 +5785,8 @@ class MainFrame(wx.Frame):
                         logger.debug('Skipping missing file %s', fileName)
                 else:
                     _, folderName, recurse = job
-                    dlg.SetStatus('Scanning folder: %s' % folderName,
-                                  'Building file list...')
+                    dlg.SetStatus(startupScanningFolder % folderName,
+                                  startupBuildingFileList)
                     try:
                         for f in self.virtualDAT.gather_container_files(folderName, recurse):
                             file_list.append((f, False))
@@ -5066,7 +5795,7 @@ class MainFrame(wx.Frame):
 
             def _progress(done, total, fileName):
                 if done % 15 == 0 or done == total:
-                    dlg.SetStatus('Loading plugins  (%d / %d files)' % (done, total),
+                    dlg.SetStatus(startupLoadingPlugins % (done, total),
                                   os.path.basename(fileName))
 
             self.virtualDAT.load_files_parallel(file_list, progress_cb=_progress)
@@ -5082,26 +5811,35 @@ class MainFrame(wx.Frame):
         self._advance_startup()
 
     def _advance_startup(self):
-        """Run one bounded startup batch and schedule the next event-loop turn."""
-        try:
-            next(self._startup_steps)
-        except StopIteration:
-            self._startup_steps = None
-            self._finish_startup()
-            return
-        except Exception:
-            logger.exception('Data finalization failed')
-            self._startup_steps = None
-            self.startupPanel.StopPulse()
-            self.startupPanel.SetStatus('Startup failed', 'See sc4pimx.log for details.')
-            self.configureMenuItem.Enable(True)
-            return
-        # A short real timer gap lets Windows deliver paint and input messages.
-        self._startup_timer = wx.CallLater(10, self._advance_startup)
+        """Run startup batches for one time slice, then yield back to wx."""
+        deadline = time.perf_counter() + _STARTUP_TIMESLICE_SECONDS
+        while True:
+            try:
+                next(self._startup_steps)
+            except StopIteration:
+                self._startup_steps = None
+                self._startup_timer = None
+                self._finish_startup()
+                return
+            except Exception:
+                logger.exception('Data finalization failed')
+                self._startup_steps = None
+                self._startup_timer = None
+                self.startupPanel.StopPulse()
+                self.startupPanel.SetStatus(startupFailed, startupLogDetails)
+                self.configureMenuItem.Enable(True)
+                return
+            if time.perf_counter() >= deadline:
+                break
+
+        # CallAfter queues the continuation behind pending GUI work without
+        # charging every yield the fixed 10 ms delay that CallLater imposed.
+        self._startup_timer = None
+        wx.CallAfter(self._advance_startup)
 
     def _load_finalize_steps(self, dlg, start, safe_mode):
         """Yield after bounded finalization and optional-preview work batches."""
-        dlg.SetStatus('Finalizing data...', '')
+        dlg.SetStatus(startupFinalizing, '')
         logger.debug('Finalizing loaded data')
         if not _env_true('SC4PIM_SKIP_FINALIZE'):
             yield from self.virtualDAT.FinalizeIncremental(dlg)
@@ -5159,13 +5897,16 @@ class MainFrame(wx.Frame):
         if has_background_work and missing_models:
             logger.debug('Generating %d missing model pictures', len(missing_models))
             builder = ImageDBBuilder(self.startupPreview)
-            self.startupPreview.AttachPreview(builder, 'Model thumbnails')
+            self.startupPreview.AttachPreview(builder, startupModelThumbnails)
             try:
                 total_models = len(missing_models)
                 for index, data in enumerate(missing_models, 1):
-                    dlg.SetStatus('Generating model previews...',
-                                  '%d / %d models' % (index, total_models))
-                    builder.Draw(data)
+                    dlg.SetStatus(startupGeneratingModelPreviews,
+                                  startupModelProgress % (index, total_models))
+                    try:
+                        builder.Draw(data)
+                    except Exception:
+                        logger.exception('Could not generate thumbnail for model %s', data[0])
                     dlg.Increment()
                     yield
             finally:
@@ -5175,8 +5916,8 @@ class MainFrame(wx.Frame):
             logger.debug('Generating %d missing ATC thumbnails', len(missing_atcs))
             total_atcs = len(missing_atcs)
             for index, (file_name, atc) in enumerate(missing_atcs, 1):
-                dlg.SetStatus('Generating animated-prop previews...',
-                              '%d / %d props' % (index, total_atcs))
+                dlg.SetStatus(startupGeneratingAnimatedPropPreviews,
+                              startupPropProgress % (index, total_atcs))
                 try:
                     _generate_atc_thumbnail(self.virtualDAT, atc, file_name)
                     bitmap = wx.Bitmap(file_name, wx.BITMAP_TYPE_JPEG)
@@ -5195,8 +5936,8 @@ class MainFrame(wx.Frame):
             total_paths = len(missing_path_items)
             try:
                 for index, (png_path, item) in enumerate(missing_path_items, 1):
-                    dlg.SetStatus('Generating SC4Path previews...',
-                                  '%d / %d paths' % (index, total_paths))
+                    dlg.SetStatus(startupGeneratingPathPreviews,
+                                  startupPathProgress % (index, total_paths))
                     try:
                         metadata = populate_sc4path_cache(item, png_path, preview=preview)
                         self.virtualDAT.sc4path_metadata[item.iid] = metadata

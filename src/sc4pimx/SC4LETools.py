@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import random
+import time
 
 import wx
 import wx.lib.agw.balloontip as BT
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 # Sentinel for "not yet resolved" caches (distinct from a resolved None).
 _UNSET = object()
+
+# Thumbnail decoding happens on the GUI thread because it creates wx.Bitmap
+# objects. Process as much as fits in a short slice, then let wx service input
+# and painting before continuing.
+_THUMBNAIL_TIMESLICE_SECONDS = 0.010
 
 try:
     import win32gui
@@ -1073,23 +1079,25 @@ class LEAssetThumbnailProvider(object):
         return bmp
 
     def _drain(self):
-        if not self._queue:
-            self._draining = False
-            return
-        key = self._queue.pop()
-        item = self._queue_item.pop(key, None)
-        on_loaded = self._queue_cb.pop(key, None)
-        if item is not None and key not in self.cache:
-            try:
-                self.cache[key] = self._build_bitmap(item)
-            except Exception:
-                self.cache[key] = self._build_placeholder('!')
-            if on_loaded:
+        deadline = time.perf_counter() + _THUMBNAIL_TIMESLICE_SECONDS
+        while self._queue:
+            key = self._queue.pop()
+            item = self._queue_item.pop(key, None)
+            on_loaded = self._queue_cb.pop(key, None)
+            if item is not None and key not in self.cache:
                 try:
-                    on_loaded(False)
-                except RuntimeError:
-                    pass
-        wx.CallLater(1, self._drain)
+                    self.cache[key] = self._build_bitmap(item)
+                except Exception:
+                    self.cache[key] = self._build_placeholder('!')
+                if on_loaded:
+                    try:
+                        on_loaded(False)
+                    except RuntimeError:
+                        pass
+            if self._queue and time.perf_counter() >= deadline:
+                wx.CallAfter(self._drain)
+                return
+        self._draining = False
 
     def RestrictTo(self, items):
         """Limit pending loads to *items* (the currently visible cards).
@@ -1124,7 +1132,7 @@ class LEAssetThumbnailProvider(object):
                 self._queue.append(key)
             if not self._draining:
                 self._draining = True
-                wx.CallLater(1, self._drain)
+                wx.CallAfter(self._drain)
         return self.placeholder
 
     def GetBitmapNow(self, item):

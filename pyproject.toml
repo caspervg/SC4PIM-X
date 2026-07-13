@@ -1,6 +1,6 @@
 [project]
 name = "sc4pim-x"
-version = "2026.7.4"
+version = "2026.7.7"
 description = "SimCity 4 Plugin Manager Extended - Decompiled and Modernized"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -65,6 +65,9 @@ ignore = [
     "F403",  # `from module import *` used (legacy decompiled modules)
     "F405",  # name may be undefined from star imports (legacy decompiled modules)
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.11"

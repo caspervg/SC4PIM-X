@@ -92,6 +92,14 @@ DEFAULT_STARTUP = {
     "ShowFileConfigurationAtStartup": True,
 }
 
+DEFAULT_CONVERSION = {
+    # Filename stems only; SC4PIM-X appends the required package extension.
+    "ConvertedLotBuildingFilename": "{source}_Converted_{lot_iid}",
+    "OverrideLotBuildingFilename": "{source}_Override",
+    # Relative to the configured user Plugins root (SC4Pac convention).
+    "OverrideOutputDirectory": "895-my-overrides",
+}
+
 
 def config_path() -> Path:
     """The config.toml that is actually read.
@@ -201,6 +209,18 @@ def load_startup() -> dict:
     return settings
 
 
+def load_conversion() -> dict:
+    """Lot/building conversion output conventions."""
+    value = load().get("Conversion", {})
+    settings = DEFAULT_CONVERSION.copy()
+    if isinstance(value, dict):
+        for key in settings:
+            configured = value.get(key)
+            if isinstance(configured, str) and configured.strip():
+                settings[key] = configured.strip()
+    return settings
+
+
 def should_show_file_configuration() -> bool:
     """Decide whether startup must present the plugin-file configuration."""
     if not local_config_has_values():
@@ -222,6 +242,17 @@ def save_main_window(settings: dict) -> Path:
     for key, value in settings.items():
         table[key] = value
     doc["MainWindow"] = table
+    target = ensure_user_data_dir() / CONFIG_FILENAME
+    target.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return target
+
+
+def save_language(code: str) -> Path:
+    """Persist the selected UI language as a top-level setting."""
+    source = config_path()
+    text = source.read_text(encoding="utf-8") if source.exists() else ""
+    doc = tomlkit.parse(text)
+    doc["Language"] = str(code)
     target = ensure_user_data_dir() / CONFIG_FILENAME
     target.write_text(tomlkit.dumps(doc), encoding="utf-8")
     return target

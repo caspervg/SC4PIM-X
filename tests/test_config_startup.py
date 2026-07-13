@@ -38,6 +38,20 @@ def test_save_startup_preference_preserves_existing_config(monkeypatch, tmp_path
     assert saved["Startup"]["ShowFileConfigurationAtStartup"] is False
 
 
+def test_save_language_preserves_existing_config(monkeypatch, tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("[Paths]\nUserPluginsRoot = 'C:\\Plugins'\n", encoding="utf-8")
+    monkeypatch.setattr(config, "config_path", lambda: path)
+    monkeypatch.setattr(config, "ensure_user_data_dir", lambda: tmp_path)
+
+    config.save_language("de")
+
+    with open(path, "rb") as fh:
+        saved = tomllib.load(fh)
+    assert saved["Language"] == "de"
+    assert saved["Paths"]["UserPluginsRoot"] == "C:\\Plugins"
+
+
 def test_first_use_forces_dialog_even_if_fallback_preference_is_false(monkeypatch):
     monkeypatch.setattr(config, "local_config_has_values", lambda: False)
     monkeypatch.setattr(
