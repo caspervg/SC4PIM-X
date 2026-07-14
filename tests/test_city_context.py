@@ -247,11 +247,70 @@ def test_context_lighting_uses_face_normals_and_returns_immutable_batch():
     assert numpy.all(vertices[:, 3:6] == 0.8)
 
 
+def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
+    import sc4pimx.SC4LotPreview as preview
+
+    calls = []
+
+    def record(name):
+        return lambda *args: calls.append((name, args))
+
+    for name in (
+        "glBlendFunc",
+        "glClear",
+        "glClearStencil",
+        "glColorMask",
+        "glDepthFunc",
+        "glDepthMask",
+        "glDisable",
+        "glEnable",
+        "glPolygonOffset",
+        "glStencilFunc",
+        "glStencilMask",
+        "glStencilOp",
+    ):
+        monkeypatch.setattr(preview, name, record(name))
+
+    class Primitives:
+        def quad(self, _points, _mvp, **kwargs):
+            calls.append(("quad", kwargs["color"]))
+
+    class Dummy:
+        glCanvas2D = type(
+            "Canvas", (), {"stencil_bits": 8, "renderer": type("Renderer", (), {"primitives": Primitives()})()}
+        )()
+        lightingProfile = None
+        SHADOW_COLOR = (0.08, 0.06, 0.23)
+        SHADOW_STRENGTH = 0.4
+        _render_context = None
+
+        def _shadow_flatten_matrix(self):
+            return numpy.identity(4)
+
+        def DrawCityContextShadows(self, _flatten):
+            calls.append(("context", ()))
+
+        def _is_layer_visible(self, _view, _layer):
+            return False
+
+        def _flush_shadow_batches(self, _batches):
+            return None
+
+    preview.LotEditorWin._draw_shadow_pass(Dummy(), 0, 0, (), 0, 0, 0, 0)
+
+    assert ("glStencilFunc", (preview.GL_ALWAYS, 1, 0xFF)) in calls
+    assert ("glStencilFunc", (preview.GL_EQUAL, 1, 0xFF)) in calls
+    composites = [color for name, color in calls if name == "quad"]
+    assert composites == [pytest.approx((0.632, 0.624, 0.692, 1.0))]
+    assert ("glDepthMask", (preview.GL_FALSE,)) in calls
+
+
 def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
     from sc4pimx.SC4LotPreview import (
         LAYER_CITY_CONTEXT,
         LotEditorWin,
     )
+    from sc4pimx.SC4OpenGL import MyCanvasBase
 
     class Dummy:
         _default_visible_layers = LotEditorWin._default_visible_layers
@@ -277,16 +336,9 @@ def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
     assert LAYER_CITY_CONTEXT not in layers_2d
     assert migrated_3d[LAYER_CITY_CONTEXT] is False
 
-    dummy.lightingProfile = None
-    dummy.SHADOW_COLOR = LotEditorWin.SHADOW_COLOR
-    dummy.SHADOW_STRENGTH = LotEditorWin.SHADOW_STRENGTH
-    dummy._context_shadow_key = None
-    dummy._context_shadow_tinted = None
-    dummy._context_mesh = build_context_mesh(generate_city_context(2, 2, road_edges_from_flags(15), STYLE_MIXED, 77))
-    shadow_batches = LotEditorWin._city_context_shadow_vertices(dummy)
-    factor = 1.0 + (numpy.asarray(dummy.SHADOW_COLOR) - 1.0) * dummy.SHADOW_STRENGTH
-    assert numpy.allclose(shadow_batches[0][:, 3:6], factor)
-    assert not shadow_batches[0].flags.writeable
+    candidates = MyCanvasBase._attribute_candidates()
+    assert candidates[0][3] == 8
+    assert candidates[-1][3] == 0
 
     # The icon guard returns before touching GL or even consulting visibility.
     dummy._icon_render = True

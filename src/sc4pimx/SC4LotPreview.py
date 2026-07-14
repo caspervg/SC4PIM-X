@@ -9,15 +9,18 @@ import numpy
 import wx
 import wx.lib.sized_controls as sc
 from OpenGL.GL import (
+    GL_ALWAYS,
     GL_BLEND,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
     GL_DEPTH_TEST,
+    GL_EQUAL,
+    GL_FALSE,
     GL_FRAMEBUFFER,
+    GL_KEEP,
     GL_LEQUAL,
-    GL_LESS,
     GL_LINEAR,
     GL_LINES,
     GL_MULTISAMPLE,
@@ -26,8 +29,11 @@ from OpenGL.GL import (
     GL_ONE_MINUS_SRC_ALPHA,
     GL_POLYGON_OFFSET_FILL,
     GL_REPEAT,
+    GL_REPLACE,
     GL_SRC_ALPHA,
     GL_SRC_COLOR,
+    GL_STENCIL_BUFFER_BIT,
+    GL_STENCIL_TEST,
     GL_TRIANGLES,
     GL_TRUE,
     GL_ZERO,
@@ -36,12 +42,17 @@ from OpenGL.GL import (
     glClear,
     glClearColor,
     glClearDepth,
+    glClearStencil,
+    glColorMask,
     glDeleteTextures,
     glDepthFunc,
     glDepthMask,
     glDisable,
     glEnable,
     glPolygonOffset,
+    glStencilFunc,
+    glStencilMask,
+    glStencilOp,
     glViewport,
 )
 from PIL import Image
@@ -609,8 +620,6 @@ class LotEditorWin(wx.Frame):
         self._context_mesh = None
         self._context_tint_key = None
         self._context_tinted = None
-        self._context_shadow_key = None
-        self._context_shadow_tinted = None
         self._context_generation_ms = 0.0
         self._contextBuildingDescriptors = []
         self._icon_render = False
@@ -1304,8 +1313,6 @@ class LotEditorWin(wx.Frame):
         self._context_generation_ms = elapsed_ms
         self._context_tint_key = None
         self._context_tinted = None
-        self._context_shadow_key = None
-        self._context_shadow_tinted = None
         self._invalidate_pane_cache()
         logger.debug(
             "City context generated in %.1f ms: %s, vertices=%d, batches=%d",
@@ -1361,41 +1368,16 @@ class LotEditorWin(wx.Frame):
             if self.nightMode:
                 renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.night_vertices, self._render_context.mvp)
 
-    def _city_context_shadow_vertices(self):
-        """Cache the SC4 multiplicative shadow factor in caster-only views."""
-        profile = getattr(self, "lightingProfile", None)
-        color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
-        strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
-        key = tuple(round(float(channel), 4) for channel in color) + (round(float(strength), 4),)
-        if key != self._context_shadow_key:
-            factor = 1.0 + (numpy.asarray(color, dtype=numpy.float32) - 1.0) * strength
-            batches = []
-            for source in (self._context_mesh.shadow_vertices, self._context_mesh.detail_shadow_vertices):
-                vertices = source.copy()
-                vertices[:, 3:6] = factor
-                vertices[:, 6] = 1.0
-                vertices.setflags(write=False)
-                batches.append(vertices)
-            self._context_shadow_tinted = tuple(batches)
-            self._context_shadow_key = key
-        return self._context_shadow_tinted
-
     def DrawCityContextShadows(self, flatten):
-        """Project cached context casters through the normal SC4 shadow pass."""
+        """Project cached context casters into the active coverage mask."""
         if self._icon_render or self._context_mesh is None or not self._is_layer_visible("3d", LAYER_CITY_CONTEXT):
             return
-        glEnable(GL_DEPTH_TEST)
-        glDepthFunc(GL_LESS)
-        glDepthMask(GL_TRUE)
         glDisable(GL_CULL_FACE)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_ZERO, GL_SRC_COLOR)
         mvp = self._render_context.projection @ self._render_context.model @ flatten
-        buildings, trees = self._city_context_shadow_vertices()
         renderer = self.glCanvas2D.renderer.primitives
-        renderer.draw_interleaved(GL_TRIANGLES, buildings, mvp)
+        renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.shadow_vertices, mvp)
         if self.zoom3D >= 2:
-            renderer.draw_interleaved(GL_TRIANGLES, trees, mvp)
+            renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.detail_shadow_vertices, mvp)
 
     def _road_edge_records(self):
         """Road-texture overlay records for all four verified mask edges."""
@@ -3885,6 +3867,7 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.SetCurrent()
         glClearColor(0.5, 0.5, 0.5, 0.0)
         glClearDepth(1.0)
+        glClearStencil(0)
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
         glDisable(GL_CULL_FACE)
 
@@ -4721,10 +4704,9 @@ class LotEditorWin(wx.Frame):
 
     def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches, shadow=False):
         if shadow:
-            # Shadow order is irrelevant (GL_LESS + depth-write makes the
-            # first fragment win regardless of caster order), so every caster
-            # batches by mesh with per-instance flattened MVPs. The shadow
-            # shader has no normal input, so no normal-matrix inverse either.
+            # Shadow order is irrelevant because every caster contributes to
+            # one stencil coverage mask, so batch repeated meshes freely. The
+            # shadow shader has no normal input or normal-matrix inverse.
             if batches is not None:
                 batches.setdefault(mesh, []).append(self._render_context.mvp)
                 return
@@ -4911,14 +4893,12 @@ class LotEditorWin(wx.Frame):
         return
 
     def _draw_shadow_pass(self, rot2D, rotation, rotMapping, assetZoom, viewZoom, lotSizeXOver, lotSizeYOver):
-        """Render building/prop/flora shadows as planar-projected, alpha-masked
-        decals on the ground. Mirrors SC4's projective shadow decal using the
-        models' real S3D geometry + texture alpha; see
-        .claude/docs/sc4-shadow-rendering.md."""
-        prog = self._ensure_shadow_program()
+        """Stencil a union of projected casters, then darken it exactly once."""
+        if not getattr(self.glCanvas2D, "stencil_bits", 0):
+            return
         profile = getattr(self, "lightingProfile", None)
-        prog.shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
-        prog.shadow_strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
+        shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
+        shadow_strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
         flatten = self._shadow_flatten_matrix()
         render = self._render_context
         shadow_batches = {}
@@ -4944,15 +4924,24 @@ class LotEditorWin(wx.Frame):
                     shadow=True,
                 )
 
-        # Shadows write depth (GL_LESS, set per-mesh in S3DReader) so overlapping
-        # faces/casters darken each pixel once instead of multiply-stacking.
-        # Polygon offset pulls the y=0 shadow plane just in front of the coplanar
-        # ground so it wins without z-fighting.
-        glEnable(GL_DEPTH_TEST)
-        glDepthMask(GL_TRUE)
-        glEnable(GL_POLYGON_OFFSET_FILL)
-        glPolygonOffset(-1.0, -1.0)
         try:
+            # Coverage pass. Alpha-tested S3D fragments still discard in the
+            # shadow shader, but no caster writes colour or depth. Stencil
+            # replacement produces a stable union regardless of overlap order.
+            glStencilMask(0xFF)
+            glClearStencil(0)
+            glClear(GL_STENCIL_BUFFER_BIT)
+            glEnable(GL_STENCIL_TEST)
+            glStencilFunc(GL_ALWAYS, 1, 0xFF)
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE)
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+            glEnable(GL_DEPTH_TEST)
+            glDepthFunc(GL_LEQUAL)
+            glDepthMask(GL_FALSE)
+            glDisable(GL_BLEND)
+            glEnable(GL_POLYGON_OFFSET_FILL)
+            glPolygonOffset(-1.0, -1.0)
+
             self.DrawCityContextShadows(flatten)
             if self._is_layer_visible("3d", LAYER_BUILDING):
                 try:
@@ -4979,10 +4968,31 @@ class LotEditorWin(wx.Frame):
                         continue
                     cast(flora, floraViewer)
             self._flush_shadow_batches(shadow_batches)
+
+            # Composite once through the completed mask. Multiplication keeps
+            # the receiver hue, while single coverage prevents dark triangles.
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+            glDisable(GL_POLYGON_OFFSET_FILL)
+            glStencilMask(0x00)
+            glStencilFunc(GL_EQUAL, 1, 0xFF)
+            glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP)
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_ZERO, GL_SRC_COLOR)
+            factor = tuple(1.0 + (float(channel) - 1.0) * shadow_strength for channel in shadow_color)
+            self.glCanvas2D.renderer.primitives.quad(
+                ((-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)),
+                SC4Matrix.identity(),
+                color=(*factor, 1.0),
+            )
         finally:
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
             glPolygonOffset(0.0, 0.0)
             glDisable(GL_POLYGON_OFFSET_FILL)
-            glDepthFunc(GL_LEQUAL)  # restore default for later draws
+            glStencilMask(0xFF)
+            glDisable(GL_STENCIL_TEST)
+            glEnable(GL_DEPTH_TEST)
+            glDepthFunc(GL_LEQUAL)
             glDepthMask(GL_TRUE)
             glDisable(GL_BLEND)
 

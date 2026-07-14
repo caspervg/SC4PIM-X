@@ -312,8 +312,6 @@ uniform sampler2D u_texture;
 uniform int u_alpha_func;
 uniform float u_alpha_threshold;
 uniform int u_textured;
-uniform vec3 u_shadow_color;
-uniform float u_shadow_strength;
 
 in vec2 v_texcoord;
 out vec4 out_color;
@@ -337,13 +335,10 @@ void main(void)
     float alpha = u_textured != 0 ? texture(u_texture, v_texcoord).a : 1.0;
     if (!alpha_passes(alpha))
         discard;
-    // SC4 darkens the ground with a MODULATE combiner, not an additive blend:
-    // framebuffer *= mix(1, shadowColor, strength). Output that multiplier and
-    // pair it with glBlendFunc(GL_ZERO, GL_SRC_COLOR). Multiplying preserves the
-    // ground's hue (a faint cool lean) instead of washing it blue, which is what
-    // an additive lerp toward the absolute shadow colour wrongly does.
-    vec3 factor = mix(vec3(1.0), u_shadow_color, u_shadow_strength);
-    out_color = vec4(factor, 1.0);
+    // Colour writes are disabled during coverage accumulation. A value is
+    // still required by GLSL, but the caller composites the profile colour
+    // exactly once through the completed stencil mask.
+    out_color = vec4(1.0);
 }
 """
 
@@ -354,8 +349,8 @@ class SC4ShadowProgram:
     Mirrors the ``SC4LightingProgram`` draw interface (``bind_instanced`` /
     ``set_material`` / ``unbind``) so it can be passed straight to
     ``S3DMesh.draw``/``draw_instanced``. The caller flattens each caster onto the
-    ground plane via the MVP; this program just stencils the texture-alpha
-    silhouette into a flat shadow colour.
+    ground plane via the MVP; this program preserves texture-alpha discard
+    while the caller records surviving fragments in a stencil coverage mask.
     """
 
     def __init__(self):
@@ -373,23 +368,14 @@ class SC4ShadowProgram:
             'alpha_func': glGetUniformLocation(self.program, 'u_alpha_func'),
             'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
             'textured': glGetUniformLocation(self.program, 'u_textured'),
-            'shadow_color': glGetUniformLocation(self.program, 'u_shadow_color'),
-            'shadow_strength': glGetUniformLocation(self.program, 'u_shadow_strength'),
         }
-        self.shadow_color = (0.0, 0.0, 0.0)
-        self.shadow_strength = 0.35
-        # Currently uploaded (color, strength); uniforms persist in the
-        # program, so unchanged params skip their uploads on later binds.
-        self._current_params = None
+        self._texture_initialized = False
 
     def bind(self, lighting_state, mvp, normal_matrix=None):
         glUseProgram(self.program)
-        params = (tuple(float(c) for c in self.shadow_color), float(self.shadow_strength))
-        if params != self._current_params:
-            self._current_params = params
+        if not self._texture_initialized:
+            self._texture_initialized = True
             glUniform1i(self._uniforms['texture'], 0)
-            glUniform3f(self._uniforms['shadow_color'], *params[0])
-            glUniform1f(self._uniforms['shadow_strength'], params[1])
         glUniform1i(self._uniforms['instanced'], 0)
         mvp = numpy.ascontiguousarray(mvp, dtype=numpy.float32)
         glUniformMatrix4fv(self._uniforms['mvp'], 1, GL_TRUE, mvp)

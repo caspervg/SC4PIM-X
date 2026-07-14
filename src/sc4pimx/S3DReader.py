@@ -68,7 +68,6 @@ class S3D(object):
             return
         self.tgi = entry.tgi
         return
-
     def _describe(self):
         tgi = getattr(self, 'tgi', None)
         if not tgi:
@@ -511,27 +510,15 @@ class S3D(object):
                 emissive=bool(flags & 16),
             )
             if shadow:
-                # SC4-style ground decal: blend the flat shadow colour over the
-                # already-drawn ground, never write depth or cull (the planar
-                # flatten can flip winding). Depth bias + LEQUAL is set by the
-                # caller so shadows win the z-fight against the y=0 ground.
+                # The caller accumulates every projected fragment into one
+                # stencil coverage mask. Do not write depth or colour here:
+                # overlapping flattened faces/casters must all contribute to
+                # the mask without racing on nominally coplanar depth values.
                 glEnable(GL_DEPTH_TEST)
-                # Darken each ground pixel ONCE. SC4 projects the texture onto the
-                # footprint a single time (uniform coverage); we instead flatten
-                # every triangle, so a box's front/roof/side faces -- and adjacent
-                # casters -- all land on the same y=0 pixel and would multiply-
-                # stack into an unnatural dark core. All flattened shadows are
-                # coplanar, so a screen pixel has identical shadow depth no matter
-                # which face/caster drew it: GL_LESS + depth-write lets the first
-                # fragment win and rejects the rest -> single uniform darkening
-                # = the union of silhouettes, matching SC4's single decal.
-                glDepthFunc(GL_LESS)
-                glDepthMask(GL_TRUE)
+                glDepthFunc(GL_LEQUAL)
+                glDepthMask(GL_FALSE)
                 glDisable(GL_CULL_FACE)
-                glEnable(GL_BLEND)
-                # Modulate: framebuffer *= shadow factor (SC4 combiner), not an
-                # additive lerp -- keeps the ground hue instead of a blue wash.
-                glBlendFunc(GL_ZERO, GL_SRC_COLOR)
+                glDisable(GL_BLEND)
                 normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
                 idx_bytes = indexBuffer[0]
                 idx_count = indexBuffer[1]
