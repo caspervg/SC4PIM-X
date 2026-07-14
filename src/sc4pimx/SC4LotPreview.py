@@ -236,6 +236,45 @@ def texture_coords_for_flag(flag):
     return coords
 
 
+def _atc_anchor_depth(mvp, x, y, z):
+    """Clip-space anchor depth used to order transparent ATC billboards."""
+    return float((mvp @ (x, y, z, 1.0))[2])
+
+
+def _silhouette_shadow_matrix(scene_model, light_dir):
+    """Lay the camera-visible S3D silhouette onto the lot ground.
+
+    SC4 textures contain the model's real outline, while their LOD geometry is
+    usually only a coarse carrier shell.  Preserve the shell's screen-space X/Y
+    coordinates (and therefore its alpha-masked outline), but reinterpret them
+    as width across the shadow and height along the sun direction.
+    """
+    linear = numpy.asarray(scene_model, dtype=numpy.float64)[:3, :3]
+    view_scale = float(numpy.linalg.norm(linear[0]))
+    if view_scale <= 1.0e-12:
+        return SC4Matrix.identity()
+    screen_x = linear[0] / view_scale
+    screen_y = linear[1] / view_scale
+    vertical_scale = float(screen_y[1])
+    if abs(vertical_scale) <= 1.0e-6:
+        vertical_scale = 1.0
+
+    dx, _dy, dz = light_dir
+    shadow_axis = numpy.asarray((dx, 0.0, dz), dtype=numpy.float64)
+    axis_length = float(numpy.linalg.norm(shadow_axis))
+    if axis_length <= 1.0e-12:
+        return SC4Matrix.identity()
+    width_axis = numpy.asarray((-dz, 0.0, dx), dtype=numpy.float64) / axis_length
+    # Keep the texture's right side on the screen's right after laying it down.
+    if numpy.dot(screen_x, width_axis) < 0.0:
+        width_axis = -width_axis
+
+    result = numpy.zeros((4, 4), dtype=numpy.float64)
+    result[:3, :3] = numpy.outer(width_axis, screen_x) + numpy.outer(shadow_axis, screen_y / vertical_scale)
+    result[3, 3] = 1.0
+    return result
+
+
 def ToTileOrigin(val):
     # Textures/water/land/TE quads cover whole 16m tiles. The stored position
     # is the object centre, which may not sit exactly on a tile centre, so
@@ -3094,10 +3133,7 @@ class LotEditorWin(wx.Frame):
         return (length * math.sin(az), -1.0, length * math.cos(az))
 
     def _shadow_flatten_matrix(self):
-        """Planar projection that collapses lot-space geometry onto the y=0
-        ground plane along the sun direction (row-major, matches the renderer's
-        GL_TRUE upload). Mirrors SC4's projective shadow decal, but using the
-        model's real S3D geometry instead of fixed-function texgen."""
+        """Physical planar projection for true procedural context geometry."""
         dx, dy, dz = self._shadow_light_dir()
         if abs(dy) < 1.0e-4:
             dy = -1.0
@@ -3110,6 +3146,9 @@ class LotEditorWin(wx.Frame):
             ],
             dtype=numpy.float64,
         )
+
+    def _shadow_silhouette_matrix(self):
+        return _silhouette_shadow_matrix(self._render_context.model, self._shadow_light_dir())
 
     def _lot_lighting_state(self, exemplar, lighting_kind="model"):
         # Memoized and deduped: the state only varies by lighting kind and the
@@ -4858,11 +4897,11 @@ class LotEditorWin(wx.Frame):
                 # the right way at every prop rotation.
                 render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
-                # Override the orientation with the unrotated basis (keeping the
-                # placed translation column). Skipped for the shadow pass, whose
-                # ground-flatten matrix must stay intact.
-                if not shadow:
-                    render.model[0:3, 0:3] = base_basis
+                # Override the orientation with the unrotated basis, keeping the
+                # placed translation column. The shadow basis already contains
+                # the silhouette-to-ground mapping, so the same billboard rule
+                # now preserves the visible RKT0 outline in both passes.
+                render.model[0:3, 0:3] = base_basis
                 self._submit_s3d_model(
                     what.mainMesh,
                     shader_program,
@@ -4877,19 +4916,27 @@ class LotEditorWin(wx.Frame):
                 return
             if model_batches is not None:
                 self._flush_model_batches(model_batches)
-            glDisable(GL_DEPTH_TEST)
-            rotMapping = [1, 0, 3, 2]
-            if what.draw_le(zoom, rotMapping[rot]):
-                billboard = render.model.copy()
-                billboard[0:3, 0:3] = numpy.diag((1.0, 1.0, -1.0))
-                billboard = billboard @ SC4Matrix.scale(1 / 14.0, 1 / 14.0, 1 / 14.0)
-                what.DrawGL(
-                    self.s3DTexturesHolder,
-                    self.glCanvas2D.renderer,
-                    render.projection,
-                    billboard,
-                )
+            # ATCs are transparent screen-facing scene geometry, not overlays:
+            # test against opaque depth but never let the flat sprite plane
+            # occlude later transparent sprites through its empty pixels.
             glEnable(GL_DEPTH_TEST)
+            glDepthFunc(GL_LEQUAL)
+            glDepthMask(GL_FALSE)
+            try:
+                rotMapping = [1, 0, 3, 2]
+                if what.draw_le(zoom, rotMapping[rot]):
+                    billboard = render.model.copy()
+                    billboard[0:3, 0:3] = numpy.diag((1.0, 1.0, -1.0))
+                    billboard = billboard @ SC4Matrix.scale(1 / 14.0, 1 / 14.0, 1 / 14.0)
+                    what.DrawGL(
+                        self.s3DTexturesHolder,
+                        self.glCanvas2D.renderer,
+                        render.projection,
+                        billboard,
+                    )
+            finally:
+                glDepthMask(GL_TRUE)
+                glDisable(GL_BLEND)
         return
 
     def _draw_shadow_pass(self, rot2D, rotation, rotMapping, assetZoom, viewZoom, lotSizeXOver, lotSizeYOver):
@@ -4901,6 +4948,7 @@ class LotEditorWin(wx.Frame):
         shadow_strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
         flatten = self._shadow_flatten_matrix()
         render = self._render_context
+        silhouette = self._shadow_silhouette_matrix()
         shadow_batches = {}
 
         def cast(record, viewer):
@@ -4908,10 +4956,12 @@ class LotEditorWin(wx.Frame):
                 offsetX = ToCoord(record[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(record[5]) - lotSizeYOver / 2
                 rtk4 = self.rtk4Offsets.get(record[12], (0, 0, 0))
-                # Flatten in lot space (after the camera, before placement), then
-                # place the caster; the flatten collapses it onto the y=0 ground.
-                render.model = render.model @ flatten
-                render.translate(offsetX, ToCoord(record[4]), offsetZ)
+                # Anchor at the exemplar placement point, then lay the rendered
+                # alpha silhouette onto the ground. This deliberately ignores
+                # the inaccurate footprint/heights of SC4's texture-carrier LOD.
+                render.translate(offsetX, 0.0, offsetZ)
+                render.model = render.model @ silhouette
+                render.translate(0.0, ToCoord(record[4]), 0.0)
                 self.DrawModel(
                     rtk4,
                     viewer,
@@ -5124,8 +5174,15 @@ class LotEditorWin(wx.Frame):
             except IndexError:
                 pass
 
-        afters = []
-        afterViewers = []
+        transparent_atcs = []
+        scene_mvp = self._render_context.mvp
+
+        def defer_atc(record, viewer):
+            x = ToCoord(record[3]) - lotSizeXOver / 2
+            y = ToCoord(record[4])
+            z = ToCoord(record[5]) - lotSizeYOver / 2
+            transparent_atcs.append((_atc_anchor_depth(scene_mvp, x, y, z), record, viewer))
+
         if self._is_layer_visible("3d", LAYER_PROPS):
             for prop, propViewer in zip(self.props, self.propViewers):
                 if not self._viewer_is_temporally_active(propViewer):
@@ -5138,8 +5195,7 @@ class LotEditorWin(wx.Frame):
                 else:
                     what = tempViewer.viewingData[0]
                     if what.__class__ == ATC:
-                        afters.append(prop)
-                        afterViewers.append(tempViewer)
+                        defer_atc(prop, tempViewer)
                     else:
                         with self._render_context.pushed():
                             offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
@@ -5177,8 +5233,7 @@ class LotEditorWin(wx.Frame):
                 else:
                     what = tempViewer.viewingData[0]
                     if what.__class__ == ATC:
-                        afters.append(prop)
-                        afterViewers.append(tempViewer)
+                        defer_atc(prop, tempViewer)
                     else:
                         with self._render_context.pushed():
                             offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
@@ -5205,7 +5260,9 @@ class LotEditorWin(wx.Frame):
                             )
 
         self._flush_model_batches(model_batches)
-        for prop, propViewer in zip(afters, afterViewers):
+        # GL_LEQUAL considers smaller depth nearer, so paint transparent ATCs
+        # from larger (farther) depth to smaller (nearer) depth.
+        for _, prop, propViewer in sorted(transparent_atcs, key=lambda item: item[0], reverse=True):
             with self._render_context.pushed():
                 offsetX = ToCoord(prop[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(prop[5]) - lotSizeYOver / 2

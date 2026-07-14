@@ -287,6 +287,9 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
         def _shadow_flatten_matrix(self):
             return numpy.identity(4)
 
+        def _shadow_silhouette_matrix(self):
+            return numpy.identity(4)
+
         def DrawCityContextShadows(self, _flatten):
             calls.append(("context", ()))
 
@@ -303,6 +306,74 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
     composites = [color for name, color in calls if name == "quad"]
     assert composites == [pytest.approx((0.632, 0.624, 0.692, 1.0))]
     assert ("glDepthMask", (preview.GL_FALSE,)) in calls
+
+
+def test_atc_billboards_are_depth_tested_without_writing_depth(monkeypatch):
+    import sc4pimx.SC4LotPreview as preview
+    from sc4pimx.ATCReader import ATC
+    from sc4pimx.SC4Renderer import TransformStack
+
+    calls = []
+    for name in ("glDepthFunc", "glDepthMask", "glDisable", "glEnable"):
+        monkeypatch.setattr(preview, name, lambda *args, name=name: calls.append((name, args)))
+
+    atc = ATC(None, None)
+    atc.draw_le = lambda *_args: True
+    atc.DrawGL = lambda *_args: calls.append(("draw", ()))
+
+    class Dummy:
+        _render_context = TransformStack()
+        s3DTexturesHolder = object()
+        glCanvas2D = type("Canvas", (), {"renderer": object()})()
+
+        def _flush_model_batches(self, _batches):
+            return None
+
+    preview.LotEditorWin._draw_state_member(Dummy(), atc, (0, 0, 0), 0, 0, 0, 4, None, None, None)
+
+    draw_index = calls.index(("draw", ()))
+    assert ("glEnable", (preview.GL_DEPTH_TEST,)) in calls[:draw_index]
+    assert ("glDepthFunc", (preview.GL_LEQUAL,)) in calls[:draw_index]
+    assert ("glDepthMask", (preview.GL_FALSE,)) in calls[:draw_index]
+    assert ("glDepthMask", (preview.GL_TRUE,)) in calls[draw_index + 1 :]
+    assert ("glDisable", (preview.GL_BLEND,)) in calls[draw_index + 1 :]
+    assert ("glDisable", (preview.GL_DEPTH_TEST,)) not in calls
+
+    mvp = numpy.identity(4)
+    assert preview._atc_anchor_depth(mvp, 0, 0, 5) > preview._atc_anchor_depth(mvp, 0, 0, -5)
+
+
+@pytest.mark.parametrize(
+    ("pitch", "yaw"),
+    ((30, -22.5), (35, 67.5), (40, 157.5), (45, 247.5)),
+)
+def test_s3d_shadow_projection_uses_visible_silhouette_not_lod_volume(pitch, yaw):
+    import sc4pimx.SC4LotPreview as preview
+    from sc4pimx import SC4Matrix
+
+    scene_model = (
+        SC4Matrix.scale(0.25, 0.25, -0.25)
+        @ SC4Matrix.translate(-20, 0, 8)
+        @ SC4Matrix.rotate_x(pitch)
+        @ SC4Matrix.rotate_y(yaw)
+    )
+    light_dir = (0.8, -1.0, 0.6)
+    projection = preview._silhouette_shadow_matrix(scene_model, light_dir)
+
+    # One metre of visible height becomes one metre of sun-directed shadow;
+    # all source geometry is collapsed onto the lot ground.
+    assert projection @ (0, 1, 0, 0) == pytest.approx((0.8, 0.0, 0.6, 0.0))
+    assert projection[1] == pytest.approx((0.0, 0.0, 0.0, 0.0))
+    assert numpy.linalg.matrix_rank(projection[:3, :3]) == 2
+
+    # Camera pan and zoom must not alter the cached silhouette's proportions.
+    other_view = (
+        SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ SC4Matrix.translate(300, 40, -90)
+        @ SC4Matrix.rotate_x(pitch)
+        @ SC4Matrix.rotate_y(yaw)
+    )
+    assert preview._silhouette_shadow_matrix(other_view, light_dir) == pytest.approx(projection)
 
 
 def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
