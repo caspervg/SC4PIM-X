@@ -82,6 +82,7 @@ from .SC4CityContext import (
     light_context_vertices,
     road_edges_from_flags,
     scene_stats,
+    season_for_month,
 )
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
@@ -1137,6 +1138,10 @@ class LotEditorWin(wx.Frame):
         something is selected, so a selected prop's temporal status stays live.
         """
         self._apply_preview_night_mode()
+        # A rebuild is effectively free unless the month crossed a broad
+        # seasonal boundary, because the context cache key includes season.
+        if hasattr(self, "exemplar"):
+            self._rebuild_city_context()
         self._update_temporal_controls()
         if persist:
             self._schedule_state_save()
@@ -1284,21 +1289,22 @@ class LotEditorWin(wx.Frame):
         flags = flags_prop[0] if flags_prop else None
         edges = road_edges_from_flags(flags)
         style = self._infer_context_style()
+        season = season_for_month(getattr(getattr(self, "previewDate", None), "month", 7))
         tgi = tuple(self.exemplar.entry.tgi)
         seed = context_seed(tgi, self._contextNonce)
-        key = (tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, self._contextNonce)
-        return key, int(lot_size[0]), int(lot_size[1]), edges, style, seed
+        key = (tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, season, self._contextNonce)
+        return key, int(lot_size[0]), int(lot_size[1]), edges, style, season, seed
 
     def _rebuild_city_context(self):
         """Generate and flatten once when composition inputs actually change."""
         if not hasattr(self, "exemplar"):
             return
         try:
-            key, lot_w, lot_d, edges, style, seed = self._context_inputs()
+            key, lot_w, lot_d, edges, style, season, seed = self._context_inputs()
             if key == self._context_cache_key and self._context_mesh is not None:
                 return
             started = time.perf_counter()
-            scene = generate_city_context(lot_w, lot_d, edges, style, seed)
+            scene = generate_city_context(lot_w, lot_d, edges, style, seed, season)
             mesh = build_context_mesh(scene)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
         except Exception:

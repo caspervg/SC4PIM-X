@@ -1,3 +1,4 @@
+import random
 from dataclasses import replace
 from datetime import date
 from itertools import combinations
@@ -10,17 +11,38 @@ from sc4pimx.SC4CityContext import (
     EDGE_XMIN,
     EDGE_ZMAX,
     EDGE_ZMIN,
+    MAT_BIKE_LANE,
     MAT_CONTACT,
     MAT_CURB,
+    MAT_FIELD,
+    MAT_HEDGE,
+    MAT_HORIZON,
+    MAT_ISLAND,
+    MAT_LAMP,
     MAT_MARKING,
+    MAT_METAL,
     MAT_PARKING_AISLE,
+    MAT_PEDESTRIAN,
+    MAT_STOREFRONT,
+    MAT_WINDOW,
     MAX_BOXES,
+    MAX_CONTEXT_VERTICES,
+    MAX_DETAIL_BOXES,
+    MAX_FACADE_QUADS,
     MAX_LIT_WINDOWS,
+    MAX_NIGHT_LIGHTS,
     MAX_TREES,
     PARKING_AISLE_M,
     PARKING_DEPTH_M,
     PARKING_STALL_M,
+    ROAD_AVENUE,
+    ROAD_BIKE,
+    ROAD_PEDESTRIAN,
     ROADWAY_M,
+    SEASON_AUTUMN,
+    SEASON_SPRING,
+    SEASON_SUMMER,
+    SEASON_WINTER,
     SIDEWALK_M,
     STYLE_CIVIC,
     STYLE_INDUSTRIAL,
@@ -29,6 +51,7 @@ from sc4pimx.SC4CityContext import (
     STYLE_SUBURBAN,
     STYLE_URBAN,
     TILE_M,
+    _decorate_streets,
     _Grid,
     _make_parking,
     _palette_for_style,
@@ -42,6 +65,7 @@ from sc4pimx.SC4CityContext import (
     infer_context_style,
     light_context_vertices,
     road_edges_from_flags,
+    season_for_month,
     variation_seed,
 )
 
@@ -90,7 +114,53 @@ def test_road_and_parking_markings_use_real_world_dimensions():
     assert len(centers) >= 3
     assert all(b - a == pytest.approx(PARKING_STALL_M) for a, b in zip(centers, centers[1:]))
     assert any(rect.material == MAT_PARKING_AISLE for rect in rects)
-    assert max(max(color) - min(color) for color in _palette_for_style(STYLE_SUBURBAN).values()) < 0.07
+    palette = _palette_for_style(STYLE_SUBURBAN)
+    architectural = ("ground", "road", "sidewalk", "park", "yard", "wall", "roof")
+    assert max(max(palette[name]) - min(palette[name]) for name in architectural) < 0.07
+    assert max(max(color) - min(color) for color in palette.values()) < 0.15
+
+
+def test_crosswalks_are_scaled_and_oriented_per_connected_approach():
+    grid = _Grid(1, 1, 4)
+    center = (-2, -2)
+    for tx, tz in (center, (-2, -3), (-2, -1), (-3, -2), (-1, -2)):
+        grid.set_road(tx, tz)
+    details, boxes = [], []
+    _decorate_streets(grid, random.Random(7), STYLE_URBAN, details, boxes)
+
+    stripes = [
+        rect
+        for rect in details
+        if rect.material == MAT_MARKING and min(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(0.38)
+    ]
+    horizontal = [rect for rect in stripes if rect.x1 - rect.x0 > rect.z1 - rect.z0]
+    vertical = [rect for rect in stripes if rect.z1 - rect.z0 > rect.x1 - rect.x0]
+    assert len(horizontal) == len(vertical) == 8
+    assert all(max(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(9.6) for rect in stripes)
+
+
+def test_multimodal_corridors_are_coherent_wide_and_protected():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_URBAN, 12345)
+    profiles = {(axis, coordinate): kind for axis, coordinate, kind in scene.road_profiles}
+    avenues = [(axis, coordinate) for (axis, coordinate), kind in profiles.items() if kind == ROAD_AVENUE]
+    assert avenues
+    assert any((axis, coordinate + 1) in avenues for axis, coordinate in avenues)
+
+    road_tiles = set(scene.road_tiles)
+    for axis, coordinate in avenues:
+        if (axis, coordinate + 1) not in avenues:
+            continue
+        if axis == "h":
+            assert any((tx, coordinate) in road_tiles and (tx, coordinate + 1) in road_tiles for tx in range(-18, 22))
+        else:
+            assert any((coordinate, tz) in road_tiles and (coordinate + 1, tz) in road_tiles for tz in range(-18, 22))
+
+    assert ROAD_BIKE in profiles.values()
+    assert ROAD_PEDESTRIAN in profiles.values()
+    assert any(rect.material == MAT_BIKE_LANE for rect in scene.detail_rects)
+    assert any(rect.material == MAT_PEDESTRIAN for rect in scene.rects)
+    assert any(rect.material == MAT_PEDESTRIAN for rect in scene.detail_rects)  # protected avenue crossing
+    assert any(rect.material == MAT_ISLAND for rect in scene.detail_rects)
 
 
 @pytest.mark.parametrize("flags", range(16))
@@ -192,7 +262,7 @@ def test_typical_scene_mesh_stays_below_geometry_ceiling_and_is_prebuilt():
     )
     mesh = build_context_mesh(scene)
 
-    assert mesh.vertex_count < 100_000
+    assert mesh.vertex_count <= MAX_CONTEXT_VERTICES
     assert mesh.vertices.shape[1] == mesh.detail_vertices.shape[1] == 9
     assert mesh.normals.shape == mesh.vertices[:, :3].shape
     assert mesh.detail_normals.shape == mesh.detail_vertices[:, :3].shape
@@ -201,14 +271,65 @@ def test_typical_scene_mesh_stays_below_geometry_ceiling_and_is_prebuilt():
     assert not mesh.normals.flags.writeable
     assert not mesh.detail_normals.flags.writeable
     assert not mesh.night_vertices.flags.writeable
-    assert len(mesh.night_vertices) <= MAX_LIT_WINDOWS * 6
+    assert len(mesh.night_vertices) <= MAX_LIT_WINDOWS * 6 + MAX_NIGHT_LIGHTS * 30
     assert numpy.shares_memory(mesh.vertices, mesh.shadow_vertices)
     assert numpy.shares_memory(mesh.detail_vertices, mesh.detail_shadow_vertices)
     assert numpy.allclose(numpy.linalg.norm(mesh.normals, axis=1), 1.0, atol=1.0e-5)
     assert numpy.allclose(numpy.linalg.norm(mesh.detail_normals, axis=1), 1.0, atol=1.0e-5)
 
     large = generate_city_context(64, 64, road_edges_from_flags(12), STYLE_SUBURBAN, 123456)
-    assert build_context_mesh(large).vertex_count < 100_000
+    assert build_context_mesh(large).vertex_count <= MAX_CONTEXT_VERTICES
+
+
+def test_fancy_detail_kits_are_deterministic_bounded_and_style_specific():
+    scenes = {
+        style: generate_city_context(4, 4, road_edges_from_flags(8), style, 12345)
+        for style in (STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL)
+    }
+    for style, scene in scenes.items():
+        assert scene == generate_city_context(4, 4, road_edges_from_flags(8), style, 12345)
+        assert scene.detail_boxes
+        assert scene.detail_quads
+        assert len(scene.detail_boxes) <= MAX_DETAIL_BOXES
+        assert len(scene.detail_quads) <= MAX_FACADE_QUADS
+        assert any(box.material == MAT_LAMP for box in scene.detail_boxes)
+        assert any(quad.material == MAT_WINDOW for quad in scene.detail_quads)
+
+    assert any(quad.material == MAT_STOREFRONT for quad in scenes[STYLE_URBAN].detail_quads)
+    assert any(box.material == MAT_HEDGE for box in scenes[STYLE_SUBURBAN].detail_boxes)
+    assert any(box.material == MAT_METAL for box in scenes[STYLE_INDUSTRIAL].detail_boxes)
+    assert any(rect.material == "water" for rect in scenes[STYLE_CIVIC].detail_rects)
+    assert any(rect.material == MAT_FIELD for rect in scenes[STYLE_RURAL].detail_rects)
+
+
+def test_seasons_change_context_vegetation_without_reshuffling_the_city():
+    assert season_for_month(4) == SEASON_SPRING
+    assert season_for_month(7) == SEASON_SUMMER
+    assert season_for_month(10) == SEASON_AUTUMN
+    assert season_for_month(1) == SEASON_WINTER
+
+    summer = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_SUMMER)
+    autumn = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_AUTUMN)
+    winter = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_WINTER)
+    assert summer.boxes == autumn.boxes == winter.boxes
+    assert summer.road_tiles == autumn.road_tiles == winter.road_tiles
+    assert summer.trees == autumn.trees == winter.trees
+
+    summer_mesh = build_context_mesh(summer)
+    autumn_mesh = build_context_mesh(autumn)
+    winter_mesh = build_context_mesh(winter)
+    assert not numpy.array_equal(summer_mesh.detail_colors, autumn_mesh.detail_colors)
+    assert len(winter_mesh.detail_vertices) < len(summer_mesh.detail_vertices)
+
+
+def test_outer_context_colors_converge_on_the_horizon_palette():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_MIXED, 2468)
+    mesh = build_context_mesh(scene)
+    horizon = numpy.asarray(_palette_for_style(scene.style, scene.season)[MAT_HORIZON])
+    distance = numpy.maximum(numpy.abs(mesh.positions[:, 0]), numpy.abs(mesh.positions[:, 2]))
+    far = mesh.colors[distance >= numpy.percentile(distance, 98), :3]
+    near = mesh.colors[distance <= numpy.percentile(distance, 30), :3]
+    assert numpy.linalg.norm(far.mean(axis=0) - horizon) < numpy.linalg.norm(near.mean(axis=0) - horizon)
 
 
 def test_visual_refinements_are_cached_geometry_not_draw_time_work():
