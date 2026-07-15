@@ -1,8 +1,9 @@
 import struct
 
+import numpy
 import pytest
 
-from sc4pimx.S3DReader import S3D
+from sc4pimx.S3DReader import S3D, project_shadow_decal
 
 
 class FakeEntry:
@@ -93,3 +94,43 @@ def test_reading_twice_does_not_reparse():
     mesh.ReadFile()
     mesh.ReadFile()  # content is dropped after the first read
     assert len(mesh.vertexBuffers) == 1
+
+
+def test_shadow_decal_recovers_affine_alpha_projector_on_ground_plane():
+    direction = numpy.asarray((0.5, -1.0, 0.25))
+    plane_y = -2.0
+    positions = numpy.asarray(
+        (
+            (-2.0, 0.0, -1.0),
+            (2.0, 0.0, -1.0),
+            (-2.0, 5.0, 1.0),
+            (2.0, 5.0, 1.0),
+            (0.0, 8.0, 0.0),
+        )
+    )
+    distance = (plane_y - positions[:, 1]) / direction[1]
+    projected = positions + distance[:, None] * direction
+    design = numpy.column_stack((projected[:, 0], projected[:, 2], numpy.ones(len(projected))))
+    coefficients = numpy.asarray(((0.08, -0.03), (0.02, 0.11), (0.4, 0.2)))
+    uvs = design @ coefficients
+
+    decal = project_shadow_decal(positions, uvs, direction, plane_y)
+
+    assert decal is not None
+    quad_positions, quad_uvs, uv_bounds = decal
+    quad_design = numpy.column_stack(
+        (quad_positions[:, 0], quad_positions[:, 2], numpy.ones(4))
+    )
+    assert quad_positions[:, 1] == pytest.approx(plane_y)
+    assert quad_uvs == pytest.approx(quad_design @ coefficients, abs=1.0e-6)
+    assert uv_bounds == pytest.approx(
+        (uvs[:, 0].min(), uvs[:, 1].min(), uvs[:, 0].max(), uvs[:, 1].max())
+    )
+
+
+def test_shadow_decal_rejects_parallel_or_degenerate_projection():
+    positions = numpy.asarray(((0, 0, 0), (1, 0, 0), (2, 0, 0)), dtype=float)
+    uvs = numpy.asarray(((0, 0), (0.5, 0), (1, 0)), dtype=float)
+
+    assert project_shadow_decal(positions, uvs, (1, 0, 0)) is None
+    assert project_shadow_decal(positions, uvs, (0.5, -1, 0.25)) is None

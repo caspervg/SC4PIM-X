@@ -56,6 +56,70 @@ logger = logging.getLogger(__name__)
 _RESYNC_LIMIT = 4096
 
 
+def project_shadow_decal(positions, uvs, direction, plane_y=0.0):
+    """Fit SC4's alpha-texture projector and return a ground receiver quad.
+
+    The game's shadow path does not flatten the individual LOD-box faces.  It
+    projects their vertices along the light direction, then finds one affine
+    mapping from that shadow plane back into the model texture.  Drawing the
+    fitted texture over a ground rectangle decouples the alpha silhouette from
+    the fake carrier faces (which is especially important for trees).
+
+    Returns ``(quad_positions, quad_uvs, uv_bounds)`` or ``None`` when the
+    projection is degenerate, matching the game's failed-projector behaviour.
+    """
+    positions = np.asarray(positions, dtype=np.float64)
+    uvs = np.asarray(uvs, dtype=np.float64)
+    direction = np.asarray(direction, dtype=np.float64)
+    if (
+        positions.ndim != 2
+        or positions.shape[1] != 3
+        or uvs.shape != (len(positions), 2)
+        or len(positions) < 3
+        or direction.shape != (3,)
+        or not np.all(np.isfinite(positions))
+        or not np.all(np.isfinite(uvs))
+        or not np.all(np.isfinite(direction))
+        or abs(direction[1]) < 1.0e-6
+    ):
+        return None
+
+    distance = (float(plane_y) - positions[:, 1]) / direction[1]
+    projected = positions + distance[:, None] * direction
+    design = np.column_stack((projected[:, 0], projected[:, 2], np.ones(len(projected))))
+    try:
+        coefficients, _residuals, rank, _singular = np.linalg.lstsq(design, uvs, rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+    if rank < 3 or not np.all(np.isfinite(coefficients)):
+        return None
+
+    min_x, max_x = float(projected[:, 0].min()), float(projected[:, 0].max())
+    min_z, max_z = float(projected[:, 2].min()), float(projected[:, 2].max())
+    if max_x - min_x < 1.0e-6 or max_z - min_z < 1.0e-6:
+        return None
+    quad_positions = np.asarray(
+        (
+            (min_x, plane_y, min_z),
+            (max_x, plane_y, min_z),
+            (max_x, plane_y, max_z),
+            (min_x, plane_y, max_z),
+        ),
+        dtype=np.float32,
+    )
+    quad_design = np.column_stack(
+        (quad_positions[:, 0], quad_positions[:, 2], np.ones(4, dtype=np.float32))
+    )
+    quad_uvs = np.asarray(quad_design @ coefficients, dtype=np.float32)
+    uv_bounds = (
+        float(uvs[:, 0].min()),
+        float(uvs[:, 1].min()),
+        float(uvs[:, 0].max()),
+        float(uvs[:, 1].max()),
+    )
+    return quad_positions, quad_uvs, uv_bounds
+
+
 class S3DParseError(OSError):
     """A malformed S3D payload that cannot be decoded."""
 
@@ -388,14 +452,14 @@ class S3D(object):
         return buffer
 
     def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix,
-             shadow=False):
+             shadow=False, shadow_projection=None):
         return self.draw_instanced(
             s3DTexturesHolder, shader_program, lighting_state, [mvp], [normal_matrix],
-            shadow=shadow,
+            shadow=shadow, shadow_projection=shadow_projection,
         )
 
     def draw_instanced(self, s3DTexturesHolder, shader_program, lighting_state,
-                       mvps, normal_matrices, shadow=False):
+                       mvps, normal_matrices, shadow=False, shadow_projection=None):
         if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
             raise ValueError('S3D instance batch must contain 1..32 matching transforms')
         if self.entry is None:
@@ -488,6 +552,14 @@ class S3D(object):
             # lit windows) are not solid geometry and must not cast a shadow.
             if shadow and (flags & 16):
                 continue
+            # A projective shadow has no meaningful fallback without its alpha
+            # texture.  During asynchronous FSH loading, treating the mesh as
+            # untextured fills the entire receiver quad and produces the huge
+            # dark wedges seen around flora.  The texture completion callback
+            # refreshes the canvas, so skip this caster until its silhouette is
+            # actually available.
+            if shadow and not textured:
+                continue
             if flags & 1:
                 alpha_func = material['alphaFunc']
             else:
@@ -519,30 +591,29 @@ class S3D(object):
                 glDepthMask(GL_FALSE)
                 glDisable(GL_CULL_FACE)
                 glDisable(GL_BLEND)
-                normals = self._normal_buffer(frameInfo, vertexBuffer, indexBuffer, primBlock)
-                idx_bytes = indexBuffer[0]
-                idx_count = indexBuffer[1]
+                if shadow_projection is None:
+                    continue
+                direction, plane_y = shadow_projection
+                decal = project_shadow_decal(
+                    vertexBuffer['positions'], vertexBuffer['uvs'], direction, plane_y,
+                )
+                if decal is None:
+                    continue
+                decal_positions, decal_uvs, uv_bounds = decal
+                shader_program.set_uv_bounds(uv_bounds)
+                normals = np.zeros((4, 3), dtype=np.float32)
+                idx_bytes = np.asarray((0, 1, 2, 0, 2, 3), dtype=np.uint16)
                 buffers = s3DTexturesHolder.get_mesh_buffers(self)
                 vert_block = frameInfo['vertBlock']
-                norm_key = (vert_block, frameInfo['indexBlock'], frameInfo['primBlock'])
-                vao_key = (vert_block, norm_key, frameInfo['indexBlock'])
+                projection_key = tuple(round(float(value), 6) for value in (*direction, plane_y))
+                vao_key = ('shadow-decal', vert_block, projection_key)
                 vao = buffers.mesh_vao(
-                    vao_key, vertexBuffer['positions'], normals, vertexBuffer['uvs'], idx_bytes,
+                    vao_key, decal_positions, normals, decal_uvs, idx_bytes,
                 )
                 glBindVertexArray(vao)
-                for typePrim, first, length in primBlock:
-                    if length == 0 or first + length > idx_count:
-                        continue
-                    if typePrim == 0:
-                        glDrawElementsInstanced(GL_TRIANGLES, length, GL_UNSIGNED_SHORT,
-                                                ctypes.c_void_p(first * 2), instance_count)
-                    elif typePrim == 1:
-                        glDrawElementsInstanced(GL_TRIANGLE_STRIP, length, GL_UNSIGNED_SHORT,
-                                                ctypes.c_void_p(first * 2), instance_count)
-                    elif typePrim == 2:
-                        for quad_first in range(first, first + length - 3, 4):
-                            glDrawElementsInstanced(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT,
-                                                    ctypes.c_void_p(quad_first * 2), instance_count)
+                glDrawElementsInstanced(
+                    GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, ctypes.c_void_p(0), instance_count,
+                )
                 glBindVertexArray(0)
                 glBindSampler(0, 0)
                 continue

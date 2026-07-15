@@ -408,6 +408,9 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
         def _shadow_flatten_matrix(self):
             return numpy.identity(4)
 
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
         def DrawCityContextShadows(self, _flatten):
             calls.append(("context", ()))
 
@@ -424,6 +427,74 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
     composites = [color for name, color in calls if name == "quad"]
     assert composites == [pytest.approx((0.632, 0.624, 0.692, 1.0))]
     assert ("glDepthMask", (preview.GL_FALSE,)) in calls
+
+
+def test_s3d_shadow_projector_includes_sc4_quarter_turn():
+    import sc4pimx.SC4LotPreview as preview
+
+    mesh = object()
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [[mesh]]
+    submitted = {}
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    dummy = Dummy()
+    preview.LotEditorWin._draw_state_member(
+        dummy, model, (0.0, 0.0, 0.0), 90.0, 0, 2, 0,
+        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+    )
+
+    expected_yaw = -180.0  # -lot/view 90, then SC4's fixed -90 projector turn
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(-expected_yaw)[0:3, 0:3]
+        @ numpy.asarray((0.5, -1.0, 0.25))
+    )
+    assert submitted["mesh"] is mesh
+    assert submitted["model"] == pytest.approx(preview.SC4Matrix.rotate_y(expected_yaw))
+    assert submitted["projection"][0] == pytest.approx(expected_direction)
+    assert submitted["projection"][1] == 0.0
+
+
+def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
+    import sc4pimx.SC4LotPreview as preview
+
+    mesh = object()
+    model = object.__new__(preview.SC4ModelMesh)
+    model.mainMesh = mesh
+    submitted = {}
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, _mesh, _shader, _lighting, _batches, **kwargs):
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    dummy = Dummy()
+    # rotFlag 1 applies +90 degrees in the existing RKT0 placement path; the
+    # Mac projector's -90-degree turn must cancel it in the same local frame.
+    preview.LotEditorWin._draw_state_member(
+        dummy, model, (0.0, 0.0, 0.0), 0.0, 0, 1, 0,
+        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+    )
+
+    assert submitted["model"] == pytest.approx(preview.SC4Matrix.identity(), abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx((0.5, -1.0, 0.25))
 
 
 def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():

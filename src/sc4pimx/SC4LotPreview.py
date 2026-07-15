@@ -3067,6 +3067,12 @@ class LotEditorWin(wx.Frame):
     SHADOW_STRENGTH = 0.4  # "Shadow strength" / "Model terrain shadow amount"
     SHADOW_SUN_AZIMUTH = 67.5  # "Sun direction" (degrees)
     SHADOW_SUN_PITCH = 45.0  # "Sun pitch" (degrees); shadow length = cot(pitch)
+    # CreateOccupantShadow post-rotates the fitted model transform by -PI/2
+    # before CalcShadowProjection.  The S3D is a prerendered camera view, so
+    # this quarter-turn is part of converting its baked axes back into the
+    # shadow projector's frame; omitting it makes placement depend on the lot
+    # and prop rotation.
+    SHADOW_PROJECTOR_YAW = -90.0
     # On-screen shadow angle. The shadow lives in the lot ground plane at
     # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
     # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
@@ -4695,7 +4701,7 @@ class LotEditorWin(wx.Frame):
         if not batches:
             return
         prog = self._ensure_shadow_program()
-        for mesh, mvps in list(batches.items()):
+        for (mesh, shadow_projection), mvps in list(batches.items()):
             for start in range(0, len(mvps), 32):
                 chunk = mvps[start : start + 32]
                 mesh.draw_instanced(
@@ -4705,16 +4711,19 @@ class LotEditorWin(wx.Frame):
                     chunk,
                     [None] * len(chunk),
                     shadow=True,
+                    shadow_projection=shadow_projection,
                 )
         batches.clear()
 
-    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches, shadow=False):
+    def _submit_s3d_model(
+        self, mesh, shader_program, lighting_state, batches, shadow=False, shadow_projection=None
+    ):
         if shadow:
             # Shadow order is irrelevant because every caster contributes to
             # one stencil coverage mask, so batch repeated meshes freely. The
             # shadow shader has no normal input or normal-matrix inverse.
             if batches is not None:
-                batches.setdefault(mesh, []).append(self._render_context.mvp)
+                batches.setdefault((mesh, shadow_projection), []).append(self._render_context.mvp)
                 return
             mesh.draw(
                 self.s3DTexturesHolder,
@@ -4723,6 +4732,7 @@ class LotEditorWin(wx.Frame):
                 self._render_context.mvp,
                 None,
                 shadow=True,
+                shadow_projection=shadow_projection,
             )
             return
         # Blended meshes depend on source order. Treat them as barriers while
@@ -4757,7 +4767,10 @@ class LotEditorWin(wx.Frame):
             self._render_context.normal_matrix,
         )
 
-    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None, model_batches=None, shadow=False):
+    def DrawModel(
+        self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
+        model_batches=None, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
+    ):
         if viewZoom is None:
             viewZoom = zoom
         if resource is None:
@@ -4805,14 +4818,29 @@ class LotEditorWin(wx.Frame):
             else:
                 offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]), ToCoord(raw_offset[2]))
             self._draw_state_member(
-                model, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state, model_batches, shadow=shadow
+                model, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
+                model_batches, shadow=shadow, shadow_direction=shadow_direction,
+                shadow_origin_y=shadow_origin_y,
             )
         return
 
     def _draw_state_member(
-        self, what, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state, model_batches, shadow=False
+        self, what, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
+        model_batches, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
     ):
         render = self._render_context
+
+        def shadow_projection(local_yaw=0.0, member_y=0.0):
+            if not shadow:
+                return None
+            direction = shadow_direction or self._shadow_light_dir()
+            inverse_yaw = SC4Matrix.rotate_y(-local_yaw)[0:3, 0:3]
+            local_direction = inverse_yaw @ numpy.asarray(direction, dtype=numpy.float64)
+            return (
+                tuple(round(float(value), 6) for value in local_direction),
+                round(-float(shadow_origin_y + member_y), 6),
+            )
+
         if what.__class__ == SC4Model:
             # Algebraically fused form of the old chain
             #   rotate(-a) @ translate(o) @ rotate(a) @ rotate(-rot2D)
@@ -4830,21 +4858,32 @@ class LotEditorWin(wx.Frame):
             with render.pushed():
                 render.translate(ox, oy, oz)
                 render.rotate(-rot2D, 0, 1, 0)
+                projector_yaw = -rot2D
+                if shadow:
+                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
+                    projector_yaw += self.SHADOW_PROJECTOR_YAW
                 self._submit_s3d_model(
                     what.s3dMeshes[zoom][rot],
                     shader_program,
                     lighting_state,
                     model_batches,
                     shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw, offset[1]),
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
-            self._submit_s3d_model(
-                what.s3dMeshes[zoom],
-                shader_program,
-                lighting_state,
-                model_batches,
-                shadow=shadow,
-            )
+            with render.pushed():
+                projector_yaw = 0.0
+                if shadow:
+                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
+                    projector_yaw = self.SHADOW_PROJECTOR_YAW
+                self._submit_s3d_model(
+                    what.s3dMeshes[zoom],
+                    shader_program,
+                    lighting_state,
+                    model_batches,
+                    shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw),
+                )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
             # RKT0 is a single mesh pre-projected for one (North) view and reused
@@ -4869,12 +4908,17 @@ class LotEditorWin(wx.Frame):
                 # ground-flatten matrix must stay intact.
                 if not shadow:
                     render.model[0:3, 0:3] = base_basis
+                projector_yaw = -rotMapping[rotFlag]
+                if shadow:
+                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
+                    projector_yaw += self.SHADOW_PROJECTOR_YAW
                 self._submit_s3d_model(
                     what.mainMesh,
                     shader_program,
                     lighting_state,
                     model_batches,
                     shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw, offset[1]),
                 )
         elif what.__class__ == ATC:
             # ATC billboards are screen-facing animated sprites; skip them as
@@ -4906,6 +4950,7 @@ class LotEditorWin(wx.Frame):
         shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
         shadow_strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
         flatten = self._shadow_flatten_matrix()
+        shadow_direction = self._shadow_light_dir()
         render = self._render_context
         shadow_batches = {}
 
@@ -4914,10 +4959,8 @@ class LotEditorWin(wx.Frame):
                 offsetX = ToCoord(record[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(record[5]) - lotSizeYOver / 2
                 rtk4 = self.rtk4Offsets.get(record[12], (0, 0, 0))
-                # Flatten in lot space (after the camera, before placement), then
-                # place the caster; the flatten collapses it onto the y=0 ground.
-                render.model = render.model @ flatten
-                render.translate(offsetX, ToCoord(record[4]), offsetZ)
+                origin_y = ToCoord(record[4])
+                render.translate(offsetX, origin_y, offsetZ)
                 self.DrawModel(
                     rtk4,
                     viewer,
@@ -4928,6 +4971,8 @@ class LotEditorWin(wx.Frame):
                     viewZoom,
                     model_batches=shadow_batches,
                     shadow=True,
+                    shadow_direction=shadow_direction,
+                    shadow_origin_y=origin_y,
                 )
 
         try:
