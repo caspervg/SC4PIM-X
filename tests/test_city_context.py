@@ -432,9 +432,9 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
 def test_s3d_shadow_projector_includes_sc4_quarter_turn():
     import sc4pimx.SC4LotPreview as preview
 
-    mesh = object()
+    meshes = [object(), object(), object(), object()]
     model = object.__new__(preview.SC4Model)
-    model.s3dMeshes = [[mesh]]
+    model.s3dMeshes = [meshes]
     submitted = {}
 
     class Dummy:
@@ -460,10 +460,38 @@ def test_s3d_shadow_projector_includes_sc4_quarter_turn():
         preview.SC4Matrix.rotate_y(-expected_yaw)[0:3, 0:3]
         @ numpy.asarray((0.5, -1.0, 0.25))
     )
-    assert submitted["mesh"] is mesh
+    assert submitted["mesh"] is meshes[1]
     assert submitted["model"] == pytest.approx(preview.SC4Matrix.rotate_y(expected_yaw))
     assert submitted["projection"][0] == pytest.approx(expected_direction)
     assert submitted["projection"][1] == 0.0
+
+
+@pytest.mark.parametrize("lot_rotation", range(4))
+def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotation):
+    import sc4pimx.SC4LotPreview as preview
+
+    meshes = [object(), object(), object(), object()]
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [meshes]
+    submitted = {}
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+
+    preview.LotEditorWin._draw_state_member(
+        Dummy(), model, (0.0, 0.0, 0.0), lot_rotation * 90.0,
+        lot_rotation, 2, 0, object(), None, {}, shadow=True,
+        shadow_direction=(0.5, -1.0, 0.25),
+    )
+
+    assert submitted["mesh"] is meshes[(lot_rotation + 1) % 4]
 
 
 def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():

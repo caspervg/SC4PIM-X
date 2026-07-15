@@ -4862,8 +4862,14 @@ class LotEditorWin(wx.Frame):
                 if shadow:
                     render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
                     projector_yaw += self.SHADOW_PROJECTOR_YAW
+                # CreateOccupantShadow asks GetModelInstanceID for
+                # (viewRotation + 1) % 4.  That next prerendered view is the
+                # texture counterpart of the fixed -90-degree projector turn;
+                # using the normal visible view makes shadows drift whenever
+                # the lot is rotated.
+                mesh_rotation = (rot + 1) % 4 if shadow else rot
                 self._submit_s3d_model(
-                    what.s3dMeshes[zoom][rot],
+                    what.s3dMeshes[zoom][mesh_rotation],
                     shader_program,
                     lighting_state,
                     model_batches,
