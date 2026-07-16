@@ -4857,17 +4857,34 @@ class LotEditorWin(wx.Frame):
                 ox, oz = oz, -ox
             with render.pushed():
                 render.translate(ox, oy, oz)
-                render.rotate(-rot2D, 0, 1, 0)
-                projector_yaw = -rot2D
+                # Ordinary SC4 shadows are view-locked. In that mode the
+                # camera-baked RKT1 carrier follows the current view and its
+                # -view transform cancels the lot camera turn, exactly as in
+                # FindModelTransform.
+                #
+                # The optional world-fixed mode is different: its light does
+                # not turn with the camera. Swapping to another baked RKT1
+                # texture as the lot rotates would therefore change the
+                # silhouette/projector for an otherwise unchanged object. Use
+                # the rotation-0 carrier frame in that mode and let the outer
+                # lot camera rotate the completed ground shadow normally.
+                shadow_locked = bool(getattr(self, "shadowLockToView", True))
+                view_yaw = -rot2D if not shadow or shadow_locked else 0.0
+                render.rotate(view_yaw, 0, 1, 0)
+                projector_yaw = view_yaw
                 if shadow:
                     render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
                     projector_yaw += self.SHADOW_PROJECTOR_YAW
-                # CreateOccupantShadow asks GetModelInstanceID for
-                # (viewRotation + 1) % 4.  That next prerendered view is the
-                # texture counterpart of the fixed -90-degree projector turn;
-                # using the normal visible view makes shadows drift whenever
-                # the lot is rotated.
-                mesh_rotation = (rot + 1) % 4 if shadow else rot
+                # CreateOccupantShadow asks GetModelInstanceID for the chosen
+                # view plus one. That next prerendered view is the texture
+                # counterpart of the fixed -90-degree projector turn. In
+                # world-fixed mode the chosen caster view is the rotation-0
+                # reference, rather than the current camera view.
+                if shadow and not shadow_locked:
+                    lot_rotation = int(round(rot2D / 90.0)) % 4
+                    mesh_rotation = (rot - lot_rotation + 1) % 4
+                else:
+                    mesh_rotation = (rot + 1) % 4 if shadow else rot
                 self._submit_s3d_model(
                     what.s3dMeshes[zoom][mesh_rotation],
                     shader_program,
@@ -4909,15 +4926,27 @@ class LotEditorWin(wx.Frame):
                 # the right way at every prop rotation.
                 render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
-                # Override the orientation with the unrotated basis (keeping the
-                # placed translation column). Skipped for the shadow pass, whose
-                # ground-flatten matrix must stay intact.
-                if not shadow:
-                    render.model[0:3, 0:3] = base_basis
-                projector_yaw = -rotMapping[rotFlag]
+                # Freeze the orientation to the North reference (keeping the
+                # placed translation column). The visible mesh billboards this
+                # way; the ground shadow must billboard too. It is a flat decal
+                # carrying the single North silhouette texture, so leaving rot2D
+                # in its basis rotates/shears that texture with the lot instead
+                # of holding it view-locked -- correct at North, wrong at every
+                # other lot rotation. Re-fold the prop-rotation (-rotMapping) and
+                # fixed shadow (-90) turns about Y into the frozen basis so it
+                # still carries them, and strip the same rot2D from the light so
+                # local_direction stays at its North value. At rot2D == 0 this is
+                # identical to the old path; other rotations now match North.
                 if shadow:
-                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
-                    projector_yaw += self.SHADOW_PROJECTOR_YAW
+                    render.model[0:3, 0:3] = (
+                        base_basis
+                        @ SC4Matrix.rotate_y(-rotMapping[rotFlag])[0:3, 0:3]
+                        @ SC4Matrix.rotate_y(self.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+                    )
+                    projector_yaw = -rotMapping[rotFlag] + self.SHADOW_PROJECTOR_YAW - rot2D
+                else:
+                    render.model[0:3, 0:3] = base_basis
+                    projector_yaw = -rotMapping[rotFlag]
                 self._submit_s3d_model(
                     what.mainMesh,
                     shader_program,

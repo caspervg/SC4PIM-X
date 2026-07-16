@@ -494,6 +494,73 @@ def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotatio
     assert submitted["mesh"] is meshes[(lot_rotation + 1) % 4]
 
 
+@pytest.mark.parametrize("lot_rotation", range(4))
+@pytest.mark.parametrize("prop_rotation", range(4))
+def test_world_fixed_rkt1_shadow_keeps_rotation_zero_caster(
+    lot_rotation, prop_rotation
+):
+    import sc4pimx.SC4LotPreview as preview
+
+    meshes = [object(), object(), object(), object()]
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [meshes]
+    submitted = {}
+    rot_mapping = [2, 1, 0, 3]
+    rot2d = lot_rotation * 90.0
+    camera = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(rot2d - 22.5)
+    )
+    world_light = numpy.asarray((0.5, -1.0, 0.25))
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        shadowLockToView = False
+        _render_context = preview.TransformStack(model=camera)
+
+        def _shadow_light_dir(self):
+            return tuple(world_light)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    combined_rotation = (lot_rotation + rot_mapping[prop_rotation]) % 4
+    preview.LotEditorWin._draw_state_member(
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        rot2d,
+        combined_rotation,
+        prop_rotation,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=tuple(world_light),
+    )
+
+    # With a world-fixed light the caster must not change when only the lot
+    # camera rotates. The outer camera still rotates the completed shadow on
+    # screen, but the mesh and its local projector stay at their rotation-0
+    # values for this prop orientation.
+    expected_mesh = meshes[(rot_mapping[prop_rotation] + 1) % 4]
+    expected_model = camera @ preview.SC4Matrix.rotate_y(
+        preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+    )
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(-preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+        @ world_light
+    )
+    assert submitted["mesh"] is expected_mesh
+    assert submitted["model"] == pytest.approx(expected_model, abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx(expected_direction, abs=1.0e-6)
+    assert submitted["projection"][1] == 0.0
+
+
 def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
     import sc4pimx.SC4LotPreview as preview
 
@@ -523,6 +590,76 @@ def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
 
     assert submitted["model"] == pytest.approx(preview.SC4Matrix.identity(), abs=1.0e-12)
     assert submitted["projection"][0] == pytest.approx((0.5, -1.0, 0.25))
+
+
+@pytest.mark.parametrize("lot_rotation", range(4))
+@pytest.mark.parametrize("prop_rotation", range(4))
+def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(
+    lot_rotation, prop_rotation
+):
+    import sc4pimx.SC4LotPreview as preview
+
+    model = object.__new__(preview.SC4ModelMesh)
+    model.mainMesh = object()
+    submitted = {}
+    rot_mapping = [180, -90, 0, 90]
+    rot2d = lot_rotation * 90.0
+    camera = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(rot2d - 22.5)
+    )
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack(model=camera)
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, _mesh, _shader, _lighting, _batches, **kwargs):
+            submitted["basis"] = self._render_context.model[0:3, 0:3].copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    north_camera_basis = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(-22.5)
+    )[0:3, 0:3]
+    expected_basis = (
+        north_camera_basis
+        @ preview.SC4Matrix.rotate_y(-rot_mapping[prop_rotation])[0:3, 0:3]
+        @ preview.SC4Matrix.rotate_y(preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+    )
+    north_light = numpy.asarray((0.5, -1.0, 0.25))
+    locked_light = (
+        preview.SC4Matrix.rotate_y(-rot2d)[0:3, 0:3] @ north_light
+    )
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(
+            rot_mapping[prop_rotation] - preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        )[0:3, 0:3]
+        @ north_light
+    )
+
+    preview.LotEditorWin._draw_state_member(
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        rot2d,
+        lot_rotation,
+        prop_rotation,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=tuple(locked_light),
+    )
+
+    assert submitted["basis"] == pytest.approx(expected_basis, abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx(expected_direction, abs=1.0e-6)
+    assert submitted["projection"][1] == 0.0
 
 
 def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
