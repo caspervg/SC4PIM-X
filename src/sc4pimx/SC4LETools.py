@@ -519,23 +519,20 @@ class ImageListCtrl(wx.ListCtrl):
         return selection
 
     def OnBeginDrag(self, event):
-        selection = self.GetSelectedItems()
+        # Must run inside the mouse event that started the drag: wxOSX hands the
+        # current NSEvent to the drag session, so a deferred (CallAfter) call
+        # finds no mouse event and the drag silently never starts.
+        comp = wx.DataObjectComposite()
+        dd = treeDnD.DropData()
+        for selected in self.GetSelectedItems():
+            py = self.GetPyData(selected)
+            if py is not None:
+                dd.setObject(py)
 
-        def DoDragDrop():
-            comp = wx.DataObjectComposite()
-            dd = treeDnD.DropData()
-            for selected in selection:
-                py = self.GetPyData(selected)
-                if py is not None:
-                    dd.setObject(py)
-
-            comp.Add(dd)
-            dropSource = wx.DropSource(self)
-            dropSource.SetData(comp)
-            result = dropSource.DoDragDrop(wx.Drag_AllowMove)
-            return
-
-        wx.CallAfter(DoDragDrop)
+        comp.Add(dd)
+        dropSource = wx.DropSource(self)
+        dropSource.SetData(comp)
+        dropSource.DoDragDrop(wx.Drag_AllowMove)
 
 
 class OverlayProxy():
@@ -1244,15 +1241,19 @@ class LEAssetGrid(wx.ScrolledWindow):
             self.RefreshRect(wx.Rect(x, y, virtual_rect.width, virtual_rect.height), False)
 
     def OnShow(self, event):
-        if not event.IsShown() and self._anim_timer.IsRunning():
-            self._anim_timer.Stop()
-        elif event.IsShown():
+        if not event.IsShown():
+            self._hide_state_popup()
+            if self._anim_timer.IsRunning():
+                self._anim_timer.Stop()
+        else:
             self.Refresh(False)
         event.Skip()
 
     def OnDestroy(self, event):
-        if event.GetEventObject() is self and self._anim_timer.IsRunning():
-            self._anim_timer.Stop()
+        if event.GetEventObject() is self:
+            self._hide_state_popup()
+            if self._anim_timer.IsRunning():
+                self._anim_timer.Stop()
         event.Skip()
 
     def _item_rect(self, idx):
@@ -1521,7 +1522,12 @@ class LEAssetGrid(wx.ScrolledWindow):
 
     def OnMotion(self, event):
         idx = self._hit_test(event.GetPosition())
-        if idx != self.hovered:
+        if event.LeftIsDown() or event.Dragging():
+            # Never let the hover card appear mid-gesture: it would land under
+            # the cursor while the user is dragging a card out of the grid.
+            self.hovered = idx
+            self._hide_state_popup()
+        elif idx != self.hovered:
             self.hovered = idx
             self.UnsetToolTip()
             if idx == -1:
@@ -1570,7 +1576,11 @@ class LEAssetGrid(wx.ScrolledWindow):
         rows = self._card_tooltip_rows(item)
         if not rows and strip is None:
             return
-        popup = wx.PopupTransientWindow(self, wx.BORDER_SIMPLE)
+        # Deliberately a plain PopupWindow, not a PopupTransientWindow: the
+        # transient variant grabs the mouse capture while it is up, which on
+        # macOS swallows the press that starts a drag out of the grid. We hide
+        # it ourselves from motion/leave/click, so we don't need its dismissal.
+        popup = wx.PopupWindow(self, wx.BORDER_SIMPLE)
         panel = wx.Panel(popup, -1)
         outer = wx.BoxSizer(wx.VERTICAL)
         if rows:
@@ -1601,7 +1611,7 @@ class LEAssetGrid(wx.ScrolledWindow):
         popup.SetSize(panel.GetBestSize())
         screen_pos = self.ClientToScreen((pos.x + 16, pos.y + 18))
         popup.Position(screen_pos, (0, 0))
-        popup.Popup()
+        popup.Show()
         self.state_popup = popup
 
 
@@ -1860,7 +1870,7 @@ class LEAssetBrowserPanel(wx.Panel):
 
     def _on_panel_click(self, event):
         """Transfer focus to grid/list when clicking on empty areas of the panel."""
-        child = self.GetChildAtPosition(event.GetPosition())
+        child = wx.FindWindowAtPoint(self.ClientToScreen(event.GetPosition()))
         if child is None or child is self:
             control = self.grid if self.grid.IsShown() else self.list
             if control.IsShown():

@@ -5644,17 +5644,16 @@ class MainFrame(wx.Frame):
         if what.__class__ == StandardModel:
             bOk = True
         if bOk:
-            def DoDragDrop():
-                txt = what.name
-                dd = treeDnD.DropData()
-                dd.setObject(idx)
-                comp = wx.DataObjectComposite()
-                comp.Add(dd)
-                dropSource = wx.DropSource(self)
-                dropSource.SetData(comp)
-                result = dropSource.DoDragDrop(wx.Drag_AllowMove)
-
-            wx.CallAfter(DoDragDrop)
+            # Must run inside the mouse event that started the drag: wxOSX hands
+            # the current NSEvent to the drag session, so a deferred (CallAfter)
+            # call finds no mouse event and the drag silently never starts.
+            dd = treeDnD.DropData()
+            dd.setObject(idx)
+            comp = wx.DataObjectComposite()
+            comp.Add(dd)
+            dropSource = wx.DropSource(self)
+            dropSource.SetData(comp)
+            dropSource.DoDragDrop(wx.Drag_AllowMove)
 
     def PreLoadDatas(self):
         global _preload_config_result
