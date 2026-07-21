@@ -71,6 +71,7 @@ from .S3DShaders import (
 from .S3DTexturesHolder import S3DTexturesHolder
 from .S3DViewer import S3DViewer
 from .SC4CityContext import (
+    BAT_VERTICAL_SCALE,
     CONTEXT_LEVELS,
     EDGE_XMAX,
     EDGE_XMIN,
@@ -90,6 +91,7 @@ from .SC4CityContext import (
     build_context_mesh,
     context_seed,
     generate_city_context,
+    infer_context_levels,
     infer_context_style,
     light_context_vertices,
     road_edges_from_flags,
@@ -198,7 +200,7 @@ def parse_overlay_color(value, default=DEFAULT_PROP_MARKER_COLOR):
     if len(text) != 7 or not text.startswith("#"):
         return default
     try:
-        return tuple(int(text[index:index + 2], 16) / 255.0 for index in (1, 3, 5))
+        return tuple(int(text[index : index + 2], 16) / 255.0 for index in (1, 3, 5))
     except ValueError:
         return default
 
@@ -704,6 +706,7 @@ class LotEditorWin(wx.Frame):
         self._context_mesh = None
         self._context_tint_key = None
         self._context_tinted = None
+        self._context_ambient_mesh = None
         self._context_generation_ms = 0.0
         self._contextBuildingDescriptors = []
         self._icon_render = False
@@ -755,22 +758,32 @@ class LotEditorWin(wx.Frame):
         }
         self.showFps = bool(settings.get("ShowFps", False))
         valid_levels = set(CONTEXT_LEVELS)
+        valid_auto_levels = valid_levels | {"auto"}
         valid_styles = {"auto", STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL, STYLE_MIXED}
         valid_seasons = {"auto", SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER}
         self.contextStyle = str(settings.get("CityContextStyle", "auto"))
         self.contextStyle = self.contextStyle if self.contextStyle in valid_styles else "auto"
-        self.contextDensity = str(settings.get("CityContextDensity", "medium"))
-        self.contextDensity = self.contextDensity if self.contextDensity in valid_levels else "medium"
-        self.contextHeight = str(settings.get("CityContextHeight", "medium"))
-        self.contextHeight = self.contextHeight if self.contextHeight in valid_levels else "medium"
+        self.contextDensity = str(settings.get("CityContextDensity", "auto"))
+        self.contextDensity = self.contextDensity if self.contextDensity in valid_auto_levels else "auto"
+        self.contextHeight = str(settings.get("CityContextHeight", "auto"))
+        self.contextHeight = self.contextHeight if self.contextHeight in valid_auto_levels else "auto"
         self.contextTraffic = str(settings.get("CityContextTraffic", "medium"))
         self.contextTraffic = self.contextTraffic if self.contextTraffic in valid_levels | {"off"} else "medium"
         self.contextPedestrians = str(settings.get("CityContextPedestrians", "medium"))
-        self.contextPedestrians = self.contextPedestrians if self.contextPedestrians in valid_levels | {"off"} else "medium"
+        self.contextPedestrians = (
+            self.contextPedestrians if self.contextPedestrians in valid_levels | {"off"} else "medium"
+        )
         self.contextDetail = str(settings.get("CityContextDetail", "high"))
         self.contextDetail = self.contextDetail if self.contextDetail in valid_levels else "high"
         self.contextSeason = str(settings.get("CityContextSeason", "auto"))
         self.contextSeason = self.contextSeason if self.contextSeason in valid_seasons else "auto"
+        try:
+            self.contextVerticalScale = min(
+                2.0,
+                max(0.5, float(settings.get("CityContextVerticalScale", BAT_VERTICAL_SCALE))),
+            )
+        except (TypeError, ValueError):
+            self.contextVerticalScale = BAT_VERTICAL_SCALE
         self._fps_last_frame = None
         self._fps_smoothed = None
         self.lightingProfiles = lighting_profiles()
@@ -1085,11 +1098,7 @@ class LotEditorWin(wx.Frame):
             timer.Stop()
 
     def OnContextAmbientTick(self, event=None):
-        if (
-            hasattr(self, "exemplar")
-            and self._is_layer_visible("3d", LAYER_CITY_CONTEXT)
-            and self.IsShownOnScreen()
-        ):
+        if hasattr(self, "exemplar") and self._is_layer_visible("3d", LAYER_CITY_CONTEXT) and self.IsShownOnScreen():
             self._request_draw(ambient=True)
 
     def OnTogglePlayback(self, event=None):
@@ -1213,6 +1222,7 @@ class LotEditorWin(wx.Frame):
                 btn = self._make_toolbar_button(bar, icon, tooltip, handler, hint)
                 row.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
                 items.append(btn)
+
         add_cluster("3d", LEXPaneCluster3D)
         row.AddStretchSpacer(1)
         add_cluster("2d", LEXPaneCluster2D)
@@ -1246,14 +1256,21 @@ class LotEditorWin(wx.Frame):
         }
         levels = {"off": LEXContextOff, "low": LEXContextLow, "medium": LEXContextMedium, "high": LEXContextHigh}
         effective_style = self._infer_context_style() if self.contextStyle == "auto" else self.contextStyle
+        inferred_density, _inferred_height = self._infer_context_levels()
+        effective_density = inferred_density if self.contextDensity == "auto" else self.contextDensity
         style_label = styles.get(effective_style, LEXContextStyleMixed)
         if self.contextStyle == "auto":
             style_label = "%s → %s" % (LEXContextAutomatic, style_label)
         tooltip = "%s\n%s" % (
             LEXContextMenuHint,
-            LEXContextStatus % (
+            LEXContextStatus
+            % (
                 style_label,
-                levels.get(self.contextDensity, LEXContextMedium),
+                (
+                    ("%s â†’ %s" % (LEXContextAutomatic, levels.get(effective_density, LEXContextMedium)))
+                    if self.contextDensity == "auto"
+                    else levels.get(effective_density, LEXContextMedium)
+                ),
                 levels.get(self.contextTraffic, LEXContextMedium),
             ),
         )
@@ -1434,14 +1451,14 @@ class LotEditorWin(wx.Frame):
 
     def _infer_context_style(self):
         purpose_types = self.exemplar.GetProp(0x88EDC796) or ()
-        building_purpose = None
-        if self._contextBuildingDescriptors:
-            values = self._contextBuildingDescriptors[0].exemplar.GetProp(0x27812833)
+        building_purposes = []
+        for descriptor in self._contextBuildingDescriptors:
+            values = descriptor.exemplar.GetProp(0x27812833)
             if values:
-                building_purpose = values[0]
+                building_purposes.append(values[0])
         return infer_context_style(
             purpose_types,
-            building_purpose,
+            building_purposes,
             park=self._context_category_membership((0x8C8FBC47,)),
             civic=self._context_category_membership(
                 (
@@ -1453,6 +1470,18 @@ class LotEditorWin(wx.Frame):
             ),
         )
 
+    def _infer_context_levels(self):
+        growth_stages = []
+        occupant_sizes = []
+        for descriptor in self._contextBuildingDescriptors:
+            stages = descriptor.exemplar.GetProp(0x27812837)
+            if stages:
+                growth_stages.append(stages[0])
+            size = descriptor.exemplar.GetProp(0x27812810)
+            if size:
+                occupant_sizes.append(size)
+        return infer_context_levels(growth_stages, occupant_sizes)
+
     def _context_inputs(self):
         lot_size = self.exemplar.GetProp(2297284496) or (self.lotSizeX, self.lotSizeY)
         flags_prop = self.exemplar.GetProp(1246398704)
@@ -1462,27 +1491,46 @@ class LotEditorWin(wx.Frame):
         style = inferred_style if self.contextStyle == "auto" else self.contextStyle
         inferred_season = season_for_month(getattr(getattr(self, "previewDate", None), "month", 7))
         season = inferred_season if self.contextSeason == "auto" else self.contextSeason
+        inferred_density, inferred_height = self._infer_context_levels()
+        density = inferred_density if self.contextDensity == "auto" else self.contextDensity
+        height = inferred_height if self.contextHeight == "auto" else self.contextHeight
         tgi = tuple(self.exemplar.entry.tgi)
         seed = context_seed(tgi, self._contextNonce)
         key = (
-            tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, season,
-            self.contextDensity, self.contextHeight, self._contextNonce,
+            tgi,
+            int(lot_size[0]),
+            int(lot_size[1]),
+            tuple(sorted(edges)),
+            style,
+            season,
+            density,
+            height,
+            self.contextDetail,
+            self.contextVerticalScale,
+            self._contextNonce,
         )
-        return key, int(lot_size[0]), int(lot_size[1]), edges, style, season, seed
+        return key, int(lot_size[0]), int(lot_size[1]), edges, style, season, density, height, seed
 
     def _rebuild_city_context(self):
         """Generate and flatten once when composition inputs actually change."""
         if not hasattr(self, "exemplar"):
             return
         try:
-            key, lot_w, lot_d, edges, style, season, seed = self._context_inputs()
+            key, lot_w, lot_d, edges, style, season, density, height, seed = self._context_inputs()
             if key == self._context_cache_key and self._context_mesh is not None:
                 return
             started = time.perf_counter()
             scene = generate_city_context(
-                lot_w, lot_d, edges, style, seed, season,
-                density=self.contextDensity,
-                height=self.contextHeight,
+                lot_w,
+                lot_d,
+                edges,
+                style,
+                seed,
+                season,
+                density=density,
+                height=height,
+                detail=self.contextDetail,
+                vertical_scale=self.contextVerticalScale,
             )
             mesh = build_context_mesh(scene)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -1498,6 +1546,7 @@ class LotEditorWin(wx.Frame):
         self._context_generation_ms = elapsed_ms
         self._context_tint_key = None
         self._context_tinted = None
+        self._context_ambient_mesh = None
         self._invalidate_pane_cache()
         logger.debug(
             "City context generated in %.1f ms: %s, vertices=%d, batches=%d",
@@ -1548,7 +1597,7 @@ class LotEditorWin(wx.Frame):
         vertices, detail = self._tinted_context_vertices()
         renderer = self.glCanvas2D.renderer.primitives
         renderer.draw_interleaved(GL_TRIANGLES, vertices, self._render_context.mvp)
-        detail_threshold = {"low": 4, "medium": 2, "high": 1}.get(self.contextDetail, 2)
+        detail_threshold = {"low": 3, "medium": 2, "high": 1}.get(self.contextDetail, 2)
         if self.zoom3D >= detail_threshold:
             renderer.draw_interleaved(GL_TRIANGLES, detail, self._render_context.mvp)
             if self.nightMode:
@@ -1563,7 +1612,7 @@ class LotEditorWin(wx.Frame):
             or (self.contextTraffic == "off" and self.contextPedestrians == "off")
         ):
             return
-        detail_threshold = {"low": 4, "medium": 2, "high": 1}.get(self.contextDetail, 2)
+        detail_threshold = {"low": 3, "medium": 2, "high": 1}.get(self.contextDetail, 2)
         if self.zoom3D < detail_threshold:
             return
         ambient = build_context_ambient_mesh(
@@ -1574,6 +1623,7 @@ class LotEditorWin(wx.Frame):
         )
         if not len(ambient.vertices):
             return
+        self._context_ambient_mesh = ambient
         lit = light_context_vertices(
             ambient.vertices,
             ambient.normals,
@@ -1584,6 +1634,10 @@ class LotEditorWin(wx.Frame):
         glDisable(GL_BLEND)
         glDepthMask(GL_TRUE)
         self.glCanvas2D.renderer.primitives.draw_interleaved(GL_TRIANGLES, lit, self._render_context.mvp)
+        if self.nightMode and len(ambient.emissive_vertices):
+            self.glCanvas2D.renderer.primitives.draw_interleaved(
+                GL_TRIANGLES, ambient.emissive_vertices, self._render_context.mvp
+            )
 
     def DrawCityContextShadows(self, flatten):
         """Project cached context casters into the active coverage mask."""
@@ -1595,6 +1649,9 @@ class LotEditorWin(wx.Frame):
         renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.shadow_vertices, mvp)
         if self.zoom3D >= 2:
             renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.detail_shadow_vertices, mvp)
+            ambient = getattr(self, "_context_ambient_mesh", None)
+            if ambient is not None and len(ambient.shadow_vertices):
+                renderer.draw_interleaved(GL_TRIANGLES, ambient.shadow_vertices, mvp)
 
     def _road_edge_records(self):
         """Road-texture overlay records for all four verified mask edges."""
@@ -3292,9 +3349,7 @@ class LotEditorWin(wx.Frame):
             if dialog.ShowModal() != wx.ID_OK:
                 return
             colour = dialog.GetColourData().GetColour()
-            selected = tuple(
-                channel / 255.0 for channel in (colour.Red(), colour.Green(), colour.Blue())
-            )
+            selected = tuple(channel / 255.0 for channel in (colour.Red(), colour.Green(), colour.Blue()))
             self.SetOverlayColor(layer_key, selected)
         finally:
             dialog.Destroy()
@@ -3398,12 +3453,13 @@ class LotEditorWin(wx.Frame):
             ),
             rebuild=True,
         )
-        self._append_context_choice(menu, LEXContextDensity, "contextDensity", levels, rebuild=True)
-        self._append_context_choice(menu, LEXContextHeight, "contextHeight", levels, rebuild=True)
+        automatic_levels = (("auto", LEXContextAutomatic),) + levels
+        self._append_context_choice(menu, LEXContextDensity, "contextDensity", automatic_levels, rebuild=True)
+        self._append_context_choice(menu, LEXContextHeight, "contextHeight", automatic_levels, rebuild=True)
         activity = (("off", LEXContextOff),) + levels
         self._append_context_choice(menu, LEXContextTraffic, "contextTraffic", activity)
         self._append_context_choice(menu, LEXContextPedestrians, "contextPedestrians", activity)
-        self._append_context_choice(menu, LEXContextDetail, "contextDetail", levels)
+        self._append_context_choice(menu, LEXContextDetail, "contextDetail", levels, rebuild=True)
         self._append_context_choice(
             menu,
             LEXContextSeason,
@@ -3642,8 +3698,8 @@ class LotEditorWin(wx.Frame):
     def OnResetContextSettings(self, event=None):
         """Restore the translated menu's safe, automatic context defaults."""
         self.contextStyle = "auto"
-        self.contextDensity = "medium"
-        self.contextHeight = "medium"
+        self.contextDensity = "auto"
+        self.contextHeight = "auto"
         self.contextTraffic = "medium"
         self.contextPedestrians = "medium"
         self.contextDetail = "high"
@@ -5180,9 +5236,7 @@ class LotEditorWin(wx.Frame):
                 )
         batches.clear()
 
-    def _submit_s3d_model(
-        self, mesh, shader_program, lighting_state, batches, shadow=False, shadow_projection=None
-    ):
+    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches, shadow=False, shadow_projection=None):
         if shadow:
             # Shadow order is irrelevant because every caster contributes to
             # one stencil coverage mask, so batch repeated meshes freely. The
@@ -5235,8 +5289,18 @@ class LotEditorWin(wx.Frame):
         )
 
     def DrawModel(
-        self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
-        model_batches=None, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
+        self,
+        rtk,
+        resource,
+        rot2D,
+        rot,
+        rotFlag,
+        zoom,
+        viewZoom=None,
+        model_batches=None,
+        shadow=False,
+        shadow_direction=None,
+        shadow_origin_y=0.0,
     ):
         if viewZoom is None:
             viewZoom = zoom
@@ -5285,15 +5349,35 @@ class LotEditorWin(wx.Frame):
             else:
                 offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]), ToCoord(raw_offset[2]))
             self._draw_state_member(
-                model, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
-                model_batches, shadow=shadow, shadow_direction=shadow_direction,
+                model,
+                offset,
+                rot2D,
+                rot,
+                rotFlag,
+                zoom,
+                shader_program,
+                lighting_state,
+                model_batches,
+                shadow=shadow,
+                shadow_direction=shadow_direction,
                 shadow_origin_y=shadow_origin_y,
             )
         return
 
     def _draw_state_member(
-        self, what, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
-        model_batches, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
+        self,
+        what,
+        offset,
+        rot2D,
+        rot,
+        rotFlag,
+        zoom,
+        shader_program,
+        lighting_state,
+        model_batches,
+        shadow=False,
+        shadow_direction=None,
+        shadow_origin_y=0.0,
     ):
         render = self._render_context
 

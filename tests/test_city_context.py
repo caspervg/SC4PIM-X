@@ -7,6 +7,7 @@ import numpy
 import pytest
 
 from sc4pimx.SC4CityContext import (
+    BAT_VERTICAL_SCALE,
     EDGE_XMAX,
     EDGE_XMIN,
     EDGE_ZMAX,
@@ -14,6 +15,7 @@ from sc4pimx.SC4CityContext import (
     MAT_BIKE_LANE,
     MAT_CONTACT,
     MAT_CURB,
+    MAT_DOOR,
     MAT_FIELD,
     MAT_HEDGE,
     MAT_HORIZON,
@@ -52,6 +54,10 @@ from sc4pimx.SC4CityContext import (
     STYLE_SUBURBAN,
     STYLE_URBAN,
     TILE_M,
+    TREE_MATURITY_SCALE,
+    Box,
+    _BuildingPlacement,
+    _decorate_buildings,
     _decorate_open_spaces,
     _decorate_streets,
     _Grid,
@@ -65,6 +71,7 @@ from sc4pimx.SC4CityContext import (
     context_seed,
     default_context_seed,
     generate_city_context,
+    infer_context_levels,
     infer_context_style,
     light_context_vertices,
     road_edges_from_flags,
@@ -84,6 +91,7 @@ def test_scale_and_seed_contract():
 
     assert TILE_M == 16.0
     assert SIDEWALK_M + ROADWAY_M + SIDEWALK_M == TILE_M
+    assert TREE_MATURITY_SCALE == 2.0
     assert default == default_context_seed(tgi)
     assert default != default_context_seed(other)
     assert variation_seed(default, 1) != default
@@ -134,7 +142,7 @@ def test_parking_cars_use_marked_bay_centers_and_orientation(monkeypatch):
     placed = []
     monkeypatch.setattr(
         "sc4pimx.SC4CityContext._add_car",
-        lambda _rng, x, z, along_x, _boxes: placed.append((x, z, along_x)),
+        lambda _rng, x, z, along_x, _boxes, _groups=None: placed.append((x, z, along_x)),
     )
 
     _decorate_open_spaces(_Grid(1, 1, 3), random.Random(1), STYLE_SUBURBAN, rects, details, [], bays)
@@ -164,11 +172,7 @@ def test_crosswalks_are_scaled_and_oriented_per_connected_approach():
 
     # Every zebra remains on its own approach; perpendicular bars must never
     # overlap into the lattice pattern that previously filled the junction.
-    assert all(
-        a.x1 <= b.x0 or b.x1 <= a.x0 or a.z1 <= b.z0 or b.z1 <= a.z0
-        for a in horizontal
-        for b in vertical
-    )
+    assert all(a.x1 <= b.x0 or b.x1 <= a.x0 or a.z1 <= b.z0 or b.z1 <= a.z0 for a in horizontal for b in vertical)
     center_x = center[0] * TILE_M + TILE_M / 2
     center_z = center[1] * TILE_M + TILE_M / 2
     assert all(not (rect.x0 < center_x < rect.x1 and rect.z0 < center_z < rect.z1) for rect in stripes)
@@ -382,6 +386,51 @@ def test_density_height_and_ambient_activity_are_user_controllable():
     assert first.normals.shape == first.vertices[:, :3].shape
 
 
+def test_detail_levels_reduce_generated_geometry_without_changing_massing():
+    edges = road_edges_from_flags(8)
+    low = generate_city_context(4, 4, edges, STYLE_URBAN, 12345, detail="low")
+    high = generate_city_context(4, 4, edges, STYLE_URBAN, 12345, detail="high")
+
+    assert low.boxes == high.boxes
+    assert len(low.trees) < len(high.trees)
+    assert len(low.detail_boxes) < len(high.detail_boxes)
+    assert len(low.detail_quads) < len(high.detail_quads)
+
+
+def test_configurable_bat_vertical_scale_affects_3d_geometry_not_ground_layers():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_URBAN, 12345, vertical_scale=1.0)
+    unit = build_context_mesh(scene)
+    bat = build_context_mesh(replace(scene, vertical_scale=BAT_VERTICAL_SCALE))
+    ground_vertices = len(scene.rects) * 6
+
+    assert numpy.array_equal(unit.positions[:ground_vertices], bat.positions[:ground_vertices])
+    assert bat.positions[:, 1].max() == pytest.approx(unit.positions[:, 1].max() * BAT_VERTICAL_SCALE)
+
+
+def test_actor_routes_keep_avenue_walkers_outside_and_expose_bikes_and_headlights():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_URBAN, 12345)
+    avenues = [route for route in scene.actor_routes if route.kind == ROAD_AVENUE]
+    assert avenues
+    assert all(len(route.walk_lanes) == 2 and route.walk_lanes[1] - route.walk_lanes[0] > TILE_M for route in avenues)
+    assert any(route.bike_lanes for route in scene.actor_routes)
+
+    ambient = build_context_ambient_mesh(scene, 10.0, "medium", "medium")
+    assert len(ambient.emissive_vertices) > 0
+    assert numpy.shares_memory(ambient.vertices, ambient.shadow_vertices)
+
+
+def test_frontage_metadata_places_primary_door_on_the_street_face():
+    box = Box("wall", -20.0, 0.0, -10.0, 8.0, -0.08, 8.0)
+    placement = _BuildingPlacement((box,), EDGE_XMIN, (EDGE_XMIN,), "slab")
+    details, quads = [], []
+    _decorate_buildings(_Grid(1, 1, 3), random.Random(4), STYLE_URBAN, [placement], [], details, quads)
+
+    doors = [quad for quad in quads if quad.material == MAT_DOOR]
+    assert doors
+    assert all(point[0] == pytest.approx(box.x0 - 0.04) for point in doors[0].points)
+    assert infer_context_levels((2,), ((8.0, 9.0, 8.0),)) == ("low", "low")
+
+
 def test_seasons_change_context_vegetation_without_reshuffling_the_city():
     assert season_for_month(4) == SEASON_SPRING
     assert season_for_month(7) == SEASON_SUMMER
@@ -572,15 +621,22 @@ def test_s3d_shadow_projector_includes_sc4_quarter_turn():
 
     dummy = Dummy()
     preview.LotEditorWin._draw_state_member(
-        dummy, model, (0.0, 0.0, 0.0), 90.0, 0, 2, 0,
-        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+        dummy,
+        model,
+        (0.0, 0.0, 0.0),
+        90.0,
+        0,
+        2,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=(0.5, -1.0, 0.25),
     )
 
     expected_yaw = -180.0  # -lot/view 90, then SC4's fixed -90 projector turn
-    expected_direction = (
-        preview.SC4Matrix.rotate_y(-expected_yaw)[0:3, 0:3]
-        @ numpy.asarray((0.5, -1.0, 0.25))
-    )
+    expected_direction = preview.SC4Matrix.rotate_y(-expected_yaw)[0:3, 0:3] @ numpy.asarray((0.5, -1.0, 0.25))
     assert submitted["mesh"] is meshes[1]
     assert submitted["model"] == pytest.approx(preview.SC4Matrix.rotate_y(expected_yaw))
     assert submitted["projection"][0] == pytest.approx(expected_direction)
@@ -608,8 +664,18 @@ def test_animated_rkt3_shadow_keeps_visible_geometry_position():
             submitted["projection"] = kwargs["shadow_projection"]
 
     preview.LotEditorWin._draw_state_member(
-        Dummy(), model, (0.0, 0.0, 0.0), 90.0, 0, 0, 0,
-        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        90.0,
+        0,
+        0,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=(0.5, -1.0, 0.25),
     )
 
     assert submitted["mesh"] is mesh
@@ -638,8 +704,17 @@ def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotatio
             submitted["mesh"] = chosen
 
     preview.LotEditorWin._draw_state_member(
-        Dummy(), model, (0.0, 0.0, 0.0), lot_rotation * 90.0,
-        lot_rotation, 2, 0, object(), None, {}, shadow=True,
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        lot_rotation * 90.0,
+        lot_rotation,
+        2,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
         shadow_direction=(0.5, -1.0, 0.25),
     )
 
@@ -648,9 +723,7 @@ def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotatio
 
 @pytest.mark.parametrize("lot_rotation", range(4))
 @pytest.mark.parametrize("prop_rotation", range(4))
-def test_world_fixed_rkt1_shadow_keeps_rotation_zero_caster(
-    lot_rotation, prop_rotation
-):
+def test_world_fixed_rkt1_shadow_keeps_rotation_zero_caster(lot_rotation, prop_rotation):
     import sc4pimx.SC4LotPreview as preview
 
     meshes = [object(), object(), object(), object()]
@@ -700,13 +773,8 @@ def test_world_fixed_rkt1_shadow_keeps_rotation_zero_caster(
     # screen, but the mesh and its local projector stay at their rotation-0
     # values for this prop orientation.
     expected_mesh = meshes[(rot_mapping[prop_rotation] + 1) % 4]
-    expected_model = camera @ preview.SC4Matrix.rotate_y(
-        preview.LotEditorWin.SHADOW_PROJECTOR_YAW
-    )
-    expected_direction = (
-        preview.SC4Matrix.rotate_y(-preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
-        @ world_light
-    )
+    expected_model = camera @ preview.SC4Matrix.rotate_y(preview.LotEditorWin.SHADOW_PROJECTOR_YAW)
+    expected_direction = preview.SC4Matrix.rotate_y(-preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3] @ world_light
     assert submitted["mesh"] is expected_mesh
     assert submitted["model"] == pytest.approx(expected_model, abs=1.0e-12)
     assert submitted["projection"][0] == pytest.approx(expected_direction, abs=1.0e-6)
@@ -736,8 +804,18 @@ def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
     # rotFlag 1 applies +90 degrees in the existing RKT0 placement path; the
     # Mac projector's -90-degree turn must cancel it in the same local frame.
     preview.LotEditorWin._draw_state_member(
-        dummy, model, (0.0, 0.0, 0.0), 0.0, 0, 1, 0,
-        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+        dummy,
+        model,
+        (0.0, 0.0, 0.0),
+        0.0,
+        0,
+        1,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=(0.5, -1.0, 0.25),
     )
 
     assert submitted["model"] == pytest.approx(preview.SC4Matrix.identity(), abs=1.0e-12)
@@ -746,9 +824,7 @@ def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
 
 @pytest.mark.parametrize("lot_rotation", range(4))
 @pytest.mark.parametrize("prop_rotation", range(4))
-def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(
-    lot_rotation, prop_rotation
-):
+def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(lot_rotation, prop_rotation):
     import sc4pimx.SC4LotPreview as preview
 
     model = object.__new__(preview.SC4ModelMesh)
@@ -774,9 +850,7 @@ def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(
             submitted["projection"] = kwargs["shadow_projection"]
 
     north_camera_basis = (
-        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
-        @ preview.SC4Matrix.rotate_x(30.0)
-        @ preview.SC4Matrix.rotate_y(-22.5)
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0) @ preview.SC4Matrix.rotate_x(30.0) @ preview.SC4Matrix.rotate_y(-22.5)
     )[0:3, 0:3]
     expected_basis = (
         north_camera_basis
@@ -784,13 +858,9 @@ def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(
         @ preview.SC4Matrix.rotate_y(preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
     )
     north_light = numpy.asarray((0.5, -1.0, 0.25))
-    locked_light = (
-        preview.SC4Matrix.rotate_y(-rot2d)[0:3, 0:3] @ north_light
-    )
+    locked_light = preview.SC4Matrix.rotate_y(-rot2d)[0:3, 0:3] @ north_light
     expected_direction = (
-        preview.SC4Matrix.rotate_y(
-            rot_mapping[prop_rotation] - preview.LotEditorWin.SHADOW_PROJECTOR_YAW
-        )[0:3, 0:3]
+        preview.SC4Matrix.rotate_y(rot_mapping[prop_rotation] - preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
         @ north_light
     )
 

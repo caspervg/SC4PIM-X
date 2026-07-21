@@ -60,12 +60,13 @@ DEFAULT_LOT_EDITOR = {
     "CardinalLabelOpacity": 100,
     "LightingProfile": "maxis",
     "CityContextStyle": "auto",
-    "CityContextDensity": "medium",
-    "CityContextHeight": "medium",
+    "CityContextDensity": "auto",
+    "CityContextHeight": "auto",
     "CityContextTraffic": "medium",
     "CityContextPedestrians": "medium",
     "CityContextDetail": "high",
     "CityContextSeason": "auto",
+    "CityContextVerticalScale": 1.33,
 }
 
 DEFAULT_MAIN_WINDOW = {

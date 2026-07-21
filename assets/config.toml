@@ -152,12 +152,15 @@ MissingMarkerOpacity = 100
 CardinalLabelColor = "#FFD933"
 CardinalLabelOpacity = 100
 CityContextStyle = "auto"
-CityContextDensity = "medium"
-CityContextHeight = "medium"
+CityContextDensity = "auto"
+CityContextHeight = "auto"
 CityContextTraffic = "medium"
 CityContextPedestrians = "medium"
 CityContextDetail = "high"
 CityContextSeason = "auto"
+# BAT convention: compensate SC4's apparent vertical squash. Set to 1.0 for
+# unscaled real-world/Maxis-like proportions.
+CityContextVerticalScale = 1.33
 
 # --- Graphics / rendering quality ---
 # Tunes the OpenGL 3.3 preview pipeline. All values degrade gracefully: each is
