@@ -48,7 +48,7 @@ import numpy
 # Bump when the generator's output changes meaningfully: it feeds the seed,
 # so intentional visual evolution is explicit instead of silently reshuffling
 # every lot's "stable" context.
-CONTEXT_GENERATOR_VERSION = 4
+CONTEXT_GENERATOR_VERSION = 5
 
 TILE_M = 16.0
 ROADWAY_M = 10.0
@@ -77,17 +77,46 @@ STYLE_CIVIC = "civic"
 STYLE_RURAL = "rural"
 STYLE_MIXED = "mixed"
 
-# Deliberate geometry ceilings: the whole context must stay a light, cheap
-# backdrop (well under 100k vertices), so generation thins deterministically
-# rather than letting dense styles run away on big grids.
-MAX_BOXES = 900
-MAX_TREES = 450
-MAX_LIT_WINDOWS = 400
+ROAD_STREET = "street"
+ROAD_AVENUE = "avenue"
+ROAD_BIKE = "bike"
+ROAD_PEDESTRIAN = "pedestrian"
 
-_MARGIN_TILES = 13  # context tiles beyond each lot edge (12-16 spec)
-_MAX_GRID_CELLS = 8100  # shrink margin (never below 8) for huge lots
+SEASON_SPRING = "spring"
+SEASON_SUMMER = "summer"
+SEASON_AUTUMN = "autumn"
+SEASON_WINTER = "winter"
+
+# Deliberate geometry ceilings. Modern hardware can comfortably carry a much
+# richer cached backdrop, but every generated family remains bounded so large
+# lots cannot create runaway meshes.
+MAX_BOXES = 2500
+MAX_TREES = 1400
+MAX_LIT_WINDOWS = 2400
+MAX_DETAIL_BOXES = 3000
+MAX_FACADE_QUADS = 6500
+MAX_NIGHT_LIGHTS = 800
+MAX_CONTEXT_VERTICES = 500_000
+
+_MARGIN_TILES = 18
+_MAX_GRID_CELLS = 20_000  # shrink margin (never below 12) for enormous lots
 
 _EMPTY, _LOT, _ROAD = 0, 1, 2
+
+
+def season_for_month(month):
+    """Return the broad visual season used by the procedural context."""
+    try:
+        month = int(month)
+    except (TypeError, ValueError):
+        month = 7
+    if month in (3, 4, 5):
+        return SEASON_SPRING
+    if month in (9, 10, 11):
+        return SEASON_AUTUMN
+    if month in (12, 1, 2):
+        return SEASON_WINTER
+    return SEASON_SUMMER
 
 
 def infer_context_style(purpose_types=None, building_purpose=None, *, civic=False, park=False):
@@ -329,6 +358,25 @@ MAT_CANOPY = "canopy"
 MAT_MARKING = "marking"
 MAT_CONTACT = "contact"
 MAT_CURB = "curb"
+MAT_WINDOW = "window"
+MAT_DOOR = "door"
+MAT_STOREFRONT = "storefront"
+MAT_AWNING = "awning"
+MAT_METAL = "metal"
+MAT_DARK_METAL = "dark_metal"
+MAT_BRICK = "brick"
+MAT_HEDGE = "hedge"
+MAT_FIELD = "field"
+MAT_VEHICLE_RED = "vehicle_red"
+MAT_VEHICLE_BLUE = "vehicle_blue"
+MAT_VEHICLE_NEUTRAL = "vehicle_neutral"
+MAT_LAMP = "lamp"
+MAT_BENCH = "bench"
+MAT_WATER = "water"
+MAT_HORIZON = "horizon"
+MAT_BIKE_LANE = "bike_lane"
+MAT_PEDESTRIAN = "pedestrian"
+MAT_ISLAND = "island"
 
 
 @dataclass(frozen=True)
@@ -385,6 +433,15 @@ class Tree:
 
 
 @dataclass(frozen=True)
+class Quad:
+    """An arbitrarily oriented, single-sided detail quad."""
+
+    material: str
+    points: tuple
+    tint: float = 1.0
+
+
+@dataclass(frozen=True)
 class ContextScene:
     lot_w: int
     lot_d: int
@@ -398,6 +455,10 @@ class ContextScene:
     roofs: tuple  # pitched roofs
     trees: tuple  # vegetation (detail LOD)
     detail_rects: tuple  # lane markings, parking stalls (detail LOD)
+    detail_boxes: tuple  # cars, furniture and rooftop fittings (detail LOD)
+    detail_quads: tuple  # facade windows, doors and signs (detail LOD)
+    road_profiles: tuple  # (axis, coordinate, kind) corridor classifications
+    season: str = SEASON_SUMMER
 
 
 # Ground-plane stack, all below the lot's own textures at y=0 so the context
@@ -412,7 +473,7 @@ _Y_SIDEWALK = -0.02
 _Y_BUILDING_BASE = -0.08
 
 
-def generate_city_context(lot_w, lot_d, road_edges, style, seed):
+def generate_city_context(lot_w, lot_d, road_edges, style, seed, season=SEASON_SUMMER):
     """Generate the neighbourhood layout. Pure; all randomness is local.
 
     lot_w/lot_d are the lot dimensions in tiles (property 0x88EDC790);
@@ -426,23 +487,28 @@ def generate_city_context(lot_w, lot_d, road_edges, style, seed):
     preset = STYLE_PRESETS.get(style) or STYLE_PRESETS[STYLE_MIXED]
     if style not in STYLE_PRESETS:
         style = STYLE_MIXED
+    if season not in (SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER):
+        season = SEASON_SUMMER
     rng = random.Random(seed)
 
     margin = _MARGIN_TILES
-    while margin > 8 and (lot_w + 2 * margin) * (lot_d + 2 * margin) > _MAX_GRID_CELLS:
+    while margin > 12 and (lot_w + 2 * margin) * (lot_d + 2 * margin) > _MAX_GRID_CELLS:
         margin -= 1
 
     grid = _Grid(lot_w, lot_d, margin)
     _carve_streets(grid, rng, preset, road_edges)
+    road_profiles = _classify_road_profiles(grid, rng, style)
 
     rects = list(_ground_frame(grid))
     detail_rects = []
     boxes = []
     roofs = []
     trees = []
+    detail_boxes = []
+    detail_quads = []
 
     road_tiles = tuple(sorted(grid.road_tiles(), key=lambda tile: (tile[1], tile[0])))
-    rects.extend(_road_corridors(grid, detail_rects))
+    rects.extend(_road_corridors(grid, detail_rects, road_profiles, style))
 
     blocks = grid.blocks()
     for block_index, block_cells in enumerate(blocks):
@@ -456,6 +522,8 @@ def generate_city_context(lot_w, lot_d, road_edges, style, seed):
             _fill_parcel(grid, parcel, block_rng, preset, traits, rects, detail_rects, boxes, roofs, trees)
 
     _street_trees(grid, rng, preset, trees)
+    _decorate_streets(grid, rng, style, detail_rects, detail_boxes, road_profiles)
+    _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes)
 
     # Deterministic thinning to honour the geometry ceilings.
     if len(trees) > MAX_TREES:
@@ -464,6 +532,15 @@ def generate_city_context(lot_w, lot_d, road_edges, style, seed):
     if len(boxes) > MAX_BOXES:
         step = len(boxes) / float(MAX_BOXES)
         boxes = [boxes[int(i * step)] for i in range(MAX_BOXES)]
+    # Facade and roof dressing is generated only for masses that survived the
+    # primary ceiling, avoiding orphan detail on pathological large scenes.
+    _decorate_buildings(grid, rng, style, boxes, roofs, detail_boxes, detail_quads)
+    if len(detail_boxes) > MAX_DETAIL_BOXES:
+        step = len(detail_boxes) / float(MAX_DETAIL_BOXES)
+        detail_boxes = [detail_boxes[int(i * step)] for i in range(MAX_DETAIL_BOXES)]
+    if len(detail_quads) > MAX_FACADE_QUADS:
+        step = len(detail_quads) / float(MAX_FACADE_QUADS)
+        detail_quads = [detail_quads[int(i * step)] for i in range(MAX_FACADE_QUADS)]
 
     # Small offset footprint pads ground the masses without transparent
     # shadows, sorting, or another draw call. Stacked upper boxes are skipped.
@@ -487,6 +564,10 @@ def generate_city_context(lot_w, lot_d, road_edges, style, seed):
         roofs=tuple(roofs),
         trees=tuple(trees),
         detail_rects=tuple(detail_rects),
+        detail_boxes=tuple(detail_boxes),
+        detail_quads=tuple(detail_quads),
+        road_profiles=road_profiles,
+        season=season,
     )
 
 
@@ -666,6 +747,117 @@ def _carve_streets(grid, rng, preset, road_edges):
                 grid.carve_row(tz, min(cols_right) + 1, grid.tx_max - 1)
 
 
+def _profile_maps(road_profiles):
+    horizontal, vertical = {}, {}
+    for axis, coordinate, kind in road_profiles or ():
+        (horizontal if axis == "h" else vertical)[int(coordinate)] = kind
+    return horizontal, vertical
+
+
+def _classify_road_profiles(grid, rng, style):
+    """Classify coherent corridors, widening selected avenues to two tiles."""
+    road_tiles = set(grid.road_tiles())
+    horizontal = sorted({tz for tx, tz in road_tiles if (tx - 1, tz) in road_tiles or (tx + 1, tz) in road_tiles})
+    vertical = sorted({tx for tx, tz in road_tiles if (tx, tz - 1) in road_tiles or (tx, tz + 1) in road_tiles})
+
+    avenue_chance = {
+        STYLE_URBAN: 0.82,
+        STYLE_SUBURBAN: 0.34,
+        STYLE_INDUSTRIAL: 0.70,
+        STYLE_CIVIC: 0.55,
+        STYLE_RURAL: 0.12,
+    }.get(style, 0.60)
+    bike_chance = {
+        STYLE_URBAN: 0.20,
+        STYLE_SUBURBAN: 0.18,
+        STYLE_INDUSTRIAL: 0.08,
+        STYLE_CIVIC: 0.24,
+        STYLE_RURAL: 0.04,
+    }.get(style, 0.16)
+    pedestrian_chance = {
+        STYLE_URBAN: 0.09,
+        STYLE_SUBURBAN: 0.05,
+        STYLE_INDUSTRIAL: 0.02,
+        STYLE_CIVIC: 0.15,
+        STYLE_RURAL: 0.05,
+    }.get(style, 0.08)
+
+    profiles = {}
+
+    def corridor_length(axis, coordinate):
+        return sum(1 for tx, tz in road_tiles if (tz == coordinate if axis == "h" else tx == coordinate))
+
+    def choose_avenue(axis, coordinates):
+        candidates = [coordinate for coordinate in coordinates if corridor_length(axis, coordinate) >= 8]
+        if not candidates or rng.random() >= avenue_chance:
+            return None
+        longest = max(corridor_length(axis, coordinate) for coordinate in candidates)
+        strong = [coordinate for coordinate in candidates if corridor_length(axis, coordinate) >= longest * 0.75]
+        return rng.choice(strong)
+
+    avenue_h = choose_avenue("h", horizontal)
+    avenue_v = choose_avenue("v", vertical)
+
+    def ordinary_kind(axis, coordinate):
+        # A promenade may never replace the immediate road serving the lot.
+        borders = {-1, grid.lot_d} if axis == "h" else {-1, grid.lot_w}
+        roll = rng.random()
+        if coordinate not in borders and roll < pedestrian_chance:
+            return ROAD_PEDESTRIAN
+        if roll < pedestrian_chance + bike_chance:
+            return ROAD_BIKE
+        return ROAD_STREET
+
+    for coordinate in horizontal:
+        profiles[("h", coordinate)] = ROAD_AVENUE if coordinate == avenue_h else ordinary_kind("h", coordinate)
+    for coordinate in vertical:
+        profiles[("v", coordinate)] = ROAD_AVENUE if coordinate == avenue_v else ordinary_kind("v", coordinate)
+
+    def widen(axis, coordinate):
+        if coordinate is None:
+            return
+        if axis == "h":
+            preferred = coordinate - 1 if coordinate < 0 else coordinate + 1
+            alternatives = (preferred, coordinate + 1 if preferred < coordinate else coordinate - 1)
+            pair = next(
+                (
+                    candidate
+                    for candidate in alternatives
+                    if grid.tz_min <= candidate < grid.tz_max
+                    and any(grid.get(tx, candidate) == _EMPTY for tx in range(grid.tx_min, grid.tx_max))
+                ),
+                None,
+            )
+            if pair is None:
+                return
+            for tx in range(grid.tx_min, grid.tx_max):
+                if grid.is_road(tx, coordinate):
+                    grid.set_road(tx, pair)
+            profiles[("h", pair)] = ROAD_AVENUE
+        else:
+            preferred = coordinate - 1 if coordinate < 0 else coordinate + 1
+            alternatives = (preferred, coordinate + 1 if preferred < coordinate else coordinate - 1)
+            pair = next(
+                (
+                    candidate
+                    for candidate in alternatives
+                    if grid.tx_min <= candidate < grid.tx_max
+                    and any(grid.get(candidate, tz) == _EMPTY for tz in range(grid.tz_min, grid.tz_max))
+                ),
+                None,
+            )
+            if pair is None:
+                return
+            for tz in range(grid.tz_min, grid.tz_max):
+                if grid.is_road(coordinate, tz):
+                    grid.set_road(pair, tz)
+            profiles[("v", pair)] = ROAD_AVENUE
+
+    widen("h", avenue_h)
+    widen("v", avenue_v)
+    return tuple((axis, coordinate, kind) for (axis, coordinate), kind in sorted(profiles.items()))
+
+
 def _ground_frame(grid):
     """Base ground plane as four rects framing (never covering) the lot."""
     x0, z0 = grid.tx_min * TILE_M, grid.tz_min * TILE_M
@@ -680,65 +872,148 @@ def _ground_frame(grid):
     )
 
 
-def _road_corridors(grid, detail_rects):
-    """Per-tile road corridor geometry: 10 m asphalt + 3 m sidewalks.
-
-    Emitted per tile from the neighbour pattern so intersections join
-    cleanly: through sides extend asphalt to the tile edge, no-road sides
-    get a full sidewalk strip, and pedestrian corners appear only where two
-    road neighbours meet. Overlapping same-material rects are coplanar and
-    identically coloured, so they cannot shimmer.
-    """
+def _road_corridors(grid, detail_rects, road_profiles=None, style=None):
+    """Emit coherent street, avenue, bike-lane and promenade corridors."""
     rects = []
-    m, r = SIDEWALK_M, ROADWAY_M
+    horizontal_profiles, vertical_profiles = _profile_maps(road_profiles)
+    median_material = {
+        STYLE_SUBURBAN: MAT_HEDGE,
+        STYLE_CIVIC: MAT_HEDGE,
+        STYLE_URBAN: MAT_ISLAND,
+        STYLE_MIXED: MAT_ISLAND,
+        STYLE_INDUSTRIAL: MAT_ISLAND,
+    }.get(style)
+
+    # Direct unit-test callers and old serialized scenes have no profile map;
+    # infer the legacy one-tile street orientation in that case.
+    profiled = bool(road_profiles)
     for tx, tz in grid.road_tiles():
         x, z = tx * TILE_M, tz * TILE_M
         n = grid.is_road(tx, tz - 1)
         s = grid.is_road(tx, tz + 1)
         w = grid.is_road(tx - 1, tz)
         e = grid.is_road(tx + 1, tz)
-        horizontal = w or e or not (n or s)
+        hkind = horizontal_profiles.get(tz)
+        vkind = vertical_profiles.get(tx)
+        horizontal = bool(hkind and (w or e)) if profiled else (w or e or not (n or s))
+        vertical = bool(vkind and (n or s)) if profiled else bool(n or s)
+        if horizontal and hkind is None:
+            hkind = ROAD_STREET
+        if vertical and vkind is None:
+            vkind = ROAD_STREET
+
+        def horizontal_span(kind):
+            if kind == ROAD_AVENUE:
+                pair_n = horizontal_profiles.get(tz - 1) == ROAD_AVENUE
+                pair_s = horizontal_profiles.get(tz + 1) == ROAD_AVENUE
+                return (0.0 if pair_n else 2.0), (TILE_M if pair_s else 14.0), MAT_ROAD
+            if kind == ROAD_PEDESTRIAN:
+                width = 4.0 if vertical and vkind != ROAD_PEDESTRIAN else 8.0
+                return (TILE_M - width) * 0.5, (TILE_M + width) * 0.5, MAT_PEDESTRIAN
+            return SIDEWALK_M, SIDEWALK_M + ROADWAY_M, MAT_ROAD
+
+        def vertical_span(kind):
+            if kind == ROAD_AVENUE:
+                pair_w = vertical_profiles.get(tx - 1) == ROAD_AVENUE
+                pair_e = vertical_profiles.get(tx + 1) == ROAD_AVENUE
+                return (0.0 if pair_w else 2.0), (TILE_M if pair_e else 14.0), MAT_ROAD
+            if kind == ROAD_PEDESTRIAN:
+                width = 4.0 if horizontal and hkind != ROAD_PEDESTRIAN else 8.0
+                return (TILE_M - width) * 0.5, (TILE_M + width) * 0.5, MAT_PEDESTRIAN
+            return SIDEWALK_M, SIDEWALK_M + ROADWAY_M, MAT_ROAD
+
+        hz0, hz1, hmaterial = horizontal_span(hkind) if horizontal else (8.0, 8.0, MAT_ROAD)
+        vx0, vx1, vmaterial = vertical_span(vkind) if vertical else (8.0, 8.0, MAT_ROAD)
         if horizontal:
-            rects.append(Rect(MAT_ROAD, x + (0 if w else m), z + m, x + (TILE_M if e else m + r), z + m + r, _Y_ROAD))
-        if n or s:
-            rects.append(Rect(MAT_ROAD, x + m, z + (0 if n else m), x + m + r, z + (TILE_M if s else m + r), _Y_ROAD))
-        # Sidewalk strips along sides without a road neighbour.
-        if not n:
-            rects.append(Rect(MAT_SIDEWALK, x, z, x + TILE_M, z + m, _Y_SIDEWALK))
-        if not s:
-            rects.append(Rect(MAT_SIDEWALK, x, z + TILE_M - m, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
-        if not w:
-            rects.append(Rect(MAT_SIDEWALK, x, z, x + m, z + TILE_M, _Y_SIDEWALK))
-        if not e:
-            rects.append(Rect(MAT_SIDEWALK, x + TILE_M - m, z, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
-        # Pedestrian corner pads where two road arms meet.
-        if n and w:
-            rects.append(Rect(MAT_SIDEWALK, x, z, x + m, z + m, _Y_SIDEWALK))
-        if n and e:
-            rects.append(Rect(MAT_SIDEWALK, x + TILE_M - m, z, x + TILE_M, z + m, _Y_SIDEWALK))
-        if s and w:
-            rects.append(Rect(MAT_SIDEWALK, x, z + TILE_M - m, x + m, z + TILE_M, _Y_SIDEWALK))
-        if s and e:
-            rects.append(Rect(MAT_SIDEWALK, x + TILE_M - m, z + TILE_M - m, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
-        # Narrow curb faces and a regular 4 m dash / 4 m gap rhythm make the
-        # public realm read as a road rather than a debug-coloured strip.
-        # Intersections stay clear of internal lines and colour seams.
-        straight_h = (w or e) and not (n or s)
-        straight_v = (n or s) and not (w or e)
+            y = _Y_ROAD + (0.006 if hmaterial == MAT_PEDESTRIAN else 0.0)
+            rects.append(Rect(hmaterial, x + (0 if w else vx0), z + hz0, x + (TILE_M if e else vx1), z + hz1, y))
+        if vertical:
+            y = _Y_ROAD + (0.006 if vmaterial == MAT_PEDESTRIAN else 0.0)
+            rects.append(Rect(vmaterial, x + vx0, z + (0 if n else hz0), x + vx1, z + (TILE_M if s else hz1), y))
+
+        # Only exterior edges receive sidewalks. Paired avenue tiles therefore
+        # form one uninterrupted 32 m right-of-way with sidewalks outside.
+        if horizontal:
+            if hz0 > 0.0:
+                rects.append(Rect(MAT_SIDEWALK, x, z, x + TILE_M, z + hz0, _Y_SIDEWALK))
+            if hz1 < TILE_M:
+                rects.append(Rect(MAT_SIDEWALK, x, z + hz1, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
+        if vertical:
+            if vx0 > 0.0:
+                rects.append(Rect(MAT_SIDEWALK, x, z, x + vx0, z + TILE_M, _Y_SIDEWALK))
+            if vx1 < TILE_M:
+                rects.append(Rect(MAT_SIDEWALK, x + vx1, z, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
+
+        straight_h = horizontal and not vertical
+        straight_v = vertical and not horizontal
         if straight_h:
-            if not n:
-                detail_rects.append(Rect(MAT_CURB, x, z + m - 0.12, x + TILE_M, z + m + 0.12, _Y_MARKING))
-            if not s:
-                detail_rects.append(Rect(MAT_CURB, x, z + m + r - 0.12, x + TILE_M, z + m + r + 0.12, _Y_MARKING))
-            for start in (1.0, 9.0):
-                detail_rects.append(Rect(MAT_MARKING, x + start, z + 7.9, x + start + 4.0, z + 8.1, _Y_MARKING))
+            if hz0 > 0.0:
+                detail_rects.append(Rect(MAT_CURB, x, z + hz0 - 0.12, x + TILE_M, z + hz0 + 0.12, _Y_MARKING))
+            if hz1 < TILE_M:
+                detail_rects.append(Rect(MAT_CURB, x, z + hz1 - 0.12, x + TILE_M, z + hz1 + 0.12, _Y_MARKING))
+            if hkind == ROAD_STREET:
+                for start in (1.0, 9.0):
+                    detail_rects.append(Rect(MAT_MARKING, x + start, z + 7.9, x + start + 4.0, z + 8.1, _Y_MARKING))
+            elif hkind == ROAD_BIKE:
+                detail_rects.extend(
+                    (
+                        Rect(MAT_BIKE_LANE, x, z + 3.2, x + TILE_M, z + 4.65, _Y_MARKING),
+                        Rect(MAT_BIKE_LANE, x, z + 11.35, x + TILE_M, z + 12.8, _Y_MARKING),
+                    )
+                )
+                for start in (1.0, 9.0):
+                    detail_rects.append(Rect(MAT_MARKING, x + start, z + 7.9, x + start + 4.0, z + 8.1, _Y_MARKING))
+            elif hkind == ROAD_AVENUE:
+                pair_n = horizontal_profiles.get(tz - 1) == ROAD_AVENUE
+                pair_s = horizontal_profiles.get(tz + 1) == ROAD_AVENUE
+                if pair_s:
+                    if median_material:
+                        detail_rects.append(Rect(median_material, x, z + 15.4, x + TILE_M, z + 16.0, _Y_SIDEWALK))
+                    lane_z = z + (hz0 + 15.4) * 0.5
+                elif pair_n:
+                    if median_material:
+                        detail_rects.append(Rect(median_material, x, z, x + TILE_M, z + 0.6, _Y_SIDEWALK))
+                    lane_z = z + (0.6 + hz1) * 0.5
+                else:
+                    lane_z = z + 8.0
+                for start in (1.0, 9.0):
+                    detail_rects.append(
+                        Rect(MAT_MARKING, x + start, lane_z - 0.1, x + start + 4.0, lane_z + 0.1, _Y_MARKING)
+                    )
         elif straight_v:
-            if not w:
-                detail_rects.append(Rect(MAT_CURB, x + m - 0.12, z, x + m + 0.12, z + TILE_M, _Y_MARKING))
-            if not e:
-                detail_rects.append(Rect(MAT_CURB, x + m + r - 0.12, z, x + m + r + 0.12, z + TILE_M, _Y_MARKING))
-            for start in (1.0, 9.0):
-                detail_rects.append(Rect(MAT_MARKING, x + 7.9, z + start, x + 8.1, z + start + 4.0, _Y_MARKING))
+            if vx0 > 0.0:
+                detail_rects.append(Rect(MAT_CURB, x + vx0 - 0.12, z, x + vx0 + 0.12, z + TILE_M, _Y_MARKING))
+            if vx1 < TILE_M:
+                detail_rects.append(Rect(MAT_CURB, x + vx1 - 0.12, z, x + vx1 + 0.12, z + TILE_M, _Y_MARKING))
+            if vkind == ROAD_STREET:
+                for start in (1.0, 9.0):
+                    detail_rects.append(Rect(MAT_MARKING, x + 7.9, z + start, x + 8.1, z + start + 4.0, _Y_MARKING))
+            elif vkind == ROAD_BIKE:
+                detail_rects.extend(
+                    (
+                        Rect(MAT_BIKE_LANE, x + 3.2, z, x + 4.65, z + TILE_M, _Y_MARKING),
+                        Rect(MAT_BIKE_LANE, x + 11.35, z, x + 12.8, z + TILE_M, _Y_MARKING),
+                    )
+                )
+                for start in (1.0, 9.0):
+                    detail_rects.append(Rect(MAT_MARKING, x + 7.9, z + start, x + 8.1, z + start + 4.0, _Y_MARKING))
+            elif vkind == ROAD_AVENUE:
+                pair_w = vertical_profiles.get(tx - 1) == ROAD_AVENUE
+                pair_e = vertical_profiles.get(tx + 1) == ROAD_AVENUE
+                if pair_e:
+                    if median_material:
+                        detail_rects.append(Rect(median_material, x + 15.4, z, x + 16.0, z + TILE_M, _Y_SIDEWALK))
+                    lane_x = x + (vx0 + 15.4) * 0.5
+                elif pair_w:
+                    if median_material:
+                        detail_rects.append(Rect(median_material, x, z, x + 0.6, z + TILE_M, _Y_SIDEWALK))
+                    lane_x = x + (0.6 + vx1) * 0.5
+                else:
+                    lane_x = x + 8.0
+                for start in (1.0, 9.0):
+                    detail_rects.append(
+                        Rect(MAT_MARKING, lane_x - 0.1, z + start, lane_x + 0.1, z + start + 4.0, _Y_MARKING)
+                    )
     return rects
 
 
@@ -1013,6 +1288,468 @@ def _street_trees(grid, rng, preset, trees):
                 trees.append(_tree(rng, x + TILE_M - 1.5, z + offset, _Y_SIDEWALK, 1.1, height, radius))
 
 
+# --- cached close-detail dressing -----------------------------------------
+
+
+def _tile_distance_to_lot(grid, tx, tz):
+    dx = max(0, -tx, tx - grid.lot_w + 1)
+    dz = max(0, -tz, tz - grid.lot_d + 1)
+    return max(dx, dz)
+
+
+def _rect_distance_to_lot(grid, rect):
+    cx = (rect.x0 + rect.x1) * 0.5 / TILE_M
+    cz = (rect.z0 + rect.z1) * 0.5 / TILE_M
+    return max(max(0.0, -cx, cx - grid.lot_w), max(0.0, -cz, cz - grid.lot_d))
+
+
+def _add_car(rng, x, z, along_x, detail_boxes):
+    """Add a two-box, SC4-scale parked car."""
+    length, width = 4.25, 1.82
+    material = rng.choice((MAT_VEHICLE_RED, MAT_VEHICLE_BLUE, MAT_VEHICLE_NEUTRAL, MAT_VEHICLE_NEUTRAL))
+    if along_x:
+        x0, x1, z0, z1 = x - length / 2, x + length / 2, z - width / 2, z + width / 2
+        cx0, cx1, cz0, cz1 = x - 1.25, x + 1.15, z - 0.76, z + 0.76
+    else:
+        x0, x1, z0, z1 = x - width / 2, x + width / 2, z - length / 2, z + length / 2
+        cx0, cx1, cz0, cz1 = x - 0.76, x + 0.76, z - 1.25, z + 1.15
+    detail_boxes.append(Box(material, x0, z0, x1, z1, 0.0, 0.62, rng.uniform(0.92, 1.08)))
+    detail_boxes.append(Box(MAT_WINDOW, cx0, cz0, cx1, cz1, 0.62, 1.28, 0.72))
+
+
+def _add_streetlamp(x, z, detail_boxes, height=4.2):
+    detail_boxes.append(Box(MAT_DARK_METAL, x - 0.09, z - 0.09, x + 0.09, z + 0.09, 0.0, height, 0.82))
+    detail_boxes.append(Box(MAT_LAMP, x - 0.24, z - 0.24, x + 0.24, z + 0.24, height - 0.12, height + 0.28))
+
+
+def _add_bollard(x, z, detail_boxes):
+    detail_boxes.append(Box(MAT_DARK_METAL, x - 0.10, z - 0.10, x + 0.10, z + 0.10, 0.0, 0.92, 0.88))
+
+
+def _add_bench(x, z, along_x, detail_boxes):
+    if along_x:
+        detail_boxes.append(Box(MAT_BENCH, x - 1.0, z - 0.25, x + 1.0, z + 0.25, 0.42, 0.62))
+        detail_boxes.append(Box(MAT_BENCH, x - 1.0, z + 0.18, x + 1.0, z + 0.30, 0.62, 1.15))
+    else:
+        detail_boxes.append(Box(MAT_BENCH, x - 0.25, z - 1.0, x + 0.25, z + 1.0, 0.42, 0.62))
+        detail_boxes.append(Box(MAT_BENCH, x + 0.18, z - 1.0, x + 0.30, z + 1.0, 0.62, 1.15))
+
+
+def _decorate_streets(grid, rng, style, detail_rects, detail_boxes, road_profiles=None):
+    """Crosswalks, parked cars, lamps and signals around the edited lot."""
+    activity = {
+        STYLE_URBAN: 0.55,
+        STYLE_SUBURBAN: 0.28,
+        STYLE_INDUSTRIAL: 0.38,
+        STYLE_CIVIC: 0.42,
+        STYLE_RURAL: 0.12,
+    }.get(style, 0.38)
+    horizontal_profiles, vertical_profiles = _profile_maps(road_profiles)
+    profiled = bool(road_profiles)
+    for tx, tz in grid.road_tiles():
+        distance = _tile_distance_to_lot(grid, tx, tz)
+        if distance > 11:
+            continue
+        n, s = grid.is_road(tx, tz - 1), grid.is_road(tx, tz + 1)
+        w, e = grid.is_road(tx - 1, tz), grid.is_road(tx + 1, tz)
+        hkind = horizontal_profiles.get(tz)
+        vkind = vertical_profiles.get(tx)
+        if profiled:
+            has_h = bool(hkind and (w or e))
+            has_v = bool(vkind and (n or s))
+            horizontal = has_h and not has_v
+            vertical = has_v and not has_h
+            intersection = has_h and has_v
+        else:
+            horizontal = (w or e) and not (n or s)
+            vertical = (n or s) and not (w or e)
+            intersection = (n or s) and (w or e)
+            hkind = ROAD_STREET if horizontal or intersection else None
+            vkind = ROAD_STREET if vertical or intersection else None
+        x, z = tx * TILE_M, tz * TILE_M
+
+        protected = intersection and {hkind, vkind} == {ROAD_AVENUE, ROAD_PEDESTRIAN}
+        if protected and distance <= 8:
+            # The promenade itself becomes a raised coloured table across the
+            # avenue. Bollards guard both curbs and the centre refuge without
+            # blocking the pedestrian desire line.
+            if hkind == ROAD_PEDESTRIAN:
+                detail_rects.append(Rect(MAT_PEDESTRIAN, x + 1.0, z + 6.2, x + 15.0, z + 9.8, _Y_MARKING + 0.008))
+                for bx in (x + 1.8, x + 8.0, x + 14.2):
+                    _add_bollard(bx, z + 5.9, detail_boxes)
+                    _add_bollard(bx, z + 10.1, detail_boxes)
+            else:
+                detail_rects.append(Rect(MAT_PEDESTRIAN, x + 6.2, z + 1.0, x + 9.8, z + 15.0, _Y_MARKING + 0.008))
+                for bz in (z + 1.8, z + 8.0, z + 14.2):
+                    _add_bollard(x + 5.9, bz, detail_boxes)
+                    _add_bollard(x + 10.1, bz, detail_boxes)
+        elif intersection and distance <= 8:
+            # Build one correctly oriented 9.6 m crossing on every connected
+            # approach. Bars run in the pedestrian direction; stop bars run
+            # across the corresponding traffic lane.
+            stripe_w, stripe_step = 0.38, 0.68
+            for i in range(4):
+                near = 3.25 + i * stripe_step
+                far = 12.75 - i * stripe_step - stripe_w
+                if n:
+                    detail_rects.append(Rect(MAT_MARKING, x + 3.2, z + near, x + 12.8, z + near + stripe_w, _Y_MARKING))
+                if s:
+                    detail_rects.append(Rect(MAT_MARKING, x + 3.2, z + far, x + 12.8, z + far + stripe_w, _Y_MARKING))
+                if w:
+                    detail_rects.append(Rect(MAT_MARKING, x + near, z + 3.2, x + near + stripe_w, z + 12.8, _Y_MARKING))
+                if e:
+                    detail_rects.append(Rect(MAT_MARKING, x + far, z + 3.2, x + far + stripe_w, z + 12.8, _Y_MARKING))
+            stop_w = 0.24
+            if n:
+                detail_rects.append(Rect(MAT_MARKING, x + 3.1, z + 6.05, x + 12.9, z + 6.05 + stop_w, _Y_MARKING))
+            if s:
+                detail_rects.append(Rect(MAT_MARKING, x + 3.1, z + 9.71, x + 12.9, z + 9.71 + stop_w, _Y_MARKING))
+            if w:
+                detail_rects.append(Rect(MAT_MARKING, x + 6.05, z + 3.1, x + 6.05 + stop_w, z + 12.9, _Y_MARKING))
+            if e:
+                detail_rects.append(Rect(MAT_MARKING, x + 9.71, z + 3.1, x + 9.71 + stop_w, z + 12.9, _Y_MARKING))
+            # Signals at opposing corners; their dark heads remain visible by
+            # day while nearby streetlamps provide the night glow.
+            for sx, sz in ((x + 2.25, z + 2.25), (x + 13.75, z + 13.75)):
+                detail_boxes.append(Box(MAT_DARK_METAL, sx - 0.11, sz - 0.11, sx + 0.11, sz + 0.11, 0.0, 3.5))
+                detail_boxes.append(Box(MAT_DARK_METAL, sx - 0.25, sz - 0.18, sx + 0.25, sz + 0.18, 3.2, 4.0))
+
+        kind = hkind if horizontal else vkind if vertical else None
+        motor_road = kind in (ROAD_STREET, ROAD_AVENUE)
+        if motor_road and rng.random() < activity * max(0.25, 1.0 - distance / 15.0):
+            if horizontal:
+                _add_car(rng, x + 8.0 + rng.uniform(-1.0, 1.0), z + rng.choice((4.25, 11.75)), True, detail_boxes)
+            else:
+                _add_car(rng, x + rng.choice((4.25, 11.75)), z + 8.0 + rng.uniform(-1.0, 1.0), False, detail_boxes)
+
+        if (horizontal or vertical) and (tx + tz) % 2 == 0 and rng.random() < 0.72:
+            if horizontal:
+                if kind == ROAD_AVENUE and horizontal_profiles.get(tz + 1) == ROAD_AVENUE:
+                    lamp_z = z + 1.25
+                elif kind == ROAD_AVENUE and horizontal_profiles.get(tz - 1) == ROAD_AVENUE:
+                    lamp_z = z + 14.75
+                else:
+                    lamp_z = z + rng.choice((1.25, 14.75))
+                _add_streetlamp(x + 8.0, lamp_z, detail_boxes)
+            else:
+                if kind == ROAD_AVENUE and vertical_profiles.get(tx + 1) == ROAD_AVENUE:
+                    lamp_x = x + 1.25
+                elif kind == ROAD_AVENUE and vertical_profiles.get(tx - 1) == ROAD_AVENUE:
+                    lamp_x = x + 14.75
+                else:
+                    lamp_x = x + rng.choice((1.25, 14.75))
+                _add_streetlamp(lamp_x, z + 8.0, detail_boxes)
+
+        if kind == ROAD_BIKE and (tx + tz) % 2 == 0:
+            if horizontal:
+                for bx in (x + 4.0, x + 12.0):
+                    _add_bollard(bx, z + 4.85, detail_boxes)
+                    _add_bollard(bx, z + 11.15, detail_boxes)
+            elif vertical:
+                for bz in (z + 4.0, z + 12.0):
+                    _add_bollard(x + 4.85, bz, detail_boxes)
+                    _add_bollard(x + 11.15, bz, detail_boxes)
+        elif kind == ROAD_PEDESTRIAN and (tx + tz) % 3 == 0:
+            if horizontal:
+                _add_bench(x + 8.0, z + 2.0, True, detail_boxes)
+            elif vertical:
+                _add_bench(x + 2.0, z + 8.0, False, detail_boxes)
+        elif kind == ROAD_AVENUE and style in (STYLE_SUBURBAN, STYLE_CIVIC):
+            # One planter per paired tile seam creates a planted median while
+            # leaving several metres clear at every junction.
+            if horizontal and horizontal_profiles.get(tz + 1) == ROAD_AVENUE:
+                detail_boxes.append(Box(MAT_HEDGE, x + 3.0, z + 15.55, x + 13.0, z + 16.45, 0.0, 0.72))
+            elif vertical and vertical_profiles.get(tx + 1) == ROAD_AVENUE:
+                detail_boxes.append(Box(MAT_HEDGE, x + 15.55, z + 3.0, x + 16.45, z + 13.0, 0.0, 0.72))
+
+
+def _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes):
+    """Give parks, plazas, yards and rural fields style-specific furniture."""
+    candidates = [r for r in rects if r.material in (MAT_PARK, MAT_PLAZA, MAT_YARD, MAT_PARKING)]
+    for rect in candidates:
+        if _rect_distance_to_lot(grid, rect) > 9:
+            continue
+        w, d = rect.x1 - rect.x0, rect.z1 - rect.z0
+        if min(w, d) < 5.0:
+            continue
+        cx, cz = (rect.x0 + rect.x1) * 0.5, (rect.z0 + rect.z1) * 0.5
+
+        if rect.material == MAT_PARKING and rng.random() < 0.72:
+            along_x = w >= d
+            count = min(5, max(1, int((w if along_x else d) / 8.0)))
+            for i in range(count):
+                offset = (i + 0.5) / count - 0.5
+                if along_x:
+                    _add_car(rng, cx + offset * w * 0.72, cz - d * 0.22, True, detail_boxes)
+                else:
+                    _add_car(rng, cx - w * 0.22, cz + offset * d * 0.72, False, detail_boxes)
+            continue
+
+        if rect.material in (MAT_PARK, MAT_PLAZA) and rng.random() < 0.55:
+            _add_bench(cx, rect.z0 + min(2.0, d * 0.22), w >= d, detail_boxes)
+        if style == STYLE_CIVIC and rect.material == MAT_PLAZA and min(w, d) >= 11.0 and rng.random() < 0.55:
+            size = min(4.5, min(w, d) * 0.28)
+            detail_rects.append(Rect(MAT_WATER, cx - size, cz - size, cx + size, cz + size, _Y_MARKING))
+            detail_boxes.append(Box(MAT_BRICK, cx - 0.65, cz - 0.65, cx + 0.65, cz + 0.65, 0.0, 2.8))
+            for px, pz in ((cx - size - 1.0, cz), (cx + size + 1.0, cz)):
+                detail_boxes.append(Box(MAT_HEDGE, px - 0.65, pz - 0.65, px + 0.65, pz + 0.65, 0.0, 0.8))
+        elif style == STYLE_CIVIC and rect.material == MAT_PARK:
+            path = min(1.8, min(w, d) * 0.14)
+            detail_rects.append(Rect(MAT_PLAZA, rect.x0 + 1.0, cz - path / 2, rect.x1 - 1.0, cz + path / 2, _Y_MARKING))
+        elif style == STYLE_RURAL and rect.material in (MAT_PARK, MAT_YARD) and min(w, d) >= 12.0:
+            # Alternating crop strips are flat, cheap and immediately turn a
+            # generic green parcel into agricultural context.
+            count = min(8, max(3, int(min(w, d) / 3.5)))
+            if w >= d:
+                step = d / count
+                for i in range(0, count, 2):
+                    detail_rects.append(
+                        Rect(
+                            MAT_FIELD,
+                            rect.x0 + 1.0,
+                            rect.z0 + i * step,
+                            rect.x1 - 1.0,
+                            rect.z0 + (i + 1) * step,
+                            _Y_MARKING,
+                        )
+                    )
+            else:
+                step = w / count
+                for i in range(0, count, 2):
+                    detail_rects.append(
+                        Rect(
+                            MAT_FIELD,
+                            rect.x0 + i * step,
+                            rect.z0 + 1.0,
+                            rect.x0 + (i + 1) * step,
+                            rect.z1 - 1.0,
+                            _Y_MARKING,
+                        )
+                    )
+        elif style == STYLE_SUBURBAN and rect.material == MAT_YARD and rng.random() < 0.35:
+            detail_boxes.append(
+                Box(
+                    MAT_HEDGE,
+                    rect.x0 + 0.5,
+                    rect.z0 + 0.5,
+                    rect.x1 - 0.5,
+                    rect.z0 + 1.0,
+                    0.0,
+                    0.9,
+                    rng.uniform(0.9, 1.08),
+                )
+            )
+        elif style == STYLE_INDUSTRIAL and rect.material == MAT_YARD and min(w, d) >= 14.0 and rng.random() < 0.28:
+            # Stacked container-like service blocks stay against the parcel
+            # edge, outside the normal building setback.
+            length = min(8.0, w - 2.0)
+            detail_boxes.append(
+                Box(
+                    rng.choice((MAT_VEHICLE_RED, MAT_VEHICLE_BLUE, MAT_METAL)),
+                    rect.x0 + 1.0,
+                    rect.z0 + 0.8,
+                    rect.x0 + 1.0 + length,
+                    rect.z0 + 3.2,
+                    0.0,
+                    2.5,
+                    0.82,
+                )
+            )
+
+
+def _facade_quad(axis, plane, lo, hi, y0, y1, material, tint=1.0, reverse=False):
+    if axis == "x":
+        points = ((lo, y0, plane), (hi, y0, plane), (hi, y1, plane), (lo, y1, plane))
+    else:
+        points = ((plane, y0, lo), (plane, y0, hi), (plane, y1, hi), (plane, y1, lo))
+    if reverse:
+        points = tuple(reversed(points))
+    return Quad(material, points, tint)
+
+
+def _decorate_buildings(grid, rng, style, boxes, roofs, detail_boxes, detail_quads):
+    """Bake daytime facades and a style-specific rooftop silhouette kit."""
+    pitched = {(round(r.x0, 2), round(r.z0, 2), round(r.x1, 2), round(r.z1, 2)) for r in roofs}
+    window_chance = {
+        STYLE_URBAN: 0.82,
+        STYLE_SUBURBAN: 0.48,
+        STYLE_INDUSTRIAL: 0.28,
+        STYLE_CIVIC: 0.72,
+        STYLE_RURAL: 0.34,
+    }.get(style, 0.62)
+
+    for box in boxes:
+        tx, tz = ((box.x0 + box.x1) * 0.5 / TILE_M, (box.z0 + box.z1) * 0.5 / TILE_M)
+        distance = max(max(0.0, -tx, tx - grid.lot_w), max(0.0, -tz, tz - grid.lot_d))
+        if distance > 10.5:
+            continue
+        base_y = max(0.0, box.y0)
+        height = box.y1 - base_y
+        if height < 2.8:
+            continue
+        faces = (
+            ("x", box.z0 - 0.04, box.x0, box.x1, True),
+            ("x", box.z1 + 0.04, box.x0, box.x1, False),
+            ("z", box.x0 - 0.04, box.z0, box.z1, False),
+            ("z", box.x1 + 0.04, box.z0, box.z1, True),
+        )
+        door_face = rng.randrange(4)
+        floors = min(14, max(1, int((height - 0.8) / 3.1)))
+        for face_index, (axis, plane, lo, hi, reverse) in enumerate(faces):
+            span = hi - lo
+            columns = min(14, max(1, int(span / (3.0 if style == STYLE_URBAN else 3.8))))
+            spacing = span / columns
+            width = min(1.35, spacing * 0.48)
+            has_storefront = (
+                box.y0 <= 0.05
+                and style in (STYLE_URBAN, STYLE_MIXED, STYLE_CIVIC)
+                and face_index < 2
+                and face_index != door_face
+                and span >= 8.0
+                and rng.random() < 0.58
+            )
+            for floor in range(floors):
+                if floor == 0 and has_storefront:
+                    continue
+                bottom = base_y + 1.0 + floor * 3.1
+                top = min(box.y1 - 0.38, bottom + (1.18 if style == STYLE_CIVIC else 1.02))
+                if top <= bottom:
+                    continue
+                for column in range(columns):
+                    if rng.random() > window_chance:
+                        continue
+                    center = lo + (column + 0.5) * spacing
+                    detail_quads.append(
+                        _facade_quad(
+                            axis,
+                            plane,
+                            center - width / 2,
+                            center + width / 2,
+                            bottom,
+                            top,
+                            MAT_WINDOW,
+                            rng.uniform(0.88, 1.05),
+                            reverse,
+                        )
+                    )
+
+            # Doors anchor the otherwise repetitive grid at ground level.
+            if box.y0 <= 0.05 and face_index == door_face:
+                center = lo + span * rng.uniform(0.35, 0.65)
+                detail_quads.append(
+                    _facade_quad(
+                        axis,
+                        plane,
+                        center - 0.72,
+                        center + 0.72,
+                        0.05,
+                        min(2.55, box.y1 - 0.1),
+                        MAT_DOOR,
+                        reverse=reverse,
+                    )
+                )
+
+            if has_storefront:
+                detail_quads.append(
+                    _facade_quad(
+                        axis,
+                        plane,
+                        lo + 0.8,
+                        hi - 0.8,
+                        0.35,
+                        min(2.85, box.y1 - 0.15),
+                        MAT_STOREFRONT,
+                        rng.uniform(0.9, 1.05),
+                        reverse,
+                    )
+                )
+                # A thin projecting awning reads strongly in the isometric view.
+                mid = (lo + hi) * 0.5
+                if axis == "x":
+                    z1 = plane + (0.75 if plane > (box.z0 + box.z1) * 0.5 else -0.75)
+                    detail_quads.append(
+                        Quad(
+                            MAT_AWNING,
+                            (
+                                (mid - 2.0, 2.75, plane),
+                                (mid + 2.0, 2.75, plane),
+                                (mid + 2.0, 2.55, z1),
+                                (mid - 2.0, 2.55, z1),
+                            ),
+                        )
+                    )
+                else:
+                    x1 = plane + (0.75 if plane > (box.x0 + box.x1) * 0.5 else -0.75)
+                    detail_quads.append(
+                        Quad(
+                            MAT_AWNING,
+                            (
+                                (plane, 2.75, mid - 2.0),
+                                (plane, 2.75, mid + 2.0),
+                                (x1, 2.55, mid + 2.0),
+                                (x1, 2.55, mid - 2.0),
+                            ),
+                        )
+                    )
+
+        footprint = (round(box.x0, 2), round(box.z0, 2), round(box.x1, 2), round(box.z1, 2))
+        flat_roof = footprint not in pitched
+        w, d = box.x1 - box.x0, box.z1 - box.z0
+        if flat_roof and min(w, d) >= 5.0:
+            if style in (STYLE_URBAN, STYLE_CIVIC, STYLE_MIXED) and rng.random() < 0.62:
+                p, h = 0.24, 0.5
+                detail_boxes.extend(
+                    (
+                        Box(MAT_BRICK, box.x0, box.z0, box.x1, box.z0 + p, box.y1, box.y1 + h, box.tint),
+                        Box(MAT_BRICK, box.x0, box.z1 - p, box.x1, box.z1, box.y1, box.y1 + h, box.tint),
+                        Box(MAT_BRICK, box.x0, box.z0 + p, box.x0 + p, box.z1 - p, box.y1, box.y1 + h, box.tint),
+                        Box(MAT_BRICK, box.x1 - p, box.z0 + p, box.x1, box.z1 - p, box.y1, box.y1 + h, box.tint),
+                    )
+                )
+            units = 0
+            if style == STYLE_INDUSTRIAL:
+                units = rng.randint(2, 4)
+            elif style in (STYLE_URBAN, STYLE_CIVIC, STYLE_MIXED) and box.y1 >= 7.0:
+                units = rng.randint(1, 3)
+            for _ in range(units):
+                uw = min(rng.uniform(1.0, 2.4), w * 0.28)
+                ud = min(rng.uniform(0.9, 2.0), d * 0.28)
+                ux = rng.uniform(box.x0 + 0.8, max(box.x0 + 0.8, box.x1 - uw - 0.8))
+                uz = rng.uniform(box.z0 + 0.8, max(box.z0 + 0.8, box.z1 - ud - 0.8))
+                detail_boxes.append(
+                    Box(
+                        MAT_METAL,
+                        ux,
+                        uz,
+                        ux + uw,
+                        uz + ud,
+                        box.y1 + 0.02,
+                        box.y1 + rng.uniform(0.65, 1.35),
+                        rng.uniform(0.82, 1.05),
+                    )
+                )
+            if style in (STYLE_SUBURBAN, STYLE_RURAL) and rng.random() < 0.45:
+                cx = box.x0 + w * rng.uniform(0.22, 0.78)
+                cz = box.z0 + d * rng.uniform(0.22, 0.78)
+                detail_boxes.append(
+                    Box(MAT_BRICK, cx - 0.35, cz - 0.35, cx + 0.35, cz + 0.35, box.y1, box.y1 + 1.8, 0.82)
+                )
+            if style == STYLE_INDUSTRIAL and rng.random() < 0.42:
+                sx, sz = box.x0 + w * 0.72, box.z0 + d * 0.68
+                detail_boxes.append(
+                    Box(
+                        MAT_DARK_METAL,
+                        sx - 0.28,
+                        sz - 0.28,
+                        sx + 0.28,
+                        sz + 0.28,
+                        box.y1,
+                        box.y1 + rng.uniform(3.0, 6.0),
+                        0.8,
+                    )
+                )
+
+
 # --- massing ---------------------------------------------------------------
 
 
@@ -1260,6 +1997,25 @@ _PALETTE = {
     MAT_MARKING: (0.76, 0.76, 0.75),
     MAT_CONTACT: (0.46, 0.46, 0.45),
     MAT_CURB: (0.62, 0.62, 0.61),
+    MAT_WINDOW: (0.34, 0.43, 0.48),
+    MAT_DOOR: (0.34, 0.31, 0.28),
+    MAT_STOREFRONT: (0.39, 0.49, 0.53),
+    MAT_AWNING: (0.63, 0.35, 0.30),
+    MAT_METAL: (0.59, 0.62, 0.63),
+    MAT_DARK_METAL: (0.25, 0.27, 0.28),
+    MAT_BRICK: (0.61, 0.53, 0.48),
+    MAT_HEDGE: (0.39, 0.49, 0.35),
+    MAT_FIELD: (0.62, 0.65, 0.43),
+    MAT_VEHICLE_RED: (0.57, 0.25, 0.23),
+    MAT_VEHICLE_BLUE: (0.25, 0.37, 0.52),
+    MAT_VEHICLE_NEUTRAL: (0.53, 0.54, 0.53),
+    MAT_LAMP: (0.83, 0.78, 0.61),
+    MAT_BENCH: (0.43, 0.34, 0.27),
+    MAT_WATER: (0.39, 0.55, 0.61),
+    MAT_HORIZON: (0.38, 0.41, 0.44),
+    MAT_BIKE_LANE: (0.34, 0.53, 0.46),
+    MAT_PEDESTRIAN: (0.69, 0.65, 0.57),
+    MAT_ISLAND: (0.62, 0.61, 0.57),
 }
 
 # Restrained per-style accents. Roads and sidewalks remain consistent across
@@ -1304,9 +2060,32 @@ _STYLE_PALETTES = {
 }
 
 
-def _palette_for_style(style):
+_SEASON_PALETTES = {
+    SEASON_SPRING: {
+        MAT_CANOPY: (0.55, 0.68, 0.48),
+        MAT_PARK: (0.61, 0.69, 0.54),
+        MAT_HEDGE: (0.48, 0.60, 0.41),
+    },
+    SEASON_AUTUMN: {
+        MAT_CANOPY: (0.70, 0.49, 0.28),
+        MAT_PARK: (0.63, 0.61, 0.44),
+        MAT_HEDGE: (0.54, 0.48, 0.29),
+        MAT_FIELD: (0.69, 0.55, 0.31),
+    },
+    SEASON_WINTER: {
+        MAT_CANOPY: (0.48, 0.46, 0.43),
+        MAT_PARK: (0.61, 0.61, 0.56),
+        MAT_YARD: (0.64, 0.64, 0.59),
+        MAT_HEDGE: (0.42, 0.44, 0.38),
+        MAT_FIELD: (0.62, 0.60, 0.52),
+    },
+}
+
+
+def _palette_for_style(style, season=SEASON_SUMMER):
     palette = dict(_PALETTE)
     palette.update(_STYLE_PALETTES.get(style, ()))
+    palette.update(_SEASON_PALETTES.get(season, ()))
     # Retain just enough chroma to distinguish parks and style presets while
     # keeping the editable lot decisively more colourful than its context.
     for material, color in palette.items():
@@ -1358,7 +2137,10 @@ def scene_stats(scene):
         "boxes": len(scene.boxes),
         "roofs": len(scene.roofs),
         "trees": len(scene.trees),
+        "detail_boxes": len(scene.detail_boxes),
+        "facade_quads": len(scene.detail_quads),
         "style": scene.style,
+        "season": scene.season,
         "seed": scene.seed,
         "margin": scene.margin,
     }
@@ -1396,13 +2178,36 @@ def _rect_arrays(rects, center_x, center_z, palette):
     return positions.astype(numpy.float32), colors.astype(numpy.float32), normals.astype(numpy.float32)
 
 
+def _quad_arrays(quads, center_x, center_z, palette):
+    if not quads:
+        return _empty_arrays()
+    positions = []
+    colors = []
+    normals = []
+    for quad in quads:
+        color = tuple(min(1.0, c * quad.tint) for c in palette[quad.material]) + (1.0,)
+        normal = _face_normal(quad.points[0], quad.points[1], quad.points[2])
+        for index in _TRI_ORDER:
+            positions.append(quad.points[index])
+            colors.append(color)
+            normals.append(normal)
+    positions = numpy.asarray(positions, dtype=numpy.float32)
+    positions[:, 0] -= center_x
+    positions[:, 2] -= center_z
+    return positions, numpy.asarray(colors, dtype=numpy.float32), numpy.asarray(normals, dtype=numpy.float32)
+
+
 def _box_arrays(boxes, center_x, center_z, palette):
     if not boxes:
         return _empty_arrays()
     data = numpy.asarray([(b.x0, b.z0, b.x1, b.z1, b.y0, b.y1) for b in boxes], dtype=numpy.float64)
     base = numpy.asarray([tuple(c * b.tint for c in palette[b.material]) + (1.0,) for b in boxes], dtype=numpy.float64)
     top_color = numpy.asarray(
-        [tuple(c * b.tint for c in palette[MAT_ROOF]) + (1.0,) for b in boxes], dtype=numpy.float64
+        [
+            tuple(c * b.tint for c in palette[MAT_ROOF if b.material == MAT_WALL else b.material]) + (1.0,)
+            for b in boxes
+        ],
+        dtype=numpy.float64,
     )
     x0, z0, x1, z1, y0, y1 = (data[:, i] for i in range(6))
 
@@ -1501,7 +2306,7 @@ def _roof_arrays(roofs, center_x, center_z, palette):
     return positions, numpy.asarray(colors, dtype=numpy.float32), numpy.asarray(normals, dtype=numpy.float32)
 
 
-def _tree_arrays(trees, center_x, center_z, palette):
+def _tree_arrays(trees, center_x, center_z, palette, season=SEASON_SUMMER):
     """Faceted model trees: tapered trunks and six-sided crowns/conifers."""
     positions = []
     colors = []
@@ -1521,7 +2326,8 @@ def _tree_arrays(trees, center_x, center_z, palette):
         x, z, y = tree.x, tree.z, tree.base_y
         th = tree.trunk_h
         trunk_color = trunk + (1.0,)
-        canopy_color = tuple(min(1.0, channel * tree.tint) for channel in canopy) + (1.0,)
+        canopy_base = (0.47, 0.55, 0.43) if tree.conifer else canopy
+        canopy_color = tuple(min(1.0, channel * tree.tint) for channel in canopy_base) + (1.0,)
         bottom = []
         top = []
         for i in range(4):
@@ -1534,9 +2340,34 @@ def _tree_arrays(trees, center_x, center_z, palette):
             outward = ((a[0] + b[0]) / 2.0 - x, 0.0, (a[2] + b[2]) / 2.0 - z)
             add_face((a, b, c, d), trunk_color, outward)
 
-        r = tree.radius
+        if season == SEASON_WINTER and not tree.conifer:
+            # Bare deciduous crowns: six tapered branch planes retain a useful
+            # winter silhouette without introducing a separate primitive type.
+            branch_color = tuple(channel * 0.92 for channel in trunk) + (1.0,)
+            for i in range(6):
+                angle = tree.rotation + math.tau * i / 6.0
+                tangent = (-math.sin(angle) * 0.10, math.cos(angle) * 0.10)
+                start = (x, y + th * 0.72, z)
+                end = (
+                    x + math.cos(angle) * tree.radius * 0.82,
+                    y + th + tree.canopy_h * (0.48 + 0.07 * (i % 3)),
+                    z + math.sin(angle) * tree.radius * 0.82,
+                )
+                add_face(
+                    (
+                        (start[0] + tangent[0], start[1], start[2] + tangent[1]),
+                        (start[0] - tangent[0], start[1], start[2] - tangent[1]),
+                        end,
+                    ),
+                    branch_color,
+                    (math.cos(angle), 0.2, math.sin(angle)),
+                )
+            continue
+
+        seasonal_scale = 0.84 if season == SEASON_SPRING and not tree.conifer else 1.0
+        r = tree.radius * seasonal_scale
         base_y = y + th
-        top_y = base_y + tree.canopy_h
+        top_y = base_y + tree.canopy_h * seasonal_scale
         if tree.conifer:
             tiers = (
                 (base_y + tree.canopy_h * 0.05, r, base_y + tree.canopy_h * 0.72),
@@ -1589,76 +2420,55 @@ def _tree_arrays(trees, center_x, center_z, palette):
 def _window_arrays(scene, center_x, center_z):
     """A bounded deterministic set of emissive façade panes for night mode."""
     rng = random.Random(scene.seed ^ 0x57494E444F5753)
-    boxes = list(scene.boxes)
-    rng.shuffle(boxes)
     chance = {
-        STYLE_URBAN: 0.25,
-        STYLE_SUBURBAN: 0.14,
-        STYLE_INDUSTRIAL: 0.08,
-        STYLE_CIVIC: 0.18,
-        STYLE_RURAL: 0.08,
-    }.get(scene.style, 0.18)
+        STYLE_URBAN: 0.34,
+        STYLE_SUBURBAN: 0.20,
+        STYLE_INDUSTRIAL: 0.12,
+        STYLE_CIVIC: 0.26,
+        STYLE_RURAL: 0.12,
+    }.get(scene.style, 0.25)
     positions = []
     colors = []
-
-    def add_quad(points):
-        color = rng.choice(((0.88, 0.80, 0.61, 1.0), (0.80, 0.82, 0.76, 1.0)))
+    candidates = [quad for quad in scene.detail_quads if quad.material in (MAT_WINDOW, MAT_STOREFRONT)]
+    rng.shuffle(candidates)
+    for count, quad in enumerate(candidates):
+        pane_chance = 0.65 if quad.material == MAT_STOREFRONT else chance
+        if rng.random() >= pane_chance:
+            continue
+        color = rng.choice(((0.94, 0.80, 0.53, 1.0), (0.77, 0.84, 0.82, 1.0)))
         for index in _TRI_ORDER:
-            point = points[index]
+            point = quad.points[index]
             positions.append((point[0] - center_x, point[1], point[2] - center_z))
             colors.append(color)
-
-    count = 0
-    for box in boxes:
-        height = box.y1 - max(0.0, box.y0)
-        floors = min(10, int((height - 1.0) / 3.1))
-        if floors <= 0:
-            continue
-        faces = (
-            ("x", box.x0, box.x1, box.z0 - 0.035),
-            ("x", box.x0, box.x1, box.z1 + 0.035),
-            ("z", box.z0, box.z1, box.x0 - 0.035),
-            ("z", box.z0, box.z1, box.x1 + 0.035),
-        )
-        for axis, lo, hi, plane in faces:
-            columns = min(10, int((hi - lo) / 3.4))
-            if columns <= 0:
-                continue
-            spacing = (hi - lo) / columns
-            width = min(1.0, spacing * 0.42)
-            for floor in range(floors):
-                bottom = max(0.0, box.y0) + 1.0 + floor * 3.1
-                top = min(box.y1 - 0.4, bottom + 1.05)
-                if top <= bottom:
-                    continue
-                for column in range(columns):
-                    if rng.random() >= chance:
-                        continue
-                    center = lo + (column + 0.5) * spacing
-                    if axis == "x":
-                        add_quad(
-                            (
-                                (center - width / 2, bottom, plane),
-                                (center + width / 2, bottom, plane),
-                                (center + width / 2, top, plane),
-                                (center - width / 2, top, plane),
-                            )
-                        )
-                    else:
-                        add_quad(
-                            (
-                                (plane, bottom, center - width / 2),
-                                (plane, bottom, center + width / 2),
-                                (plane, top, center + width / 2),
-                                (plane, top, center - width / 2),
-                            )
-                        )
-                    count += 1
-                    if count >= MAX_LIT_WINDOWS:
-                        return numpy.asarray(positions, dtype=numpy.float32), numpy.asarray(colors, dtype=numpy.float32)
+        if len(positions) // 6 >= MAX_LIT_WINDOWS:
+            break
     return numpy.asarray(positions, dtype=numpy.float32).reshape(-1, 3), numpy.asarray(
         colors, dtype=numpy.float32
     ).reshape(-1, 4)
+
+
+def _distance_fade(positions, colors, scene, palette):
+    """Blend the outer model board and silhouettes into the 3D backdrop."""
+    if not len(positions):
+        return colors
+    half_w = scene.lot_w * TILE_M * 0.5
+    half_d = scene.lot_d * TILE_M * 0.5
+    dx = numpy.maximum(0.0, numpy.abs(positions[:, 0]) - half_w)
+    dz = numpy.maximum(0.0, numpy.abs(positions[:, 2]) - half_d)
+    distance = numpy.maximum(dx, dz) / max(1.0, scene.margin * TILE_M)
+    amount = numpy.clip((distance - 0.52) / 0.48, 0.0, 1.0)
+    amount = amount * amount * (3.0 - 2.0 * amount)
+    faded = colors.copy()
+    target = numpy.asarray(palette[MAT_HORIZON], dtype=numpy.float32)
+    faded[:, :3] = faded[:, :3] * (1.0 - amount[:, None]) + target * amount[:, None]
+    return faded
+
+
+def _trim_triangles(*arrays, limit):
+    """Trim parallel triangle soups to a shared vertex limit."""
+    count = min(len(arrays[0]), max(0, int(limit)))
+    count -= count % 3
+    return tuple(array[:count] for array in arrays)
 
 
 def build_context_mesh(scene):
@@ -1670,13 +2480,23 @@ def build_context_mesh(scene):
     """
     center_x = scene.lot_w * TILE_M / 2.0
     center_z = scene.lot_d * TILE_M / 2.0
-    palette = _palette_for_style(scene.style)
+    palette = _palette_for_style(scene.style, scene.season)
     rect_pos, rect_col, rect_norm = _rect_arrays(scene.rects, center_x, center_z, palette)
     box_pos, box_col, box_norm = _box_arrays(scene.boxes, center_x, center_z, palette)
     roof_pos, roof_col, roof_norm = _roof_arrays(scene.roofs, center_x, center_z, palette)
-    tree_pos, tree_col, tree_norm = _tree_arrays(scene.trees, center_x, center_z, palette)
+    tree_pos, tree_col, tree_norm = _tree_arrays(scene.trees, center_x, center_z, palette, scene.season)
     mark_pos, mark_col, mark_norm = _rect_arrays(scene.detail_rects, center_x, center_z, palette)
+    facade_pos, facade_col, facade_norm = _quad_arrays(scene.detail_quads, center_x, center_z, palette)
+    fitting_pos, fitting_col, fitting_norm = _box_arrays(scene.detail_boxes, center_x, center_z, palette)
     window_pos, window_col = _window_arrays(scene, center_x, center_z)
+    lamp_palette = dict(palette)
+    lamp_palette[MAT_LAMP] = (1.0, 0.82, 0.48)
+    lamp_pos, lamp_col, _lamp_norm = _box_arrays(
+        [box for box in scene.detail_boxes if box.material == MAT_LAMP][:MAX_NIGHT_LIGHTS],
+        center_x,
+        center_z,
+        lamp_palette,
+    )
 
     def interleave(positions, colors):
         vertices = numpy.zeros((len(positions), 9), dtype=numpy.float32)
@@ -1688,14 +2508,30 @@ def build_context_mesh(scene):
     positions = numpy.concatenate((rect_pos, box_pos, roof_pos))
     colors = numpy.concatenate((rect_col, box_col, roof_col))
     normals = numpy.concatenate((rect_norm, box_norm, roof_norm))
-    detail_positions = numpy.concatenate((mark_pos, tree_pos))
-    detail_colors = numpy.concatenate((mark_col, tree_col))
-    detail_normals = numpy.concatenate((mark_norm, tree_norm))
+    detail_positions = numpy.concatenate((mark_pos, facade_pos, fitting_pos, tree_pos))
+    detail_colors = numpy.concatenate((mark_col, facade_col, fitting_col, tree_col))
+    detail_normals = numpy.concatenate((mark_norm, facade_norm, fitting_norm, tree_norm))
+    night_positions = numpy.concatenate((window_pos, lamp_pos))
+    night_colors = numpy.concatenate((window_col, lamp_col))
+
+    colors = _distance_fade(positions, colors, scene, palette)
+    detail_colors = _distance_fade(detail_positions, detail_colors, scene, palette)
+
+    # Base geometry has priority, followed by close detail and then emissive
+    # overlays. The trim is a final guard for pathological lot dimensions; all
+    # normal scenes remain below the raised budget without touching it.
+    positions, colors, normals = _trim_triangles(positions, colors, normals, limit=MAX_CONTEXT_VERTICES)
+    remaining = MAX_CONTEXT_VERTICES - len(positions)
+    detail_positions, detail_colors, detail_normals = _trim_triangles(
+        detail_positions, detail_colors, detail_normals, limit=remaining
+    )
+    remaining -= len(detail_positions)
+    night_positions, night_colors = _trim_triangles(night_positions, night_colors, limit=remaining)
     normals.setflags(write=False)
     detail_normals.setflags(write=False)
     vertices = interleave(positions, colors)
     detail_vertices = interleave(detail_positions, detail_colors)
-    night_vertices = interleave(window_pos, window_col)
+    night_vertices = interleave(night_positions, night_colors)
     return ContextMesh(
         vertices=vertices,
         detail_vertices=detail_vertices,
@@ -1704,7 +2540,7 @@ def build_context_mesh(scene):
         # Views into the two immutable draw arrays: flat surfaces receive
         # shadows but never cast them, so no duplicate caster mesh is stored.
         shadow_vertices=vertices[len(rect_pos) :],
-        detail_shadow_vertices=detail_vertices[len(mark_pos) :],
+        detail_shadow_vertices=detail_vertices[min(len(mark_pos) + len(facade_pos), len(detail_vertices)) :],
         night_vertices=night_vertices,
     )
 

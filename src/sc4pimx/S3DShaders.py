@@ -17,6 +17,7 @@ from OpenGL.GL import (
     glUniform1f,
     glUniform1i,
     glUniform3f,
+    glUniform4f,
     glUniformMatrix3fv,
     glUniformMatrix4fv,
     glUseProgram,
@@ -312,6 +313,7 @@ uniform sampler2D u_texture;
 uniform int u_alpha_func;
 uniform float u_alpha_threshold;
 uniform int u_textured;
+uniform vec4 u_uv_bounds;
 
 in vec2 v_texcoord;
 out vec4 out_color;
@@ -330,6 +332,13 @@ bool alpha_passes(float alpha)
 
 void main(void)
 {
+    const float bounds_epsilon = 0.00001;
+    if (u_textured != 0 &&
+        (v_texcoord.x < u_uv_bounds.x - bounds_epsilon ||
+         v_texcoord.y < u_uv_bounds.y - bounds_epsilon ||
+         v_texcoord.x > u_uv_bounds.z + bounds_epsilon ||
+         v_texcoord.y > u_uv_bounds.w + bounds_epsilon))
+        discard;
     // The model's prerendered texture alpha is the silhouette: a fragment that
     // passes the model's own alpha test belongs to the caster and casts shadow.
     float alpha = u_textured != 0 ? texture(u_texture, v_texcoord).a : 1.0;
@@ -344,13 +353,13 @@ void main(void)
 
 
 class SC4ShadowProgram:
-    """Planar-projected shadow caster: SC4-style alpha-masked silhouette.
+    """Projective ground-decal shadow caster with an alpha-masked silhouette.
 
     Mirrors the ``SC4LightingProgram`` draw interface (``bind_instanced`` /
     ``set_material`` / ``unbind``) so it can be passed straight to
-    ``S3DMesh.draw``/``draw_instanced``. The caller flattens each caster onto the
-    ground plane via the MVP; this program preserves texture-alpha discard
-    while the caller records surviving fragments in a stencil coverage mask.
+    ``S3DMesh.draw``/``draw_instanced``. The mesh supplies a fitted ground
+    receiver decal; this program preserves texture-alpha discard while the
+    caller records surviving fragments in a stencil coverage mask.
     """
 
     def __init__(self):
@@ -368,6 +377,7 @@ class SC4ShadowProgram:
             'alpha_func': glGetUniformLocation(self.program, 'u_alpha_func'),
             'alpha_threshold': glGetUniformLocation(self.program, 'u_alpha_threshold'),
             'textured': glGetUniformLocation(self.program, 'u_textured'),
+            'uv_bounds': glGetUniformLocation(self.program, 'u_uv_bounds'),
         }
         self._texture_initialized = False
 
@@ -393,6 +403,9 @@ class SC4ShadowProgram:
         glUniform1i(self._uniforms['alpha_func'], int(alpha_func))
         glUniform1f(self._uniforms['alpha_threshold'], float(alpha_threshold))
         glUniform1i(self._uniforms['textured'], 1 if textured else 0)
+
+    def set_uv_bounds(self, bounds):
+        glUniform4f(self._uniforms['uv_bounds'], *map(float, bounds))
 
     def unbind(self):
         glUseProgram(0)

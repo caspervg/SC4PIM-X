@@ -1,3 +1,4 @@
+import random
 from dataclasses import replace
 from datetime import date
 from itertools import combinations
@@ -10,17 +11,38 @@ from sc4pimx.SC4CityContext import (
     EDGE_XMIN,
     EDGE_ZMAX,
     EDGE_ZMIN,
+    MAT_BIKE_LANE,
     MAT_CONTACT,
     MAT_CURB,
+    MAT_FIELD,
+    MAT_HEDGE,
+    MAT_HORIZON,
+    MAT_ISLAND,
+    MAT_LAMP,
     MAT_MARKING,
+    MAT_METAL,
     MAT_PARKING_AISLE,
+    MAT_PEDESTRIAN,
+    MAT_STOREFRONT,
+    MAT_WINDOW,
     MAX_BOXES,
+    MAX_CONTEXT_VERTICES,
+    MAX_DETAIL_BOXES,
+    MAX_FACADE_QUADS,
     MAX_LIT_WINDOWS,
+    MAX_NIGHT_LIGHTS,
     MAX_TREES,
     PARKING_AISLE_M,
     PARKING_DEPTH_M,
     PARKING_STALL_M,
+    ROAD_AVENUE,
+    ROAD_BIKE,
+    ROAD_PEDESTRIAN,
     ROADWAY_M,
+    SEASON_AUTUMN,
+    SEASON_SPRING,
+    SEASON_SUMMER,
+    SEASON_WINTER,
     SIDEWALK_M,
     STYLE_CIVIC,
     STYLE_INDUSTRIAL,
@@ -29,6 +51,7 @@ from sc4pimx.SC4CityContext import (
     STYLE_SUBURBAN,
     STYLE_URBAN,
     TILE_M,
+    _decorate_streets,
     _Grid,
     _make_parking,
     _palette_for_style,
@@ -42,6 +65,7 @@ from sc4pimx.SC4CityContext import (
     infer_context_style,
     light_context_vertices,
     road_edges_from_flags,
+    season_for_month,
     variation_seed,
 )
 
@@ -90,7 +114,53 @@ def test_road_and_parking_markings_use_real_world_dimensions():
     assert len(centers) >= 3
     assert all(b - a == pytest.approx(PARKING_STALL_M) for a, b in zip(centers, centers[1:]))
     assert any(rect.material == MAT_PARKING_AISLE for rect in rects)
-    assert max(max(color) - min(color) for color in _palette_for_style(STYLE_SUBURBAN).values()) < 0.07
+    palette = _palette_for_style(STYLE_SUBURBAN)
+    architectural = ("ground", "road", "sidewalk", "park", "yard", "wall", "roof")
+    assert max(max(palette[name]) - min(palette[name]) for name in architectural) < 0.07
+    assert max(max(color) - min(color) for color in palette.values()) < 0.15
+
+
+def test_crosswalks_are_scaled_and_oriented_per_connected_approach():
+    grid = _Grid(1, 1, 4)
+    center = (-2, -2)
+    for tx, tz in (center, (-2, -3), (-2, -1), (-3, -2), (-1, -2)):
+        grid.set_road(tx, tz)
+    details, boxes = [], []
+    _decorate_streets(grid, random.Random(7), STYLE_URBAN, details, boxes)
+
+    stripes = [
+        rect
+        for rect in details
+        if rect.material == MAT_MARKING and min(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(0.38)
+    ]
+    horizontal = [rect for rect in stripes if rect.x1 - rect.x0 > rect.z1 - rect.z0]
+    vertical = [rect for rect in stripes if rect.z1 - rect.z0 > rect.x1 - rect.x0]
+    assert len(horizontal) == len(vertical) == 8
+    assert all(max(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(9.6) for rect in stripes)
+
+
+def test_multimodal_corridors_are_coherent_wide_and_protected():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_URBAN, 12345)
+    profiles = {(axis, coordinate): kind for axis, coordinate, kind in scene.road_profiles}
+    avenues = [(axis, coordinate) for (axis, coordinate), kind in profiles.items() if kind == ROAD_AVENUE]
+    assert avenues
+    assert any((axis, coordinate + 1) in avenues for axis, coordinate in avenues)
+
+    road_tiles = set(scene.road_tiles)
+    for axis, coordinate in avenues:
+        if (axis, coordinate + 1) not in avenues:
+            continue
+        if axis == "h":
+            assert any((tx, coordinate) in road_tiles and (tx, coordinate + 1) in road_tiles for tx in range(-18, 22))
+        else:
+            assert any((coordinate, tz) in road_tiles and (coordinate + 1, tz) in road_tiles for tz in range(-18, 22))
+
+    assert ROAD_BIKE in profiles.values()
+    assert ROAD_PEDESTRIAN in profiles.values()
+    assert any(rect.material == MAT_BIKE_LANE for rect in scene.detail_rects)
+    assert any(rect.material == MAT_PEDESTRIAN for rect in scene.rects)
+    assert any(rect.material == MAT_PEDESTRIAN for rect in scene.detail_rects)  # protected avenue crossing
+    assert any(rect.material == MAT_ISLAND for rect in scene.detail_rects)
 
 
 @pytest.mark.parametrize("flags", range(16))
@@ -192,7 +262,7 @@ def test_typical_scene_mesh_stays_below_geometry_ceiling_and_is_prebuilt():
     )
     mesh = build_context_mesh(scene)
 
-    assert mesh.vertex_count < 100_000
+    assert mesh.vertex_count <= MAX_CONTEXT_VERTICES
     assert mesh.vertices.shape[1] == mesh.detail_vertices.shape[1] == 9
     assert mesh.normals.shape == mesh.vertices[:, :3].shape
     assert mesh.detail_normals.shape == mesh.detail_vertices[:, :3].shape
@@ -201,14 +271,65 @@ def test_typical_scene_mesh_stays_below_geometry_ceiling_and_is_prebuilt():
     assert not mesh.normals.flags.writeable
     assert not mesh.detail_normals.flags.writeable
     assert not mesh.night_vertices.flags.writeable
-    assert len(mesh.night_vertices) <= MAX_LIT_WINDOWS * 6
+    assert len(mesh.night_vertices) <= MAX_LIT_WINDOWS * 6 + MAX_NIGHT_LIGHTS * 30
     assert numpy.shares_memory(mesh.vertices, mesh.shadow_vertices)
     assert numpy.shares_memory(mesh.detail_vertices, mesh.detail_shadow_vertices)
     assert numpy.allclose(numpy.linalg.norm(mesh.normals, axis=1), 1.0, atol=1.0e-5)
     assert numpy.allclose(numpy.linalg.norm(mesh.detail_normals, axis=1), 1.0, atol=1.0e-5)
 
     large = generate_city_context(64, 64, road_edges_from_flags(12), STYLE_SUBURBAN, 123456)
-    assert build_context_mesh(large).vertex_count < 100_000
+    assert build_context_mesh(large).vertex_count <= MAX_CONTEXT_VERTICES
+
+
+def test_fancy_detail_kits_are_deterministic_bounded_and_style_specific():
+    scenes = {
+        style: generate_city_context(4, 4, road_edges_from_flags(8), style, 12345)
+        for style in (STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL)
+    }
+    for style, scene in scenes.items():
+        assert scene == generate_city_context(4, 4, road_edges_from_flags(8), style, 12345)
+        assert scene.detail_boxes
+        assert scene.detail_quads
+        assert len(scene.detail_boxes) <= MAX_DETAIL_BOXES
+        assert len(scene.detail_quads) <= MAX_FACADE_QUADS
+        assert any(box.material == MAT_LAMP for box in scene.detail_boxes)
+        assert any(quad.material == MAT_WINDOW for quad in scene.detail_quads)
+
+    assert any(quad.material == MAT_STOREFRONT for quad in scenes[STYLE_URBAN].detail_quads)
+    assert any(box.material == MAT_HEDGE for box in scenes[STYLE_SUBURBAN].detail_boxes)
+    assert any(box.material == MAT_METAL for box in scenes[STYLE_INDUSTRIAL].detail_boxes)
+    assert any(rect.material == "water" for rect in scenes[STYLE_CIVIC].detail_rects)
+    assert any(rect.material == MAT_FIELD for rect in scenes[STYLE_RURAL].detail_rects)
+
+
+def test_seasons_change_context_vegetation_without_reshuffling_the_city():
+    assert season_for_month(4) == SEASON_SPRING
+    assert season_for_month(7) == SEASON_SUMMER
+    assert season_for_month(10) == SEASON_AUTUMN
+    assert season_for_month(1) == SEASON_WINTER
+
+    summer = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_SUMMER)
+    autumn = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_AUTUMN)
+    winter = generate_city_context(5, 4, road_edges_from_flags(8), STYLE_SUBURBAN, 31415, SEASON_WINTER)
+    assert summer.boxes == autumn.boxes == winter.boxes
+    assert summer.road_tiles == autumn.road_tiles == winter.road_tiles
+    assert summer.trees == autumn.trees == winter.trees
+
+    summer_mesh = build_context_mesh(summer)
+    autumn_mesh = build_context_mesh(autumn)
+    winter_mesh = build_context_mesh(winter)
+    assert not numpy.array_equal(summer_mesh.detail_colors, autumn_mesh.detail_colors)
+    assert len(winter_mesh.detail_vertices) < len(summer_mesh.detail_vertices)
+
+
+def test_outer_context_colors_converge_on_the_horizon_palette():
+    scene = generate_city_context(4, 4, road_edges_from_flags(8), STYLE_MIXED, 2468)
+    mesh = build_context_mesh(scene)
+    horizon = numpy.asarray(_palette_for_style(scene.style, scene.season)[MAT_HORIZON])
+    distance = numpy.maximum(numpy.abs(mesh.positions[:, 0]), numpy.abs(mesh.positions[:, 2]))
+    far = mesh.colors[distance >= numpy.percentile(distance, 98), :3]
+    near = mesh.colors[distance <= numpy.percentile(distance, 30), :3]
+    assert numpy.linalg.norm(far.mean(axis=0) - horizon) < numpy.linalg.norm(near.mean(axis=0) - horizon)
 
 
 def test_visual_refinements_are_cached_geometry_not_draw_time_work():
@@ -282,13 +403,15 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
         lightingProfile = None
         SHADOW_COLOR = (0.08, 0.06, 0.23)
         SHADOW_STRENGTH = 0.4
+        SHADOW_DEPTH_BIAS_FACTOR = preview.LotEditorWin.SHADOW_DEPTH_BIAS_FACTOR
+        SHADOW_DEPTH_BIAS_UNITS = preview.LotEditorWin.SHADOW_DEPTH_BIAS_UNITS
         _render_context = None
 
         def _shadow_flatten_matrix(self):
             return numpy.identity(4)
 
-        def _shadow_silhouette_matrix(self):
-            return numpy.identity(4)
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
 
         def DrawCityContextShadows(self, _flatten):
             calls.append(("context", ()))
@@ -306,74 +429,246 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
     composites = [color for name, color in calls if name == "quad"]
     assert composites == [pytest.approx((0.632, 0.624, 0.692, 1.0))]
     assert ("glDepthMask", (preview.GL_FALSE,)) in calls
+    assert (
+        "glPolygonOffset",
+        (
+            preview.LotEditorWin.SHADOW_DEPTH_BIAS_FACTOR,
+            preview.LotEditorWin.SHADOW_DEPTH_BIAS_UNITS,
+        ),
+    ) in calls
 
 
-def test_atc_billboards_are_depth_tested_without_writing_depth(monkeypatch):
+def test_s3d_shadow_projector_includes_sc4_quarter_turn():
     import sc4pimx.SC4LotPreview as preview
-    from sc4pimx.ATCReader import ATC
-    from sc4pimx.SC4Renderer import TransformStack
 
-    calls = []
-    for name in ("glDepthFunc", "glDepthMask", "glDisable", "glEnable"):
-        monkeypatch.setattr(preview, name, lambda *args, name=name: calls.append((name, args)))
-
-    atc = ATC(None, None)
-    atc.draw_le = lambda *_args: True
-    atc.DrawGL = lambda *_args: calls.append(("draw", ()))
+    meshes = [object(), object(), object(), object()]
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [meshes]
+    submitted = {}
 
     class Dummy:
-        _render_context = TransformStack()
-        s3DTexturesHolder = object()
-        glCanvas2D = type("Canvas", (), {"renderer": object()})()
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
 
-        def _flush_model_batches(self, _batches):
-            return None
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
 
-    preview.LotEditorWin._draw_state_member(Dummy(), atc, (0, 0, 0), 0, 0, 0, 4, None, None, None)
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
 
-    draw_index = calls.index(("draw", ()))
-    assert ("glEnable", (preview.GL_DEPTH_TEST,)) in calls[:draw_index]
-    assert ("glDepthFunc", (preview.GL_LEQUAL,)) in calls[:draw_index]
-    assert ("glDepthMask", (preview.GL_FALSE,)) in calls[:draw_index]
-    assert ("glDepthMask", (preview.GL_TRUE,)) in calls[draw_index + 1 :]
-    assert ("glDisable", (preview.GL_BLEND,)) in calls[draw_index + 1 :]
-    assert ("glDisable", (preview.GL_DEPTH_TEST,)) not in calls
+    dummy = Dummy()
+    preview.LotEditorWin._draw_state_member(
+        dummy, model, (0.0, 0.0, 0.0), 90.0, 0, 2, 0,
+        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+    )
 
-    mvp = numpy.identity(4)
-    assert preview._atc_anchor_depth(mvp, 0, 0, 5) > preview._atc_anchor_depth(mvp, 0, 0, -5)
+    expected_yaw = -180.0  # -lot/view 90, then SC4's fixed -90 projector turn
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(-expected_yaw)[0:3, 0:3]
+        @ numpy.asarray((0.5, -1.0, 0.25))
+    )
+    assert submitted["mesh"] is meshes[1]
+    assert submitted["model"] == pytest.approx(preview.SC4Matrix.rotate_y(expected_yaw))
+    assert submitted["projection"][0] == pytest.approx(expected_direction)
+    assert submitted["projection"][1] == 0.0
 
 
-@pytest.mark.parametrize(
-    ("pitch", "yaw"),
-    ((30, -22.5), (35, 67.5), (40, 157.5), (45, 247.5)),
-)
-def test_s3d_shadow_projection_uses_visible_silhouette_not_lod_volume(pitch, yaw):
+@pytest.mark.parametrize("lot_rotation", range(4))
+def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotation):
     import sc4pimx.SC4LotPreview as preview
-    from sc4pimx import SC4Matrix
 
-    scene_model = (
-        SC4Matrix.scale(0.25, 0.25, -0.25)
-        @ SC4Matrix.translate(-20, 0, 8)
-        @ SC4Matrix.rotate_x(pitch)
-        @ SC4Matrix.rotate_y(yaw)
+    meshes = [object(), object(), object(), object()]
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [meshes]
+    submitted = {}
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+
+    preview.LotEditorWin._draw_state_member(
+        Dummy(), model, (0.0, 0.0, 0.0), lot_rotation * 90.0,
+        lot_rotation, 2, 0, object(), None, {}, shadow=True,
+        shadow_direction=(0.5, -1.0, 0.25),
     )
-    light_dir = (0.8, -1.0, 0.6)
-    projection = preview._silhouette_shadow_matrix(scene_model, light_dir)
 
-    # One metre of visible height becomes one metre of sun-directed shadow;
-    # all source geometry is collapsed onto the lot ground.
-    assert projection @ (0, 1, 0, 0) == pytest.approx((0.8, 0.0, 0.6, 0.0))
-    assert projection[1] == pytest.approx((0.0, 0.0, 0.0, 0.0))
-    assert numpy.linalg.matrix_rank(projection[:3, :3]) == 2
+    assert submitted["mesh"] is meshes[(lot_rotation + 1) % 4]
 
-    # Camera pan and zoom must not alter the cached silhouette's proportions.
-    other_view = (
-        SC4Matrix.scale(2.0, 2.0, -2.0)
-        @ SC4Matrix.translate(300, 40, -90)
-        @ SC4Matrix.rotate_x(pitch)
-        @ SC4Matrix.rotate_y(yaw)
+
+@pytest.mark.parametrize("lot_rotation", range(4))
+@pytest.mark.parametrize("prop_rotation", range(4))
+def test_world_fixed_rkt1_shadow_keeps_rotation_zero_caster(
+    lot_rotation, prop_rotation
+):
+    import sc4pimx.SC4LotPreview as preview
+
+    meshes = [object(), object(), object(), object()]
+    model = object.__new__(preview.SC4Model)
+    model.s3dMeshes = [meshes]
+    submitted = {}
+    rot_mapping = [2, 1, 0, 3]
+    rot2d = lot_rotation * 90.0
+    camera = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(rot2d - 22.5)
     )
-    assert preview._silhouette_shadow_matrix(other_view, light_dir) == pytest.approx(projection)
+    world_light = numpy.asarray((0.5, -1.0, 0.25))
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        shadowLockToView = False
+        _render_context = preview.TransformStack(model=camera)
+
+        def _shadow_light_dir(self):
+            return tuple(world_light)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    combined_rotation = (lot_rotation + rot_mapping[prop_rotation]) % 4
+    preview.LotEditorWin._draw_state_member(
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        rot2d,
+        combined_rotation,
+        prop_rotation,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=tuple(world_light),
+    )
+
+    # With a world-fixed light the caster must not change when only the lot
+    # camera rotates. The outer camera still rotates the completed shadow on
+    # screen, but the mesh and its local projector stay at their rotation-0
+    # values for this prop orientation.
+    expected_mesh = meshes[(rot_mapping[prop_rotation] + 1) % 4]
+    expected_model = camera @ preview.SC4Matrix.rotate_y(
+        preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+    )
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(-preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+        @ world_light
+    )
+    assert submitted["mesh"] is expected_mesh
+    assert submitted["model"] == pytest.approx(expected_model, abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx(expected_direction, abs=1.0e-6)
+    assert submitted["projection"][1] == 0.0
+
+
+def test_rkt0_prop_rotation_and_projector_turn_share_one_local_frame():
+    import sc4pimx.SC4LotPreview as preview
+
+    mesh = object()
+    model = object.__new__(preview.SC4ModelMesh)
+    model.mainMesh = mesh
+    submitted = {}
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack()
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, _mesh, _shader, _lighting, _batches, **kwargs):
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    dummy = Dummy()
+    # rotFlag 1 applies +90 degrees in the existing RKT0 placement path; the
+    # Mac projector's -90-degree turn must cancel it in the same local frame.
+    preview.LotEditorWin._draw_state_member(
+        dummy, model, (0.0, 0.0, 0.0), 0.0, 0, 1, 0,
+        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+    )
+
+    assert submitted["model"] == pytest.approx(preview.SC4Matrix.identity(), abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx((0.5, -1.0, 0.25))
+
+
+@pytest.mark.parametrize("lot_rotation", range(4))
+@pytest.mark.parametrize("prop_rotation", range(4))
+def test_rkt0_shadow_matches_north_reference_at_every_lot_rotation(
+    lot_rotation, prop_rotation
+):
+    import sc4pimx.SC4LotPreview as preview
+
+    model = object.__new__(preview.SC4ModelMesh)
+    model.mainMesh = object()
+    submitted = {}
+    rot_mapping = [180, -90, 0, 90]
+    rot2d = lot_rotation * 90.0
+    camera = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(rot2d - 22.5)
+    )
+
+    class Dummy:
+        SHADOW_PROJECTOR_YAW = preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        _render_context = preview.TransformStack(model=camera)
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, _mesh, _shader, _lighting, _batches, **kwargs):
+            submitted["basis"] = self._render_context.model[0:3, 0:3].copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    north_camera_basis = (
+        preview.SC4Matrix.scale(2.0, 2.0, -2.0)
+        @ preview.SC4Matrix.rotate_x(30.0)
+        @ preview.SC4Matrix.rotate_y(-22.5)
+    )[0:3, 0:3]
+    expected_basis = (
+        north_camera_basis
+        @ preview.SC4Matrix.rotate_y(-rot_mapping[prop_rotation])[0:3, 0:3]
+        @ preview.SC4Matrix.rotate_y(preview.LotEditorWin.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+    )
+    north_light = numpy.asarray((0.5, -1.0, 0.25))
+    locked_light = (
+        preview.SC4Matrix.rotate_y(-rot2d)[0:3, 0:3] @ north_light
+    )
+    expected_direction = (
+        preview.SC4Matrix.rotate_y(
+            rot_mapping[prop_rotation] - preview.LotEditorWin.SHADOW_PROJECTOR_YAW
+        )[0:3, 0:3]
+        @ north_light
+    )
+
+    preview.LotEditorWin._draw_state_member(
+        Dummy(),
+        model,
+        (0.0, 0.0, 0.0),
+        rot2d,
+        lot_rotation,
+        prop_rotation,
+        0,
+        object(),
+        None,
+        {},
+        shadow=True,
+        shadow_direction=tuple(locked_light),
+    )
+
+    assert submitted["basis"] == pytest.approx(expected_basis, abs=1.0e-12)
+    assert submitted["projection"][0] == pytest.approx(expected_direction, abs=1.0e-6)
+    assert submitted["projection"][1] == 0.0
 
 
 def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():

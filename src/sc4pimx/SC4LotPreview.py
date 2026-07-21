@@ -82,6 +82,7 @@ from .SC4CityContext import (
     light_context_vertices,
     road_edges_from_flags,
     scene_stats,
+    season_for_month,
 )
 from .SC4Data import *
 from .SC4DataFunctions import ToCoord, ToTile, ToUnsigned, model_is_prelit, night_state_for
@@ -1176,6 +1177,10 @@ class LotEditorWin(wx.Frame):
         something is selected, so a selected prop's temporal status stays live.
         """
         self._apply_preview_night_mode()
+        # A rebuild is effectively free unless the month crossed a broad
+        # seasonal boundary, because the context cache key includes season.
+        if hasattr(self, "exemplar"):
+            self._rebuild_city_context()
         self._update_temporal_controls()
         if persist:
             self._schedule_state_save()
@@ -1323,21 +1328,22 @@ class LotEditorWin(wx.Frame):
         flags = flags_prop[0] if flags_prop else None
         edges = road_edges_from_flags(flags)
         style = self._infer_context_style()
+        season = season_for_month(getattr(getattr(self, "previewDate", None), "month", 7))
         tgi = tuple(self.exemplar.entry.tgi)
         seed = context_seed(tgi, self._contextNonce)
-        key = (tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, self._contextNonce)
-        return key, int(lot_size[0]), int(lot_size[1]), edges, style, seed
+        key = (tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, season, self._contextNonce)
+        return key, int(lot_size[0]), int(lot_size[1]), edges, style, season, seed
 
     def _rebuild_city_context(self):
         """Generate and flatten once when composition inputs actually change."""
         if not hasattr(self, "exemplar"):
             return
         try:
-            key, lot_w, lot_d, edges, style, seed = self._context_inputs()
+            key, lot_w, lot_d, edges, style, season, seed = self._context_inputs()
             if key == self._context_cache_key and self._context_mesh is not None:
                 return
             started = time.perf_counter()
-            scene = generate_city_context(lot_w, lot_d, edges, style, seed)
+            scene = generate_city_context(lot_w, lot_d, edges, style, seed, season)
             mesh = build_context_mesh(scene)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
         except Exception:
@@ -3100,6 +3106,22 @@ class LotEditorWin(wx.Frame):
     SHADOW_STRENGTH = 0.4  # "Shadow strength" / "Model terrain shadow amount"
     SHADOW_SUN_AZIMUTH = 67.5  # "Sun direction" (degrees)
     SHADOW_SUN_PITCH = 45.0  # "Sun pitch" (degrees); shadow length = cot(pitch)
+    # CreateOccupantShadow post-rotates the fitted model transform by -PI/2
+    # before CalcShadowProjection.  The S3D is a prerendered camera view, so
+    # this quarter-turn is part of converting its baked axes back into the
+    # shadow projector's frame; omitting it makes placement depend on the lot
+    # and prop rotation.
+    SHADOW_PROJECTOR_YAW = -90.0
+    # The fitted receiver decal and the lot base both land on world y=0, but
+    # they reach the GPU through different float32 transform chains.  A
+    # one-unit polygon offset is not enough to cover the resulting depth
+    # rounding in every camera quadrant (most visibly when South points
+    # right), so the entire decal can fail GL_LEQUAL there.  SC4 submits
+    # shadows through its terrain-overlay manager, which gives them a distinct
+    # receiver layer.  Use a slightly stronger depth-buffer-relative offset to
+    # provide the same separation without moving the shadow in world space.
+    SHADOW_DEPTH_BIAS_FACTOR = -2.0
+    SHADOW_DEPTH_BIAS_UNITS = -8.0
     # On-screen shadow angle. The shadow lives in the lot ground plane at
     # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
     # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
@@ -4728,7 +4750,7 @@ class LotEditorWin(wx.Frame):
         if not batches:
             return
         prog = self._ensure_shadow_program()
-        for mesh, mvps in list(batches.items()):
+        for (mesh, shadow_projection), mvps in list(batches.items()):
             for start in range(0, len(mvps), 32):
                 chunk = mvps[start : start + 32]
                 mesh.draw_instanced(
@@ -4738,16 +4760,19 @@ class LotEditorWin(wx.Frame):
                     chunk,
                     [None] * len(chunk),
                     shadow=True,
+                    shadow_projection=shadow_projection,
                 )
         batches.clear()
 
-    def _submit_s3d_model(self, mesh, shader_program, lighting_state, batches, shadow=False):
+    def _submit_s3d_model(
+        self, mesh, shader_program, lighting_state, batches, shadow=False, shadow_projection=None
+    ):
         if shadow:
             # Shadow order is irrelevant because every caster contributes to
             # one stencil coverage mask, so batch repeated meshes freely. The
             # shadow shader has no normal input or normal-matrix inverse.
             if batches is not None:
-                batches.setdefault(mesh, []).append(self._render_context.mvp)
+                batches.setdefault((mesh, shadow_projection), []).append(self._render_context.mvp)
                 return
             mesh.draw(
                 self.s3DTexturesHolder,
@@ -4756,6 +4781,7 @@ class LotEditorWin(wx.Frame):
                 self._render_context.mvp,
                 None,
                 shadow=True,
+                shadow_projection=shadow_projection,
             )
             return
         # Blended meshes depend on source order. Treat them as barriers while
@@ -4790,7 +4816,10 @@ class LotEditorWin(wx.Frame):
             self._render_context.normal_matrix,
         )
 
-    def DrawModel(self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None, model_batches=None, shadow=False):
+    def DrawModel(
+        self, rtk, resource, rot2D, rot, rotFlag, zoom, viewZoom=None,
+        model_batches=None, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
+    ):
         if viewZoom is None:
             viewZoom = zoom
         if resource is None:
@@ -4838,14 +4867,29 @@ class LotEditorWin(wx.Frame):
             else:
                 offset = (ToCoord(raw_offset[0]), ToCoord(raw_offset[1]), ToCoord(raw_offset[2]))
             self._draw_state_member(
-                model, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state, model_batches, shadow=shadow
+                model, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
+                model_batches, shadow=shadow, shadow_direction=shadow_direction,
+                shadow_origin_y=shadow_origin_y,
             )
         return
 
     def _draw_state_member(
-        self, what, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state, model_batches, shadow=False
+        self, what, offset, rot2D, rot, rotFlag, zoom, shader_program, lighting_state,
+        model_batches, shadow=False, shadow_direction=None, shadow_origin_y=0.0,
     ):
         render = self._render_context
+
+        def shadow_projection(local_yaw=0.0, member_y=0.0):
+            if not shadow:
+                return None
+            direction = shadow_direction or self._shadow_light_dir()
+            inverse_yaw = SC4Matrix.rotate_y(-local_yaw)[0:3, 0:3]
+            local_direction = inverse_yaw @ numpy.asarray(direction, dtype=numpy.float64)
+            return (
+                tuple(round(float(value), 6) for value in local_direction),
+                round(-float(shadow_origin_y + member_y), 6),
+            )
+
         if what.__class__ == SC4Model:
             # Algebraically fused form of the old chain
             #   rotate(-a) @ translate(o) @ rotate(a) @ rotate(-rot2D)
@@ -4862,22 +4906,56 @@ class LotEditorWin(wx.Frame):
                 ox, oz = oz, -ox
             with render.pushed():
                 render.translate(ox, oy, oz)
-                render.rotate(-rot2D, 0, 1, 0)
+                # Ordinary SC4 shadows are view-locked. In that mode the
+                # camera-baked RKT1 carrier follows the current view and its
+                # -view transform cancels the lot camera turn, exactly as in
+                # FindModelTransform.
+                #
+                # The optional world-fixed mode is different: its light does
+                # not turn with the camera. Swapping to another baked RKT1
+                # texture as the lot rotates would therefore change the
+                # silhouette/projector for an otherwise unchanged object. Use
+                # the rotation-0 carrier frame in that mode and let the outer
+                # lot camera rotate the completed ground shadow normally.
+                shadow_locked = bool(getattr(self, "shadowLockToView", True))
+                view_yaw = -rot2D if not shadow or shadow_locked else 0.0
+                render.rotate(view_yaw, 0, 1, 0)
+                projector_yaw = view_yaw
+                if shadow:
+                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
+                    projector_yaw += self.SHADOW_PROJECTOR_YAW
+                # CreateOccupantShadow asks GetModelInstanceID for the chosen
+                # view plus one. That next prerendered view is the texture
+                # counterpart of the fixed -90-degree projector turn. In
+                # world-fixed mode the chosen caster view is the rotation-0
+                # reference, rather than the current camera view.
+                if shadow and not shadow_locked:
+                    lot_rotation = int(round(rot2D / 90.0)) % 4
+                    mesh_rotation = (rot - lot_rotation + 1) % 4
+                else:
+                    mesh_rotation = (rot + 1) % 4 if shadow else rot
                 self._submit_s3d_model(
-                    what.s3dMeshes[zoom][rot],
+                    what.s3dMeshes[zoom][mesh_rotation],
                     shader_program,
                     lighting_state,
                     model_batches,
                     shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw, offset[1]),
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
-            self._submit_s3d_model(
-                what.s3dMeshes[zoom],
-                shader_program,
-                lighting_state,
-                model_batches,
-                shadow=shadow,
-            )
+            with render.pushed():
+                projector_yaw = 0.0
+                if shadow:
+                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
+                    projector_yaw = self.SHADOW_PROJECTOR_YAW
+                self._submit_s3d_model(
+                    what.s3dMeshes[zoom],
+                    shader_program,
+                    lighting_state,
+                    model_batches,
+                    shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw),
+                )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
             # RKT0 is a single mesh pre-projected for one (North) view and reused
@@ -4897,17 +4975,34 @@ class LotEditorWin(wx.Frame):
                 # the right way at every prop rotation.
                 render.rotate(-rotMapping[rotFlag], 0, 1, 0)
                 render.translate(offset[0], offset[1], offset[2])
-                # Override the orientation with the unrotated basis, keeping the
-                # placed translation column. The shadow basis already contains
-                # the silhouette-to-ground mapping, so the same billboard rule
-                # now preserves the visible RKT0 outline in both passes.
-                render.model[0:3, 0:3] = base_basis
+                # Freeze the orientation to the North reference (keeping the
+                # placed translation column). The visible mesh billboards this
+                # way; the ground shadow must billboard too. It is a flat decal
+                # carrying the single North silhouette texture, so leaving rot2D
+                # in its basis rotates/shears that texture with the lot instead
+                # of holding it view-locked -- correct at North, wrong at every
+                # other lot rotation. Re-fold the prop-rotation (-rotMapping) and
+                # fixed shadow (-90) turns about Y into the frozen basis so it
+                # still carries them, and strip the same rot2D from the light so
+                # local_direction stays at its North value. At rot2D == 0 this is
+                # identical to the old path; other rotations now match North.
+                if shadow:
+                    render.model[0:3, 0:3] = (
+                        base_basis
+                        @ SC4Matrix.rotate_y(-rotMapping[rotFlag])[0:3, 0:3]
+                        @ SC4Matrix.rotate_y(self.SHADOW_PROJECTOR_YAW)[0:3, 0:3]
+                    )
+                    projector_yaw = -rotMapping[rotFlag] + self.SHADOW_PROJECTOR_YAW - rot2D
+                else:
+                    render.model[0:3, 0:3] = base_basis
+                    projector_yaw = -rotMapping[rotFlag]
                 self._submit_s3d_model(
                     what.mainMesh,
                     shader_program,
                     lighting_state,
                     model_batches,
                     shadow=shadow,
+                    shadow_projection=shadow_projection(projector_yaw, offset[1]),
                 )
         elif what.__class__ == ATC:
             # ATC billboards are screen-facing animated sprites; skip them as
@@ -4947,6 +5042,7 @@ class LotEditorWin(wx.Frame):
         shadow_color = profile.shadow_color if profile is not None else self.SHADOW_COLOR
         shadow_strength = profile.shadow_strength if profile is not None else self.SHADOW_STRENGTH
         flatten = self._shadow_flatten_matrix()
+        shadow_direction = self._shadow_light_dir()
         render = self._render_context
         silhouette = self._shadow_silhouette_matrix()
         shadow_batches = {}
@@ -4956,12 +5052,8 @@ class LotEditorWin(wx.Frame):
                 offsetX = ToCoord(record[3]) - lotSizeXOver / 2
                 offsetZ = ToCoord(record[5]) - lotSizeYOver / 2
                 rtk4 = self.rtk4Offsets.get(record[12], (0, 0, 0))
-                # Anchor at the exemplar placement point, then lay the rendered
-                # alpha silhouette onto the ground. This deliberately ignores
-                # the inaccurate footprint/heights of SC4's texture-carrier LOD.
-                render.translate(offsetX, 0.0, offsetZ)
-                render.model = render.model @ silhouette
-                render.translate(0.0, ToCoord(record[4]), 0.0)
+                origin_y = ToCoord(record[4])
+                render.translate(offsetX, origin_y, offsetZ)
                 self.DrawModel(
                     rtk4,
                     viewer,
@@ -4972,6 +5064,8 @@ class LotEditorWin(wx.Frame):
                     viewZoom,
                     model_batches=shadow_batches,
                     shadow=True,
+                    shadow_direction=shadow_direction,
+                    shadow_origin_y=origin_y,
                 )
 
         try:
@@ -4990,7 +5084,7 @@ class LotEditorWin(wx.Frame):
             glDepthMask(GL_FALSE)
             glDisable(GL_BLEND)
             glEnable(GL_POLYGON_OFFSET_FILL)
-            glPolygonOffset(-1.0, -1.0)
+            glPolygonOffset(self.SHADOW_DEPTH_BIAS_FACTOR, self.SHADOW_DEPTH_BIAS_UNITS)
 
             self.DrawCityContextShadows(flatten)
             if self._is_layer_visible("3d", LAYER_BUILDING):
