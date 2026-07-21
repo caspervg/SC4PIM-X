@@ -3,12 +3,16 @@ import pytest
 from sc4pimx.SC4LotPreview import (
     DEFAULT_PROP_MARKER_COLOR,
     LAYER_PROPS,
+    MODE_EDIT_FLORA,
+    MODE_EDIT_PROP,
     OVERLAY_COLOR_DEFAULTS,
     OVERLAY_COLOR_SPECS,
     LotEditorWin,
     format_prop_marker_color,
+    marker_overlay_alpha,
     parse_overlay_color,
     parse_prop_marker_color,
+    should_cache_ambient_2d,
 )
 
 
@@ -90,3 +94,17 @@ def test_reset_all_overlay_colors_persists_and_redraws_once():
     assert dummy.overlayColors == OVERLAY_COLOR_DEFAULTS
     assert dummy.overlayColors is not OVERLAY_COLOR_DEFAULTS
     assert calls == ["save", "invalidate", "draw"]
+
+
+def test_ambient_2d_cache_is_disabled_during_mouse_capture():
+    assert should_cache_ambient_2d(True, 3, False) is True
+    assert should_cache_ambient_2d(True, 3, True) is False
+    assert should_cache_ambient_2d(False, 3, False) is False
+    assert should_cache_ambient_2d(True, 2, False) is False
+
+
+def test_marker_overlays_share_translucent_edit_and_idle_alpha():
+    assert marker_overlay_alpha(MODE_EDIT_PROP, MODE_EDIT_PROP) == 0.5
+    assert marker_overlay_alpha(MODE_EDIT_FLORA, MODE_EDIT_FLORA) == 0.5
+    assert marker_overlay_alpha(0, MODE_EDIT_PROP) == 0.1
+    assert marker_overlay_alpha(0, MODE_EDIT_FLORA) == 0.1

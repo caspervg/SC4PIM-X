@@ -209,6 +209,16 @@ def format_overlay_color(color):
     return "#%02X%02X%02X" % tuple(channels)
 
 
+def should_cache_ambient_2d(ambient_only, panel, has_capture):
+    """Whether an ambient-only frame may reuse the split view's 2D snapshot."""
+    return bool(ambient_only and panel == 3 and not has_capture)
+
+
+def marker_overlay_alpha(mode_edit, target_mode, active=0.5):
+    """Keep object markers subtle except while their edit mode is active."""
+    return active if mode_edit == target_mode else 0.1
+
+
 # Compatibility aliases for the first release of configurable prop colors.
 parse_prop_marker_color = parse_overlay_color
 format_prop_marker_color = format_overlay_color
@@ -4301,10 +4311,11 @@ class LotEditorWin(wx.Frame):
         elif pan_drag_pane == "3d":
             self._draw_pane_cached("2d", self.Draw2D)
             self.Draw3D()
-        elif ambient_only and self.panel == 3:
+        elif should_cache_ambient_2d(ambient_only, self.panel, canvas.HasCapture()):
             # Ambient actors only affect 3D. Re-present the unchanged 2D half
-            # from its snapshot instead of redrawing every lot texture and
-            # overlay at the animation cadence.
+            # from its snapshot only while the user is not interacting with
+            # it. Object drags mutate 2D placement continuously, so a cached
+            # pre-drag snapshot would visibly alternate with the live frame.
             self._draw_pane_cached("2d", self.Draw2D)
             self.Draw3D()
         else:
@@ -4874,9 +4885,7 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [self.building[11]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                         self.SetStatusText(hex2str(self.building[12]) + ":" + self.building[-1], 5)
-                alphaValue = 0.1
-                if self.modeEdit == MODE_EDIT_BUILDING:
-                    alphaValue = 0.9
+                alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_BUILDING, active=0.9)
                 self.DrawQuadColor(
                     self.building[2],
                     minx,
@@ -4914,7 +4923,7 @@ class LotEditorWin(wx.Frame):
                 markers.append((prop[2], minx, miny, maxx, maxy, propViewer is None))
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
-            alphaValue = 0.5 if self.modeEdit == MODE_EDIT_PROP else 0.1
+            alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_PROP)
             self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_PROPS], alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
@@ -4940,7 +4949,8 @@ class LotEditorWin(wx.Frame):
                 markers.append((prop[2], minx, miny, maxx, maxy, False))
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
-            self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_FLORA], 0.9))
+            alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_FLORA)
+            self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_FLORA], alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
 
