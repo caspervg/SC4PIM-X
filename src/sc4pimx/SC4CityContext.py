@@ -48,7 +48,7 @@ import numpy
 # Bump when the generator's output changes meaningfully: it feeds the seed,
 # so intentional visual evolution is explicit instead of silently reshuffling
 # every lot's "stable" context.
-CONTEXT_GENERATOR_VERSION = 5
+CONTEXT_GENERATOR_VERSION = 6
 
 TILE_M = 16.0
 ROADWAY_M = 10.0
@@ -531,6 +531,7 @@ def generate_city_context(
     boxes = []
     roofs = []
     trees = []
+    parking_bays = []
     detail_boxes = []
     detail_quads = []
 
@@ -546,11 +547,23 @@ def generate_city_context(
             archetype=_weighted_choice(block_rng, preset.archetypes),
         )
         for parcel in _parcels_for_block(block_cells, block_rng, preset):
-            _fill_parcel(grid, parcel, block_rng, preset, traits, rects, detail_rects, boxes, roofs, trees)
+            _fill_parcel(
+                grid,
+                parcel,
+                block_rng,
+                preset,
+                traits,
+                rects,
+                detail_rects,
+                boxes,
+                roofs,
+                trees,
+                parking_bays,
+            )
 
     _street_trees(grid, rng, preset, trees)
     _decorate_streets(grid, rng, style, detail_rects, detail_boxes, road_profiles)
-    _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes)
+    _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes, parking_bays)
 
     # Deterministic thinning to honour the geometry ceilings.
     if len(trees) > MAX_TREES:
@@ -1158,7 +1171,7 @@ def _parcel_road_sides(grid, tx0, tz0, tx1, tz1):
     return tuple(sides), front
 
 
-def _fill_parcel(grid, rect, rng, preset, traits, rects, detail_rects, boxes, roofs, trees):
+def _fill_parcel(grid, rect, rng, preset, traits, rects, detail_rects, boxes, roofs, trees, parking_bays):
     tx0, tz0, tx1, tz1 = rect
     road_sides, front = _parcel_road_sides(grid, tx0, tz0, tx1, tz1)
     parcel = _Parcel(tx0, tz0, tx1, tz1, road_sides, front)
@@ -1181,7 +1194,7 @@ def _fill_parcel(grid, rect, rng, preset, traits, rects, detail_rects, boxes, ro
             _make_park(rng, x0, z0, x1, z1, area_tiles, preset, rects, trees)
         return
     if roll < min(0.9, preset.open_space + falloff * 0.22 + preset.parking):
-        _make_parking(x0, z0, x1, z1, parcel, rects, detail_rects)
+        parking_bays.extend(_make_parking(x0, z0, x1, z1, parcel, rects, detail_rects))
         return
 
     _make_building(rng, parcel, preset, traits, falloff, rects, roofs, boxes, trees)
@@ -1235,11 +1248,12 @@ def _make_parking(x0, z0, x1, z1, parcel, rects, detail_rects):
     margin = 1.2
     count = min(40, int(max(0.0, edge1 - edge0 - 2 * margin) / PARKING_STALL_M))
     if count < 2 or cross1 - cross0 < PARKING_DEPTH_M + 2 * margin:
-        return
+        return ()
 
     run = count * PARKING_STALL_M
     start = (edge0 + edge1 - run) * 0.5
     line = 0.12
+    bays = []
 
     def add_row(curb, inner):
         lo, hi = sorted((curb, inner))
@@ -1253,6 +1267,11 @@ def _make_parking(x0, z0, x1, z1, parcel, rects, detail_rects):
             detail_rects.append(Rect(MAT_MARKING, start, inner - line / 2, start + run, inner + line / 2, _Y_MARKING))
         else:
             detail_rects.append(Rect(MAT_MARKING, inner - line / 2, start, inner + line / 2, start + run, _Y_MARKING))
+        cross_center = (curb + inner) * 0.5
+        for index in range(count):
+            run_center = start + (index + 0.5) * PARKING_STALL_M
+            # Stalls run perpendicular to their row, so do the vehicles.
+            bays.append((run_center, cross_center, False) if along_x else (cross_center, run_center, True))
 
     front_low = parcel.front in (EDGE_ZMIN, EDGE_XMIN)
     front_curb = cross0 + margin if front_low else cross1 - margin
@@ -1274,6 +1293,7 @@ def _make_parking(x0, z0, x1, z1, parcel, rects, detail_rects):
         rects.append(Rect(MAT_PARKING_AISLE, start, aisle0, start + run, aisle1, _Y_PARKING_AISLE))
     else:
         rects.append(Rect(MAT_PARKING_AISLE, aisle0, start, aisle1, start + run, _Y_PARKING_AISLE))
+    return tuple(bays)
 
 
 def _scatter_trees(rng, x0, z0, x1, z1, count, density, trees):
@@ -1557,7 +1577,7 @@ def _decorate_streets(grid, rng, style, detail_rects, detail_boxes, road_profile
                 detail_boxes.append(Box(MAT_HEDGE, x + 15.55, z + 3.0, x + 16.45, z + 13.0, 0.0, 0.72))
 
 
-def _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes):
+def _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes, parking_bays=()):
     """Give parks, plazas, yards and rural fields style-specific furniture."""
     candidates = [r for r in rects if r.material in (MAT_PARK, MAT_PLAZA, MAT_YARD, MAT_PARKING)]
     for rect in candidates:
@@ -1569,14 +1589,19 @@ def _decorate_open_spaces(grid, rng, style, rects, detail_rects, detail_boxes):
         cx, cz = (rect.x0 + rect.x1) * 0.5, (rect.z0 + rect.z1) * 0.5
 
         if rect.material == MAT_PARKING and rng.random() < 0.72:
-            along_x = w >= d
-            count = min(5, max(1, int((w if along_x else d) / 8.0)))
-            for i in range(count):
-                offset = (i + 0.5) / count - 0.5
-                if along_x:
-                    _add_car(rng, cx + offset * w * 0.72, cz - d * 0.22, True, detail_boxes)
-                else:
-                    _add_car(rng, cx - w * 0.22, cz + offset * d * 0.72, False, detail_boxes)
+            bays = [
+                bay
+                for bay in parking_bays
+                if rect.x0 <= bay[0] <= rect.x1 and rect.z0 <= bay[1] <= rect.z1
+            ]
+            # Preserve the established density (and random stream) while
+            # snapping those cars to actual stalls.  Evenly distributed bay
+            # indices keep both rows populated without another random draw.
+            long_side = max(w, d)
+            count = min(len(bays), min(5, max(1, int(long_side / 8.0))))
+            occupied = [bays[min(len(bays) - 1, int((i + 0.5) * len(bays) / count))] for i in range(count)]
+            for x, z, along_x in occupied:
+                _add_car(rng, x, z, along_x, detail_boxes)
             continue
 
         if rect.material in (MAT_PARK, MAT_PLAZA) and rng.random() < 0.55:

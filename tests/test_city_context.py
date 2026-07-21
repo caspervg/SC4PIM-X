@@ -52,6 +52,7 @@ from sc4pimx.SC4CityContext import (
     STYLE_SUBURBAN,
     STYLE_URBAN,
     TILE_M,
+    _decorate_open_spaces,
     _decorate_streets,
     _Grid,
     _make_parking,
@@ -106,7 +107,7 @@ def test_road_and_parking_markings_use_real_world_dimensions():
 
     rects, parking_details = [], []
     parcel = _Parcel(0, 0, 2, 2, (EDGE_ZMIN,), EDGE_ZMIN)
-    _make_parking(0.0, 0.0, 32.0, 32.0, parcel, rects, parking_details)
+    bays = _make_parking(0.0, 0.0, 32.0, 32.0, parcel, rects, parking_details)
     separators = [
         rect
         for rect in parking_details
@@ -115,11 +116,32 @@ def test_road_and_parking_markings_use_real_world_dimensions():
     centers = sorted({round((rect.x0 + rect.x1) * 0.5, 3) for rect in separators})
     assert len(centers) >= 3
     assert all(b - a == pytest.approx(PARKING_STALL_M) for a, b in zip(centers, centers[1:]))
+    assert len(bays) == 2 * (len(centers) - 1)
+    assert all(not along_x for _x, _z, along_x in bays)
+    bay_xs = sorted({round(x, 3) for x, _z, _along_x in bays})
+    assert bay_xs == pytest.approx([(a + b) * 0.5 for a, b in zip(centers, centers[1:])])
     assert any(rect.material == MAT_PARKING_AISLE for rect in rects)
     palette = _palette_for_style(STYLE_SUBURBAN)
     architectural = ("ground", "road", "sidewalk", "park", "yard", "wall", "roof")
     assert max(max(palette[name]) - min(palette[name]) for name in architectural) < 0.07
     assert max(max(color) - min(color) for color in palette.values()) < 0.15
+
+
+def test_parking_cars_use_marked_bay_centers_and_orientation(monkeypatch):
+    rects, details = [], []
+    parcel = _Parcel(0, 0, 2, 2, (EDGE_ZMIN,), EDGE_ZMIN)
+    bays = _make_parking(0.0, 0.0, 32.0, 32.0, parcel, rects, details)
+    placed = []
+    monkeypatch.setattr(
+        "sc4pimx.SC4CityContext._add_car",
+        lambda _rng, x, z, along_x, _boxes: placed.append((x, z, along_x)),
+    )
+
+    _decorate_open_spaces(_Grid(1, 1, 3), random.Random(1), STYLE_SUBURBAN, rects, details, [], bays)
+
+    assert placed
+    assert set(placed) <= set(bays)
+    assert all(not along_x for _x, _z, along_x in placed)
 
 
 def test_crosswalks_are_scaled_and_oriented_per_connected_approach():
