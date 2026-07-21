@@ -48,9 +48,9 @@ from OpenGL.GL import (
     GL_RGB8,
     GL_RGBA,
     GL_RGBA8,
+    GL_SRC_ALPHA,
     GL_SRGB8,
     GL_SRGB8_ALPHA8,
-    GL_SRC_ALPHA,
     GL_TEXTURE0,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -86,18 +86,18 @@ from OpenGL.GL import (
     glDrawArrays,
     glEnable,
     glEnableVertexAttribArray,
-    glIsEnabled,
     glFramebufferRenderbuffer,
     glFramebufferTexture2D,
     glGenBuffers,
+    glGenerateMipmap,
     glGenFramebuffers,
     glGenRenderbuffers,
     glGenSamplers,
     glGenTextures,
     glGenVertexArrays,
-    glGenerateMipmap,
     glGetIntegerv,
     glGetUniformLocation,
+    glIsEnabled,
     glPixelStorei,
     glReadPixels,
     glRenderbufferStorage,
@@ -467,6 +467,19 @@ class PrimitiveRenderer:
         else:
             uvs = numpy.asarray(uvs, dtype=numpy.float32).reshape(count, 2)
         vertices = numpy.ascontiguousarray(numpy.column_stack((positions[:, :3], colors, uvs)), dtype=numpy.float32)
+        self.draw_interleaved(
+            mode, vertices, mvp, texture=texture, sampler=sampler,
+            texture_mode=texture_mode,
+        )
+
+    def draw_interleaved(self, mode, vertices, mvp, *, texture=0, sampler=0,
+                         texture_mode=None):
+        """Draw prebuilt position/RGBA/UV rows without a per-frame array copy."""
+        vertices = numpy.asarray(vertices, dtype=numpy.float32)
+        if vertices.size == 0:
+            return
+        vertices = numpy.ascontiguousarray(vertices.reshape(-1, self._FLOATS_PER_VERTEX))
+        count = len(vertices)
         byte_count = vertices.nbytes
         glBindVertexArray(self.vao)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)

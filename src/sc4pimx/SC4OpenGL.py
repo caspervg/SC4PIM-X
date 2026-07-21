@@ -30,9 +30,11 @@ logger = logging.getLogger(__name__)
 class MyCanvasBase(glcanvas.GLCanvas):
 
     @staticmethod
-    def _gl_attributes(samples, depth, srgb):
+    def _gl_attributes(samples, depth, srgb, stencil=8):
         attribs = wx.glcanvas.GLAttributes()
         attribs.PlatformDefaults().MinRGBA(8, 8, 8, 8).DoubleBuffer().Depth(depth)
+        if stencil:
+            attribs.Stencil(stencil)
         if srgb:
             attribs.FrameBuffersRGB()
         if samples:
@@ -51,7 +53,7 @@ class MyCanvasBase(glcanvas.GLCanvas):
 
     @staticmethod
     def _attribute_candidates():
-        """Ordered (samples, depth, srgb) configs to probe, best first.
+        """Ordered (samples, depth, srgb, stencil) configs, best first.
 
         Driven by the ``[Rendering]`` config: the requested MSAA sample count
         and sRGB preference are tried first, then progressively plainer configs
@@ -68,9 +70,12 @@ class MyCanvasBase(glcanvas.GLCanvas):
         for try_srgb in srgb_order:
             for try_samples in (want_samples, 0):
                 for try_depth in (24, 16):
-                    combo = (try_samples, try_depth, try_srgb)
+                    combo = (try_samples, try_depth, try_srgb, 8)
                     if combo not in candidates:
                         candidates.append(combo)
+        # Keep the editor usable on an unusually limited display. The shadow
+        # pass checks the effective stencil depth and simply stays off here.
+        candidates.append((0, 16, False, 0))
         return candidates
 
     def __init__(self, parent, size=(256, 256)):
@@ -80,15 +85,17 @@ class MyCanvasBase(glcanvas.GLCanvas):
         samples = 0
         attribs = None
         srgb = False
-        for try_samples, try_depth, try_srgb in self._attribute_candidates():
-            candidate = self._gl_attributes(try_samples, try_depth, try_srgb)
+        stencil = 0
+        for try_samples, try_depth, try_srgb, try_stencil in self._attribute_candidates():
+            candidate = self._gl_attributes(try_samples, try_depth, try_srgb, try_stencil)
             if glcanvas.GLCanvas.IsDisplaySupported(candidate):
-                attribs, samples, srgb = candidate, try_samples, try_srgb
+                attribs, samples, srgb, stencil = candidate, try_samples, try_srgb, try_stencil
                 break
         if attribs is None:
-            attribs = self._gl_attributes(0, 16, False)
+            attribs = self._gl_attributes(0, 16, False, 0)
         self.samples = samples
         self.srgb = srgb
+        self.stencil_bits = stencil
         glcanvas.GLCanvas.__init__(self, parent, attribs, size=size)
         self.context = GLContext(self, ctxAttrs=self._context_attributes())
         if not self.context.IsOK():
@@ -137,6 +144,8 @@ class MyCanvasBase(glcanvas.GLCanvas):
                 values["vendor"], values["renderer"], values["version"], values["glsl"],
             )
             logger.info("OpenGL quality: %s", quality_summary(self.samples, self.srgb))
+            if not self.stencil_bits:
+                logger.warning("OpenGL stencil buffer unavailable; 3D shadows are disabled")
             if self.srgb:
                 glEnable(GL_FRAMEBUFFER_SRGB)
             self._install_debug_output()

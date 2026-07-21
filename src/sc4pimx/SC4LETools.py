@@ -1405,6 +1405,7 @@ class LEAssetGrid(wx.ScrolledWindow):
 
     def OnRightDown(self, event):
         self._hide_state_popup()
+        self.SetFocus()
         idx = self._hit_test(event.GetPosition())
         if idx != -1:
             self.selected = idx
@@ -1773,6 +1774,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self._debounce = None
         self._destroyed = False
         self.Bind(wx.EVT_WINDOW_DESTROY, self.OnDestroy)
+        self.Bind(wx.EVT_LEFT_DOWN, self._on_panel_click)
         self.search.SetValue(str(settings.get('AssetSearch', '')))
         compact = bool(settings.get('AssetCompact', False))
         self.presentation.SetValue(compact)
@@ -1853,6 +1855,15 @@ class LEAssetBrowserPanel(wx.Panel):
             if self._debounce:
                 self._debounce.Stop()
                 self._debounce = None
+        event.Skip()
+
+    def _on_panel_click(self, event):
+        """Transfer focus to grid/list when clicking on empty areas of the panel."""
+        child = self.GetChildAtPosition(event.GetPosition())
+        if child is None or child is self:
+            control = self.grid if self.grid.IsShown() else self.list
+            if control.IsShown():
+                control.SetFocus()
         event.Skip()
 
     def OnFilter(self, event):

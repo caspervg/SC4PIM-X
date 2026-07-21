@@ -29,7 +29,6 @@ DEFAULT_LOT_EDITOR = {
     "AssetSortAscending": True,
     "AssetSearch": "",
     "AssetCompact": False,
-    "BackgroundSet": "Default",
     "VisibleLayers2D": {},
     "VisibleLayers3D": {},
     "UndoLimit": 40,
