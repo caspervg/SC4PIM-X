@@ -38,6 +38,7 @@ from sc4pimx.SC4CityContext import (
     ROAD_AVENUE,
     ROAD_BIKE,
     ROAD_PEDESTRIAN,
+    ROAD_STREET,
     ROADWAY_M,
     SEASON_AUTUMN,
     SEASON_SPRING,
@@ -131,12 +132,50 @@ def test_crosswalks_are_scaled_and_oriented_per_connected_approach():
     stripes = [
         rect
         for rect in details
-        if rect.material == MAT_MARKING and min(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(0.38)
+        if rect.material == MAT_MARKING and min(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(0.50)
     ]
     horizontal = [rect for rect in stripes if rect.x1 - rect.x0 > rect.z1 - rect.z0]
     vertical = [rect for rect in stripes if rect.z1 - rect.z0 > rect.x1 - rect.x0]
-    assert len(horizontal) == len(vertical) == 8
-    assert all(max(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(9.6) for rect in stripes)
+    assert len(horizontal) == len(vertical) == 16
+    assert all(max(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(2.6) for rect in stripes)
+
+    # Every zebra remains on its own approach; perpendicular bars must never
+    # overlap into the lattice pattern that previously filled the junction.
+    assert all(
+        a.x1 <= b.x0 or b.x1 <= a.x0 or a.z1 <= b.z0 or b.z1 <= a.z0
+        for a in horizontal
+        for b in vertical
+    )
+    center_x = center[0] * TILE_M + TILE_M / 2
+    center_z = center[1] * TILE_M + TILE_M / 2
+    assert all(not (rect.x0 < center_x < rect.x1 and rect.z0 < center_z < rect.z1) for rect in stripes)
+
+
+def test_crosswalks_do_not_decorate_the_internal_seam_of_a_paired_avenue():
+    grid = _Grid(1, 1, 4)
+    for tz in (-3, -2, -1, 0):
+        grid.set_road(-2, tz)
+    for tz in (-2, -1):
+        grid.set_road(-3, tz)
+        grid.set_road(-1, tz)
+    profiles = (
+        ("h", -2, ROAD_AVENUE),
+        ("h", -1, ROAD_AVENUE),
+        ("v", -2, ROAD_STREET),
+    )
+    details, boxes = [], []
+    _decorate_streets(grid, random.Random(7), STYLE_URBAN, details, boxes, profiles)
+
+    stripes = [
+        rect
+        for rect in details
+        if rect.material == MAT_MARKING and min(rect.x1 - rect.x0, rect.z1 - rect.z0) == pytest.approx(0.50)
+    ]
+    seam_z = -TILE_M
+    assert stripes
+    north_south_bars = [rect for rect in stripes if rect.z1 - rect.z0 > rect.x1 - rect.x0]
+    assert north_south_bars
+    assert all(rect.z1 <= seam_z - 3.0 or rect.z0 >= seam_z + 3.0 for rect in north_south_bars)
 
 
 def test_multimodal_corridors_are_coherent_wide_and_protected():

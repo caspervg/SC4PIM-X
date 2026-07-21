@@ -931,14 +931,24 @@ def _road_corridors(grid, detail_rects, road_profiles=None, style=None):
             y = _Y_ROAD + (0.006 if vmaterial == MAT_PEDESTRIAN else 0.0)
             rects.append(Rect(vmaterial, x + vx0, z + (0 if n else hz0), x + vx1, z + (TILE_M if s else hz1), y))
 
-        # Only exterior edges receive sidewalks. Paired avenue tiles therefore
-        # form one uninterrupted 32 m right-of-way with sidewalks outside.
-        if horizontal:
+        # Only exterior edges receive sidewalks. At a junction, clip them to
+        # the four corners so they do not pave over the incoming road arms.
+        # Paired avenue tiles therefore form one uninterrupted 32 m
+        # right-of-way with sidewalks outside.
+        if horizontal and vertical:
+            for sx0, sx1 in ((0.0, vx0), (vx1, TILE_M)):
+                if sx1 <= sx0:
+                    continue
+                if hz0 > 0.0:
+                    rects.append(Rect(MAT_SIDEWALK, x + sx0, z, x + sx1, z + hz0, _Y_SIDEWALK))
+                if hz1 < TILE_M:
+                    rects.append(Rect(MAT_SIDEWALK, x + sx0, z + hz1, x + sx1, z + TILE_M, _Y_SIDEWALK))
+        elif horizontal:
             if hz0 > 0.0:
                 rects.append(Rect(MAT_SIDEWALK, x, z, x + TILE_M, z + hz0, _Y_SIDEWALK))
             if hz1 < TILE_M:
                 rects.append(Rect(MAT_SIDEWALK, x, z + hz1, x + TILE_M, z + TILE_M, _Y_SIDEWALK))
-        if vertical:
+        elif vertical:
             if vx0 > 0.0:
                 rects.append(Rect(MAT_SIDEWALK, x, z, x + vx0, z + TILE_M, _Y_SIDEWALK))
             if vx1 < TILE_M:
@@ -1384,30 +1394,61 @@ def _decorate_streets(grid, rng, style, detail_rects, detail_boxes, road_profile
                     _add_bollard(x + 5.9, bz, detail_boxes)
                     _add_bollard(x + 10.1, bz, detail_boxes)
         elif intersection and distance <= 8:
-            # Build one correctly oriented 9.6 m crossing on every connected
-            # approach. Bars run in the pedestrian direction; stop bars run
-            # across the corresponding traffic lane.
-            stripe_w, stripe_step = 0.38, 0.68
-            for i in range(4):
-                near = 3.25 + i * stripe_step
-                far = 12.75 - i * stripe_step - stripe_w
-                if n:
-                    detail_rects.append(Rect(MAT_MARKING, x + 3.2, z + near, x + 12.8, z + near + stripe_w, _Y_MARKING))
-                if s:
-                    detail_rects.append(Rect(MAT_MARKING, x + 3.2, z + far, x + 12.8, z + far + stripe_w, _Y_MARKING))
-                if w:
-                    detail_rects.append(Rect(MAT_MARKING, x + near, z + 3.2, x + near + stripe_w, z + 12.8, _Y_MARKING))
-                if e:
-                    detail_rects.append(Rect(MAT_MARKING, x + far, z + 3.2, x + far + stripe_w, z + 12.8, _Y_MARKING))
+            # Keep each zebra on its incoming arm, outside the central conflict
+            # area. The old 9.6 m bars were all drawn inside the central square,
+            # so perpendicular crossings overlapped into a white lattice.
+            # A paired avenue occupies two tiles. Its shared tile edge is a
+            # median/internal seam, not another junction approach.
+            draw_n = n and not (hkind == ROAD_AVENUE and horizontal_profiles.get(tz - 1) == ROAD_AVENUE)
+            draw_s = s and not (hkind == ROAD_AVENUE and horizontal_profiles.get(tz + 1) == ROAD_AVENUE)
+            draw_w = w and not (vkind == ROAD_AVENUE and vertical_profiles.get(tx - 1) == ROAD_AVENUE)
+            draw_e = e and not (vkind == ROAD_AVENUE and vertical_profiles.get(tx + 1) == ROAD_AVENUE)
+
+            def roadway_span(kind, before_pair, after_pair):
+                if kind == ROAD_AVENUE:
+                    return (0.0 if before_pair else 2.0), (TILE_M if after_pair else 14.0)
+                return SIDEWALK_M, SIDEWALK_M + ROADWAY_M
+
+            vx0, vx1 = roadway_span(
+                vkind,
+                vertical_profiles.get(tx - 1) == ROAD_AVENUE,
+                vertical_profiles.get(tx + 1) == ROAD_AVENUE,
+            )
+            hz0, hz1 = roadway_span(
+                hkind,
+                horizontal_profiles.get(tz - 1) == ROAD_AVENUE,
+                horizontal_profiles.get(tz + 1) == ROAD_AVENUE,
+            )
+            stripe_w, stripe_step = 0.50, 1.10
+            crossing_start = 0.55
+            crossing_length = 2.60
+
+            # Zebra bars run with traffic; pedestrians cross the repeated bars.
+            position = vx0 + 0.45
+            while position + stripe_w <= vx1 - 0.45:
+                if draw_n:
+                    detail_rects.append(Rect(MAT_MARKING, x + position, z + crossing_start, x + position + stripe_w, z + crossing_start + crossing_length, _Y_MARKING))
+                if draw_s:
+                    detail_rects.append(Rect(MAT_MARKING, x + position, z + TILE_M - crossing_start - crossing_length, x + position + stripe_w, z + TILE_M - crossing_start, _Y_MARKING))
+                position += stripe_step
+            position = hz0 + 0.45
+            while position + stripe_w <= hz1 - 0.45:
+                if draw_w:
+                    detail_rects.append(Rect(MAT_MARKING, x + crossing_start, z + position, x + crossing_start + crossing_length, z + position + stripe_w, _Y_MARKING))
+                if draw_e:
+                    detail_rects.append(Rect(MAT_MARKING, x + TILE_M - crossing_start - crossing_length, z + position, x + TILE_M - crossing_start, z + position + stripe_w, _Y_MARKING))
+                position += stripe_step
+            # Stop lines sit on the approach side of the zebra, rather than
+            # cutting through it or intruding into the central junction.
             stop_w = 0.24
-            if n:
-                detail_rects.append(Rect(MAT_MARKING, x + 3.1, z + 6.05, x + 12.9, z + 6.05 + stop_w, _Y_MARKING))
-            if s:
-                detail_rects.append(Rect(MAT_MARKING, x + 3.1, z + 9.71, x + 12.9, z + 9.71 + stop_w, _Y_MARKING))
-            if w:
-                detail_rects.append(Rect(MAT_MARKING, x + 6.05, z + 3.1, x + 6.05 + stop_w, z + 12.9, _Y_MARKING))
-            if e:
-                detail_rects.append(Rect(MAT_MARKING, x + 9.71, z + 3.1, x + 9.71 + stop_w, z + 12.9, _Y_MARKING))
+            if draw_n:
+                detail_rects.append(Rect(MAT_MARKING, x + vx0 + 0.35, z + 0.18, x + vx1 - 0.35, z + 0.18 + stop_w, _Y_MARKING))
+            if draw_s:
+                detail_rects.append(Rect(MAT_MARKING, x + vx0 + 0.35, z + TILE_M - 0.18 - stop_w, x + vx1 - 0.35, z + TILE_M - 0.18, _Y_MARKING))
+            if draw_w:
+                detail_rects.append(Rect(MAT_MARKING, x + 0.18, z + hz0 + 0.35, x + 0.18 + stop_w, z + hz1 - 0.35, _Y_MARKING))
+            if draw_e:
+                detail_rects.append(Rect(MAT_MARKING, x + TILE_M - 0.18 - stop_w, z + hz0 + 0.35, x + TILE_M - 0.18, z + hz1 - 0.35, _Y_MARKING))
             # Signals at opposing corners; their dark heads remain visible by
             # day while nearby streetlamps provide the night glow.
             for sx, sz in ((x + 2.25, z + 2.25), (x + 13.75, z + 13.75)):
