@@ -438,6 +438,38 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
     ) in calls
 
 
+def test_atc_billboards_are_depth_tested_without_writing_depth(monkeypatch):
+    import sc4pimx.SC4LotPreview as preview
+
+    atc = preview.ATC(None, None)
+    atc.draw_le = lambda *_args: True
+    calls = []
+    atc.DrawGL = lambda *_args: calls.append(("draw", ()))
+    for name in ("glDepthFunc", "glDepthMask", "glDisable", "glEnable"):
+        monkeypatch.setattr(preview, name, lambda *args, name=name: calls.append((name, args)))
+
+    class Dummy:
+        _render_context = preview.TransformStack()
+        s3DTexturesHolder = object()
+        glCanvas2D = type("Canvas", (), {"renderer": object()})()
+
+        def _flush_model_batches(self, _batches):
+            return None
+
+    preview.LotEditorWin._draw_state_member(Dummy(), atc, (0, 0, 0), 0, 0, 0, 4, None, None, None)
+
+    draw_index = calls.index(("draw", ()))
+    assert ("glEnable", (preview.GL_DEPTH_TEST,)) in calls[:draw_index]
+    assert ("glDepthFunc", (preview.GL_LEQUAL,)) in calls[:draw_index]
+    assert ("glDepthMask", (preview.GL_FALSE,)) in calls[:draw_index]
+    assert ("glDepthMask", (preview.GL_TRUE,)) in calls[draw_index + 1 :]
+    assert ("glDisable", (preview.GL_BLEND,)) in calls[draw_index + 1 :]
+    assert ("glDisable", (preview.GL_DEPTH_TEST,)) not in calls
+    assert preview._atc_anchor_depth(numpy.identity(4), 0, 0, 5) > preview._atc_anchor_depth(
+        numpy.identity(4), 0, 0, -5
+    )
+
+
 def test_s3d_shadow_projector_includes_sc4_quarter_turn():
     import sc4pimx.SC4LotPreview as preview
 

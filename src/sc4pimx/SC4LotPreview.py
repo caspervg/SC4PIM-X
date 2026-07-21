@@ -242,40 +242,6 @@ def _atc_anchor_depth(mvp, x, y, z):
     return float((mvp @ (x, y, z, 1.0))[2])
 
 
-def _silhouette_shadow_matrix(scene_model, light_dir):
-    """Lay the camera-visible S3D silhouette onto the lot ground.
-
-    SC4 textures contain the model's real outline, while their LOD geometry is
-    usually only a coarse carrier shell.  Preserve the shell's screen-space X/Y
-    coordinates (and therefore its alpha-masked outline), but reinterpret them
-    as width across the shadow and height along the sun direction.
-    """
-    linear = numpy.asarray(scene_model, dtype=numpy.float64)[:3, :3]
-    view_scale = float(numpy.linalg.norm(linear[0]))
-    if view_scale <= 1.0e-12:
-        return SC4Matrix.identity()
-    screen_x = linear[0] / view_scale
-    screen_y = linear[1] / view_scale
-    vertical_scale = float(screen_y[1])
-    if abs(vertical_scale) <= 1.0e-6:
-        vertical_scale = 1.0
-
-    dx, _dy, dz = light_dir
-    shadow_axis = numpy.asarray((dx, 0.0, dz), dtype=numpy.float64)
-    axis_length = float(numpy.linalg.norm(shadow_axis))
-    if axis_length <= 1.0e-12:
-        return SC4Matrix.identity()
-    width_axis = numpy.asarray((-dz, 0.0, dx), dtype=numpy.float64) / axis_length
-    # Keep the texture's right side on the screen's right after laying it down.
-    if numpy.dot(screen_x, width_axis) < 0.0:
-        width_axis = -width_axis
-
-    result = numpy.zeros((4, 4), dtype=numpy.float64)
-    result[:3, :3] = numpy.outer(width_axis, screen_x) + numpy.outer(shadow_axis, screen_y / vertical_scale)
-    result[3, 3] = 1.0
-    return result
-
-
 def ToTileOrigin(val):
     # Textures/water/land/TE quads cover whole 16m tiles. The stored position
     # is the object centre, which may not sit exactly on a tile centre, so
@@ -3169,9 +3135,6 @@ class LotEditorWin(wx.Frame):
             dtype=numpy.float64,
         )
 
-    def _shadow_silhouette_matrix(self):
-        return _silhouette_shadow_matrix(self._render_context.model, self._shadow_light_dir())
-
     def _lot_lighting_state(self, exemplar, lighting_kind="model"):
         # Memoized and deduped: the state only varies by lighting kind and the
         # exemplar's prelit flag, so at most four shared dicts exist per
@@ -5044,7 +5007,6 @@ class LotEditorWin(wx.Frame):
         flatten = self._shadow_flatten_matrix()
         shadow_direction = self._shadow_light_dir()
         render = self._render_context
-        silhouette = self._shadow_silhouette_matrix()
         shadow_batches = {}
 
         def cast(record, viewer):
