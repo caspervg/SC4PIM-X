@@ -403,6 +403,8 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
         lightingProfile = None
         SHADOW_COLOR = (0.08, 0.06, 0.23)
         SHADOW_STRENGTH = 0.4
+        SHADOW_DEPTH_BIAS_FACTOR = preview.LotEditorWin.SHADOW_DEPTH_BIAS_FACTOR
+        SHADOW_DEPTH_BIAS_UNITS = preview.LotEditorWin.SHADOW_DEPTH_BIAS_UNITS
         _render_context = None
 
         def _shadow_flatten_matrix(self):
@@ -427,6 +429,13 @@ def test_shadow_pass_builds_one_stencil_union_then_composites_once(monkeypatch):
     composites = [color for name, color in calls if name == "quad"]
     assert composites == [pytest.approx((0.632, 0.624, 0.692, 1.0))]
     assert ("glDepthMask", (preview.GL_FALSE,)) in calls
+    assert (
+        "glPolygonOffset",
+        (
+            preview.LotEditorWin.SHADOW_DEPTH_BIAS_FACTOR,
+            preview.LotEditorWin.SHADOW_DEPTH_BIAS_UNITS,
+        ),
+    ) in calls
 
 
 def test_s3d_shadow_projector_includes_sc4_quarter_turn():

@@ -3073,6 +3073,16 @@ class LotEditorWin(wx.Frame):
     # shadow projector's frame; omitting it makes placement depend on the lot
     # and prop rotation.
     SHADOW_PROJECTOR_YAW = -90.0
+    # The fitted receiver decal and the lot base both land on world y=0, but
+    # they reach the GPU through different float32 transform chains.  A
+    # one-unit polygon offset is not enough to cover the resulting depth
+    # rounding in every camera quadrant (most visibly when South points
+    # right), so the entire decal can fail GL_LEQUAL there.  SC4 submits
+    # shadows through its terrain-overlay manager, which gives them a distinct
+    # receiver layer.  Use a slightly stronger depth-buffer-relative offset to
+    # provide the same separation without moving the shadow in world space.
+    SHADOW_DEPTH_BIAS_FACTOR = -2.0
+    SHADOW_DEPTH_BIAS_UNITS = -8.0
     # On-screen shadow angle. The shadow lives in the lot ground plane at
     # lot-azimuth `az`; the camera then yaws by `ry = rot2D - 22.5` and tilts
     # about X. The X-tilt leaves lot-X alone and foreshortens lot-Z into the
@@ -5026,7 +5036,7 @@ class LotEditorWin(wx.Frame):
             glDepthMask(GL_FALSE)
             glDisable(GL_BLEND)
             glEnable(GL_POLYGON_OFFSET_FILL)
-            glPolygonOffset(-1.0, -1.0)
+            glPolygonOffset(self.SHADOW_DEPTH_BIAS_FACTOR, self.SHADOW_DEPTH_BIAS_UNITS)
 
             self.DrawCityContextShadows(flatten)
             if self._is_layer_visible("3d", LAYER_BUILDING):
