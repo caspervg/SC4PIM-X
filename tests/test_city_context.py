@@ -59,6 +59,7 @@ from sc4pimx.SC4CityContext import (
     _Parcel,
     _parcel_falloff,
     _road_corridors,
+    build_context_ambient_mesh,
     build_context_mesh,
     context_seed,
     default_context_seed,
@@ -339,6 +340,24 @@ def test_fancy_detail_kits_are_deterministic_bounded_and_style_specific():
     assert any(box.material == MAT_METAL for box in scenes[STYLE_INDUSTRIAL].detail_boxes)
     assert any(rect.material == "water" for rect in scenes[STYLE_CIVIC].detail_rects)
     assert any(rect.material == MAT_FIELD for rect in scenes[STYLE_RURAL].detail_rects)
+
+
+def test_density_height_and_ambient_activity_are_user_controllable():
+    edges = road_edges_from_flags(8)
+    low = generate_city_context(4, 4, edges, STYLE_URBAN, 12345, density="low", height="low")
+    high = generate_city_context(4, 4, edges, STYLE_URBAN, 12345, density="high", height="high")
+    assert len(high.boxes) > len(low.boxes)
+    assert max(box.y1 for box in high.boxes) > max(box.y1 for box in low.boxes)
+
+    still = build_context_ambient_mesh(high, 10.0, "off", "off")
+    first = build_context_ambient_mesh(high, 10.0, "medium", "medium")
+    repeat = build_context_ambient_mesh(high, 10.0, "medium", "medium")
+    moved = build_context_ambient_mesh(high, 10.5, "medium", "medium")
+    assert len(still.vertices) == 0
+    assert len(first.vertices) > 0
+    assert numpy.array_equal(first.vertices, repeat.vertices)
+    assert not numpy.array_equal(first.vertices, moved.vertices)
+    assert first.normals.shape == first.vertices[:, :3].shape
 
 
 def test_seasons_change_context_vegetation_without_reshuffling_the_city():
@@ -789,11 +808,9 @@ def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
         def Enable(self, enabled):
             self.enabled = enabled
 
-    dummy.contextRegenBtn = Button()
-    dummy.contextResetBtn = Button()
+    dummy.contextMenuBtn = Button()
     LotEditorWin._update_context_buttons(dummy)
-    assert dummy.contextRegenBtn.enabled is False
-    assert dummy.contextResetBtn.enabled is False
+    assert dummy.contextMenuBtn.enabled is False
 
     layers_2d = LotEditorWin._default_visible_layers(dummy, "2d")
     migrated_3d = LotEditorWin._load_visible_layers(

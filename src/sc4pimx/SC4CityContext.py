@@ -41,7 +41,7 @@ import hashlib
 import math
 import random
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy
 
@@ -86,6 +86,11 @@ SEASON_SPRING = "spring"
 SEASON_SUMMER = "summer"
 SEASON_AUTUMN = "autumn"
 SEASON_WINTER = "winter"
+
+LEVEL_LOW = "low"
+LEVEL_MEDIUM = "medium"
+LEVEL_HIGH = "high"
+CONTEXT_LEVELS = (LEVEL_LOW, LEVEL_MEDIUM, LEVEL_HIGH)
 
 # Deliberate geometry ceilings. Modern hardware can comfortably carry a much
 # richer cached backdrop, but every generated family remains bounded so large
@@ -473,7 +478,16 @@ _Y_SIDEWALK = -0.02
 _Y_BUILDING_BASE = -0.08
 
 
-def generate_city_context(lot_w, lot_d, road_edges, style, seed, season=SEASON_SUMMER):
+def generate_city_context(
+    lot_w,
+    lot_d,
+    road_edges,
+    style,
+    seed,
+    season=SEASON_SUMMER,
+    density=LEVEL_MEDIUM,
+    height=LEVEL_MEDIUM,
+):
     """Generate the neighbourhood layout. Pure; all randomness is local.
 
     lot_w/lot_d are the lot dimensions in tiles (property 0x88EDC790);
@@ -489,6 +503,19 @@ def generate_city_context(lot_w, lot_d, road_edges, style, seed, season=SEASON_S
         style = STYLE_MIXED
     if season not in (SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER):
         season = SEASON_SUMMER
+    density = density if density in CONTEXT_LEVELS else LEVEL_MEDIUM
+    height = height if height in CONTEXT_LEVELS else LEVEL_MEDIUM
+    density_factor = {LEVEL_LOW: 0.72, LEVEL_MEDIUM: 1.0, LEVEL_HIGH: 1.28}[density]
+    height_factor = {LEVEL_LOW: 0.68, LEVEL_MEDIUM: 1.0, LEVEL_HIGH: 1.38}[height]
+    pitch_factor = {LEVEL_LOW: 1.25, LEVEL_MEDIUM: 1.0, LEVEL_HIGH: 0.82}[density]
+    preset = replace(
+        preset,
+        block_pitch=tuple(max(3, int(round(value * pitch_factor))) for value in preset.block_pitch),
+        height=tuple(value * height_factor for value in preset.height),
+        open_space=min(0.75, max(0.02, preset.open_space + (1.0 - density_factor) * 0.28)),
+        parking=min(0.35, max(0.01, preset.parking + (1.0 - density_factor) * 0.08)),
+        tree_density=min(1.0, max(0.05, preset.tree_density + (1.0 - density_factor) * 0.18)),
+    )
     rng = random.Random(seed)
 
     margin = _MARGIN_TILES
@@ -1314,17 +1341,43 @@ def _rect_distance_to_lot(grid, rect):
 
 
 def _add_car(rng, x, z, along_x, detail_boxes):
-    """Add a two-box, SC4-scale parked car."""
+    """Add a compact low-poly, SC4-scale vehicle.
+
+    The old context cars were only a body and a glass cuboid.  This remains
+    deliberately cheap, but the stepped hood/roof/trunk, dark underbody and
+    four wheels give it a readable vehicle silhouette from every isometric
+    view.  The same kit is reused by the animated traffic layer.
+    """
     length, width = 4.25, 1.82
     material = rng.choice((MAT_VEHICLE_RED, MAT_VEHICLE_BLUE, MAT_VEHICLE_NEUTRAL, MAT_VEHICLE_NEUTRAL))
     if along_x:
         x0, x1, z0, z1 = x - length / 2, x + length / 2, z - width / 2, z + width / 2
-        cx0, cx1, cz0, cz1 = x - 1.25, x + 1.15, z - 0.76, z + 0.76
+        detail_boxes.extend(
+            (
+                Box(MAT_DARK_METAL, x0 + 0.15, z0 + 0.12, x1 - 0.15, z1 - 0.12, 0.08, 0.30, 0.72),
+                Box(material, x0, z0, x1, z1, 0.30, 0.68, rng.uniform(0.92, 1.08)),
+                Box(material, x0 + 0.18, z0 + 0.08, x - 1.02, z1 - 0.08, 0.68, 0.82),
+                Box(MAT_WINDOW, x - 1.02, z0 + 0.16, x + 1.05, z1 - 0.16, 0.68, 1.30, 0.72),
+                Box(material, x + 1.05, z0 + 0.08, x1 - 0.12, z1 - 0.08, 0.68, 0.78),
+            )
+        )
+        for wx in (x - 1.35, x + 1.28):
+            for wz in (z0 - 0.03, z1 + 0.03):
+                detail_boxes.append(Box(MAT_DARK_METAL, wx - 0.34, wz - 0.10, wx + 0.34, wz + 0.10, 0.02, 0.48))
     else:
         x0, x1, z0, z1 = x - width / 2, x + width / 2, z - length / 2, z + length / 2
-        cx0, cx1, cz0, cz1 = x - 0.76, x + 0.76, z - 1.25, z + 1.15
-    detail_boxes.append(Box(material, x0, z0, x1, z1, 0.0, 0.62, rng.uniform(0.92, 1.08)))
-    detail_boxes.append(Box(MAT_WINDOW, cx0, cz0, cx1, cz1, 0.62, 1.28, 0.72))
+        detail_boxes.extend(
+            (
+                Box(MAT_DARK_METAL, x0 + 0.12, z0 + 0.15, x1 - 0.12, z1 - 0.15, 0.08, 0.30, 0.72),
+                Box(material, x0, z0, x1, z1, 0.30, 0.68, rng.uniform(0.92, 1.08)),
+                Box(material, x0 + 0.08, z0 + 0.18, x1 - 0.08, z - 1.02, 0.68, 0.82),
+                Box(MAT_WINDOW, x0 + 0.16, z - 1.02, x1 - 0.16, z + 1.05, 0.68, 1.30, 0.72),
+                Box(material, x0 + 0.08, z + 1.05, x1 - 0.08, z1 - 0.12, 0.68, 0.78),
+            )
+        )
+        for wz in (z - 1.35, z + 1.28):
+            for wx in (x0 - 0.03, x1 + 0.03):
+                detail_boxes.append(Box(MAT_DARK_METAL, wx - 0.10, wz - 0.34, wx + 0.10, wz + 0.34, 0.02, 0.48))
 
 
 def _add_streetlamp(x, z, detail_boxes, height=4.2):
@@ -2171,6 +2224,14 @@ class ContextMesh:
         return len(self.vertices) + len(self.detail_vertices) + len(self.night_vertices)
 
 
+@dataclass(frozen=True)
+class AmbientMesh:
+    """One frame of inexpensive, lot-centred ambient actor geometry."""
+
+    vertices: numpy.ndarray
+    normals: numpy.ndarray
+
+
 def scene_stats(scene):
     """Diagnostic counts for logging/tests."""
     return {
@@ -2584,6 +2645,108 @@ def build_context_mesh(scene):
         detail_shadow_vertices=detail_vertices[min(len(mark_pos) + len(facade_pos), len(detail_vertices)) :],
         night_vertices=night_vertices,
     )
+
+
+def _context_road_segments(scene, allowed_kinds):
+    """Return contiguous road-profile runs suitable for ambient actors."""
+    road_tiles = set(scene.road_tiles)
+    segments = []
+    for axis, coordinate, kind in scene.road_profiles:
+        if kind not in allowed_kinds:
+            continue
+        varying = sorted(
+            tx if axis == "h" else tz
+            for tx, tz in road_tiles
+            if (tz == coordinate if axis == "h" else tx == coordinate)
+        )
+        if not varying:
+            continue
+        start = previous = varying[0]
+        for value in varying[1:] + [None]:
+            if value is not None and value == previous + 1:
+                previous = value
+                continue
+            if previous - start >= 3:
+                segments.append((axis, coordinate, start, previous + 1, kind))
+            if value is not None:
+                start = previous = value
+    return segments
+
+
+def build_context_ambient_mesh(
+    scene,
+    elapsed_seconds,
+    traffic=LEVEL_MEDIUM,
+    pedestrians=LEVEL_MEDIUM,
+):
+    """Build one deterministic animation frame for traffic and pedestrians.
+
+    Actor routes are derived from the already-generated corridor profiles, so
+    the dynamic layer cannot wander across parcels or the edited lot.  Only
+    these small actor meshes are rebuilt per tick; the neighborhood remains
+    in its cached static batches.
+    """
+    traffic_counts = {"off": 0, LEVEL_LOW: 8, LEVEL_MEDIUM: 18, LEVEL_HIGH: 34}
+    pedestrian_counts = {"off": 0, LEVEL_LOW: 6, LEVEL_MEDIUM: 14, LEVEL_HIGH: 28}
+    car_count = traffic_counts.get(traffic, traffic_counts[LEVEL_MEDIUM])
+    pedestrian_count = pedestrian_counts.get(pedestrians, pedestrian_counts[LEVEL_MEDIUM])
+    boxes = []
+    rng = random.Random(scene.seed ^ 0x414D4249454E54)
+    motor_segments = _context_road_segments(scene, (ROAD_STREET, ROAD_AVENUE))
+    walk_segments = _context_road_segments(scene, (ROAD_STREET, ROAD_AVENUE, ROAD_BIKE, ROAD_PEDESTRIAN))
+
+    for index in range(car_count if motor_segments else 0):
+        axis, coordinate, start, end, _kind = motor_segments[index % len(motor_segments)]
+        route_start, route_end = start * TILE_M + 2.5, end * TILE_M - 2.5
+        length = max(1.0, route_end - route_start)
+        direction = -1.0 if index % 2 else 1.0
+        phase = rng.random()
+        speed = rng.uniform(6.5, 12.5)
+        distance = (phase * length + direction * float(elapsed_seconds) * speed) % length
+        position = route_start + distance
+        lane = coordinate * TILE_M + (5.5 if direction > 0 else 10.5)
+        x, z = (position, lane) if axis == "h" else (lane, position)
+        _add_car(rng, x, z, axis == "h", boxes)
+        # Small bright front markers make direction readable at night while
+        # remaining a subtle trim detail in daylight.
+        front = 2.18 * direction
+        if axis == "h":
+            boxes.append(Box(MAT_LAMP, x + front - 0.08, z - 0.55, x + front + 0.08, z + 0.55, 0.38, 0.58))
+        else:
+            boxes.append(Box(MAT_LAMP, x - 0.55, z + front - 0.08, x + 0.55, z + front + 0.08, 0.38, 0.58))
+
+    for index in range(pedestrian_count if walk_segments else 0):
+        axis, coordinate, start, end, kind = walk_segments[index % len(walk_segments)]
+        route_start, route_end = start * TILE_M + 1.0, end * TILE_M - 1.0
+        length = max(1.0, route_end - route_start)
+        direction = -1.0 if index % 2 else 1.0
+        position = route_start + (rng.random() * length + direction * float(elapsed_seconds) * rng.uniform(1.0, 1.65)) % length
+        side = 8.0 if kind == ROAD_PEDESTRIAN else (1.45 if index % 4 < 2 else 14.55)
+        x, z = (position, coordinate * TILE_M + side) if axis == "h" else (coordinate * TILE_M + side, position)
+        body = rng.choice((MAT_VEHICLE_RED, MAT_VEHICLE_BLUE, MAT_VEHICLE_NEUTRAL, MAT_AWNING))
+        stride = 0.08 * math.sin(float(elapsed_seconds) * 7.0 + index)
+        boxes.extend(
+            (
+                Box(MAT_DARK_METAL, x - 0.16, z - 0.12, x - 0.01, z + 0.12, 0.0, 0.72 + stride),
+                Box(MAT_DARK_METAL, x + 0.01, z - 0.12, x + 0.16, z + 0.12, 0.0, 0.72 - stride),
+                Box(body, x - 0.24, z - 0.17, x + 0.24, z + 0.17, 0.70, 1.55, rng.uniform(0.9, 1.08)),
+                Box(MAT_WALL, x - 0.20, z - 0.20, x + 0.20, z + 0.20, 1.55, 1.98, 0.9),
+            )
+        )
+
+    if not boxes:
+        vertices = numpy.zeros((0, 9), dtype=numpy.float32)
+        normals = numpy.zeros((0, 3), dtype=numpy.float32)
+    else:
+        center_x = scene.lot_w * TILE_M / 2.0
+        center_z = scene.lot_d * TILE_M / 2.0
+        positions, colors, normals = _box_arrays(boxes, center_x, center_z, _palette_for_style(scene.style, scene.season))
+        vertices = numpy.zeros((len(positions), 9), dtype=numpy.float32)
+        vertices[:, :3] = positions
+        vertices[:, 3:7] = colors
+    vertices.setflags(write=False)
+    normals.setflags(write=False)
+    return AmbientMesh(vertices, normals)
 
 
 def light_context_vertices(vertices, normals, lighting_state, environment_profile=None):

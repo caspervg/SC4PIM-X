@@ -130,6 +130,13 @@ PreviewMonth = 1
 PreviewDay = 1
 PreviewMinutes = 720
 ShowInactiveProps = false
+CityContextStyle = "auto"
+CityContextDensity = "medium"
+CityContextHeight = "medium"
+CityContextTraffic = "medium"
+CityContextPedestrians = "medium"
+CityContextDetail = "high"
+CityContextSeason = "auto"
 
 # --- Graphics / rendering quality ---
 # Tunes the OpenGL 3.3 preview pipeline. All values degrade gracefully: each is

@@ -39,6 +39,13 @@ DEFAULT_LOT_EDITOR = {
     "PreviewMinutes": 720,
     "ShowInactiveProps": False,
     "LightingProfile": "maxis",
+    "CityContextStyle": "auto",
+    "CityContextDensity": "medium",
+    "CityContextHeight": "medium",
+    "CityContextTraffic": "medium",
+    "CityContextPedestrians": "medium",
+    "CityContextDetail": "high",
+    "CityContextSeason": "auto",
 }
 
 DEFAULT_MAIN_WINDOW = {

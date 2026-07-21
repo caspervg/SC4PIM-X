@@ -71,10 +71,22 @@ from .S3DShaders import (
 from .S3DTexturesHolder import S3DTexturesHolder
 from .S3DViewer import S3DViewer
 from .SC4CityContext import (
+    CONTEXT_LEVELS,
     EDGE_XMAX,
     EDGE_XMIN,
     EDGE_ZMAX,
     EDGE_ZMIN,
+    SEASON_AUTUMN,
+    SEASON_SPRING,
+    SEASON_SUMMER,
+    SEASON_WINTER,
+    STYLE_CIVIC,
+    STYLE_INDUSTRIAL,
+    STYLE_MIXED,
+    STYLE_RURAL,
+    STYLE_SUBURBAN,
+    STYLE_URBAN,
+    build_context_ambient_mesh,
     build_context_mesh,
     context_seed,
     generate_city_context,
@@ -668,6 +680,23 @@ class LotEditorWin(wx.Frame):
         self.previewMinutes = max(0, min(1439, int(settings.get("PreviewMinutes", 720))))
         self.showInactiveProps = bool(settings.get("ShowInactiveProps", False))
         self.showFps = bool(settings.get("ShowFps", False))
+        valid_levels = set(CONTEXT_LEVELS)
+        valid_styles = {"auto", STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL, STYLE_MIXED}
+        valid_seasons = {"auto", SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER}
+        self.contextStyle = str(settings.get("CityContextStyle", "auto"))
+        self.contextStyle = self.contextStyle if self.contextStyle in valid_styles else "auto"
+        self.contextDensity = str(settings.get("CityContextDensity", "medium"))
+        self.contextDensity = self.contextDensity if self.contextDensity in valid_levels else "medium"
+        self.contextHeight = str(settings.get("CityContextHeight", "medium"))
+        self.contextHeight = self.contextHeight if self.contextHeight in valid_levels else "medium"
+        self.contextTraffic = str(settings.get("CityContextTraffic", "medium"))
+        self.contextTraffic = self.contextTraffic if self.contextTraffic in valid_levels | {"off"} else "medium"
+        self.contextPedestrians = str(settings.get("CityContextPedestrians", "medium"))
+        self.contextPedestrians = self.contextPedestrians if self.contextPedestrians in valid_levels | {"off"} else "medium"
+        self.contextDetail = str(settings.get("CityContextDetail", "high"))
+        self.contextDetail = self.contextDetail if self.contextDetail in valid_levels else "high"
+        self.contextSeason = str(settings.get("CityContextSeason", "auto"))
+        self.contextSeason = self.contextSeason if self.contextSeason in valid_seasons else "auto"
         self._fps_last_frame = None
         self._fps_smoothed = None
         self.lightingProfiles = lighting_profiles()
@@ -745,6 +774,15 @@ class LotEditorWin(wx.Frame):
             command_bar, "layers-selected", "%s\n%s" % (LEXToolbarLayers, LEXToolbarLayersHint), self.OnLayersMenu
         )
         command_sizer.Add(layers_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        self.contextMenuBtn, self.contextMenuHolder = self._make_context_button(
+            command_bar,
+            "building-community",
+            "%s\n%s" % (LEXContextMenu, LEXContextMenuHint),
+            self.OnCityContextMenu,
+        )
+        command_sizer.Add(self.contextMenuHolder, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        self._update_context_buttons()
 
         # Alignment, rotation and mirror: compact buttons (also keyboard).
         # _update_edit_buttons disables these when they do not apply. Each
@@ -925,6 +963,9 @@ class LotEditorWin(wx.Frame):
         self.previewPlayButton.Bind(wx.EVT_BUTTON, self.OnTogglePlayback)
         self.previewPlayTimer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnPlaybackTick, self.previewPlayTimer)
+        self.contextAmbientTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnContextAmbientTick, self.contextAmbientTimer)
+        self._update_context_ambient_timer()
         # Coalesces config writes from manual temporal edits (slider drags,
         # date spins) so a drag doesn't hit the disk on every step.
         self._stateSaveTimer = wx.Timer(self)
@@ -949,6 +990,33 @@ class LotEditorWin(wx.Frame):
     LOOP_MODE_TIME = 0
     LOOP_MODE_DATE = 1
     LOOP_MODE_BOTH = 2
+
+    # 30 FPS is visibly smoother than the old 20 FPS cadence while leaving
+    # enough event-loop time for editing and avoiding a wasteful 60 full lot
+    # renders per second on complex scenes.
+    CONTEXT_AMBIENT_INTERVAL_MS = 33
+
+    def _update_context_ambient_timer(self):
+        timer = getattr(self, "contextAmbientTimer", None)
+        if timer is None:
+            return
+        active = (
+            hasattr(self, "exemplar")
+            and self._is_layer_visible("3d", LAYER_CITY_CONTEXT)
+            and (self.contextTraffic != "off" or self.contextPedestrians != "off")
+        )
+        if active and not timer.IsRunning():
+            timer.Start(self.CONTEXT_AMBIENT_INTERVAL_MS)
+        elif not active and timer.IsRunning():
+            timer.Stop()
+
+    def OnContextAmbientTick(self, event=None):
+        if (
+            hasattr(self, "exemplar")
+            and self._is_layer_visible("3d", LAYER_CITY_CONTEXT)
+            and self.IsShownOnScreen()
+        ):
+            self._request_draw(ambient=True)
 
     def OnTogglePlayback(self, event=None):
         if self.previewPlayTimer.IsRunning():
@@ -1071,22 +1139,6 @@ class LotEditorWin(wx.Frame):
                 btn = self._make_toolbar_button(bar, icon, tooltip, handler, hint)
                 row.Add(btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
                 items.append(btn)
-            if pane == "3d":
-                # City-context actions live with the other 3D view controls.
-                # Each button sits in a holder panel carrying the tooltip,
-                # because a disabled button shows no tooltip on Windows.
-                self.contextRegenBtn, holder = self._make_context_button(
-                    bar, "wand", "%s\n%s" % (LEXContextRegenerate, LEXContextRegenerateHint), self.OnRegenerateContext
-                )
-                row.Add(holder, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-                items.append(holder)
-                self.contextResetBtn, holder = self._make_context_button(
-                    bar, "arrow-back-up", "%s\n%s" % (LEXContextReset, LEXContextResetHint), self.OnResetContext
-                )
-                row.Add(holder, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 2)
-                items.append(holder)
-                self._update_context_buttons()
-
         add_cluster("3d", LEXPaneCluster3D)
         row.AddStretchSpacer(1)
         add_cluster("2d", LEXPaneCluster2D)
@@ -1104,10 +1156,36 @@ class LotEditorWin(wx.Frame):
         return btn, holder
 
     def _update_context_buttons(self):
-        if getattr(self, "contextRegenBtn", None) is None:
+        if getattr(self, "contextMenuBtn", None) is None:
             return
-        self.contextRegenBtn.Enable(hasattr(self, "exemplar"))
-        self.contextResetBtn.Enable(getattr(self, "_contextNonce", None) is not None)
+        loaded = hasattr(self, "exemplar")
+        self.contextMenuBtn.Enable(loaded)
+        if not loaded:
+            return
+        styles = {
+            STYLE_URBAN: LEXContextStyleUrban,
+            STYLE_SUBURBAN: LEXContextStyleSuburban,
+            STYLE_INDUSTRIAL: LEXContextStyleIndustrial,
+            STYLE_CIVIC: LEXContextStyleCivic,
+            STYLE_RURAL: LEXContextStyleRural,
+            STYLE_MIXED: LEXContextStyleMixed,
+        }
+        levels = {"off": LEXContextOff, "low": LEXContextLow, "medium": LEXContextMedium, "high": LEXContextHigh}
+        effective_style = self._infer_context_style() if self.contextStyle == "auto" else self.contextStyle
+        style_label = styles.get(effective_style, LEXContextStyleMixed)
+        if self.contextStyle == "auto":
+            style_label = "%s → %s" % (LEXContextAutomatic, style_label)
+        tooltip = "%s\n%s" % (
+            LEXContextMenuHint,
+            LEXContextStatus % (
+                style_label,
+                levels.get(self.contextDensity, LEXContextMedium),
+                levels.get(self.contextTraffic, LEXContextMedium),
+            ),
+        )
+        self.contextMenuBtn.SetToolTip(tooltip)
+        if getattr(self, "contextMenuHolder", None) is not None:
+            self.contextMenuHolder.SetToolTip(tooltip)
 
     def _sync_pane_action_bar(self):
         """Show only the cluster(s) for panes currently visible in self.panel."""
@@ -1208,6 +1286,13 @@ class LotEditorWin(wx.Frame):
         state["ShadowLockToView"] = bool(getattr(self, "shadowLockToView", True))
         state["ShowFps"] = bool(getattr(self, "showFps", False))
         state["LightingProfile"] = str(getattr(self, "lightingProfileId", "maxis"))
+        state["CityContextStyle"] = str(getattr(self, "contextStyle", "auto"))
+        state["CityContextDensity"] = str(getattr(self, "contextDensity", "medium"))
+        state["CityContextHeight"] = str(getattr(self, "contextHeight", "medium"))
+        state["CityContextTraffic"] = str(getattr(self, "contextTraffic", "medium"))
+        state["CityContextPedestrians"] = str(getattr(self, "contextPedestrians", "medium"))
+        state["CityContextDetail"] = str(getattr(self, "contextDetail", "high"))
+        state["CityContextSeason"] = str(getattr(self, "contextSeason", "auto"))
         return state
 
     def _default_visible_layers(self, view=None):
@@ -1293,11 +1378,16 @@ class LotEditorWin(wx.Frame):
         flags_prop = self.exemplar.GetProp(1246398704)
         flags = flags_prop[0] if flags_prop else None
         edges = road_edges_from_flags(flags)
-        style = self._infer_context_style()
-        season = season_for_month(getattr(getattr(self, "previewDate", None), "month", 7))
+        inferred_style = self._infer_context_style()
+        style = inferred_style if self.contextStyle == "auto" else self.contextStyle
+        inferred_season = season_for_month(getattr(getattr(self, "previewDate", None), "month", 7))
+        season = inferred_season if self.contextSeason == "auto" else self.contextSeason
         tgi = tuple(self.exemplar.entry.tgi)
         seed = context_seed(tgi, self._contextNonce)
-        key = (tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, season, self._contextNonce)
+        key = (
+            tgi, int(lot_size[0]), int(lot_size[1]), tuple(sorted(edges)), style, season,
+            self.contextDensity, self.contextHeight, self._contextNonce,
+        )
         return key, int(lot_size[0]), int(lot_size[1]), edges, style, season, seed
 
     def _rebuild_city_context(self):
@@ -1309,7 +1399,11 @@ class LotEditorWin(wx.Frame):
             if key == self._context_cache_key and self._context_mesh is not None:
                 return
             started = time.perf_counter()
-            scene = generate_city_context(lot_w, lot_d, edges, style, seed, season)
+            scene = generate_city_context(
+                lot_w, lot_d, edges, style, seed, season,
+                density=self.contextDensity,
+                height=self.contextHeight,
+            )
             mesh = build_context_mesh(scene)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
         except Exception:
@@ -1374,10 +1468,42 @@ class LotEditorWin(wx.Frame):
         vertices, detail = self._tinted_context_vertices()
         renderer = self.glCanvas2D.renderer.primitives
         renderer.draw_interleaved(GL_TRIANGLES, vertices, self._render_context.mvp)
-        if self.zoom3D >= 2:
+        detail_threshold = {"low": 4, "medium": 2, "high": 1}.get(self.contextDetail, 2)
+        if self.zoom3D >= detail_threshold:
             renderer.draw_interleaved(GL_TRIANGLES, detail, self._render_context.mvp)
             if self.nightMode:
                 renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.night_vertices, self._render_context.mvp)
+
+    def DrawCityContextAmbient(self):
+        """Draw moving traffic and pedestrians as a separate dynamic batch."""
+        if (
+            self._icon_render
+            or self._context_scene is None
+            or not self._is_layer_visible("3d", LAYER_CITY_CONTEXT)
+            or (self.contextTraffic == "off" and self.contextPedestrians == "off")
+        ):
+            return
+        detail_threshold = {"low": 4, "medium": 2, "high": 1}.get(self.contextDetail, 2)
+        if self.zoom3D < detail_threshold:
+            return
+        ambient = build_context_ambient_mesh(
+            self._context_scene,
+            getattr(self, "_animation_frame_time", time.monotonic()),
+            self.contextTraffic,
+            self.contextPedestrians,
+        )
+        if not len(ambient.vertices):
+            return
+        lit = light_context_vertices(
+            ambient.vertices,
+            ambient.normals,
+            self._lot_lighting_state(None),
+            getattr(self, "lightingProfile", None),
+        )
+        glEnable(GL_DEPTH_TEST)
+        glDisable(GL_BLEND)
+        glDepthMask(GL_TRUE)
+        self.glCanvas2D.renderer.primitives.draw_interleaved(GL_TRIANGLES, lit, self._render_context.mvp)
 
     def DrawCityContextShadows(self, flatten):
         """Project cached context casters into the active coverage mask."""
@@ -3014,6 +3140,8 @@ class LotEditorWin(wx.Frame):
         for key, label in LAYER_SPECS:
             if key in LAYER_3D_ONLY and view_key != "3d":
                 continue
+            if key == LAYER_CITY_CONTEXT:
+                continue
             menu_id = wx.NewIdRef()
             help_text = LEXLayerCityContextHint if key == LAYER_CITY_CONTEXT else ""
             item = submenu.AppendCheckItem(menu_id, label, help_text)
@@ -3036,15 +3164,92 @@ class LotEditorWin(wx.Frame):
         fps_item = menu.AppendCheckItem(fps_id, LEXShowFpsCounter)
         fps_item.Check(bool(getattr(self, "showFps", False)))
         menu.Bind(wx.EVT_MENU, self.OnToggleFpsCounter, id=fps_id)
+        if event is not None and hasattr(event.GetEventObject(), "PopupMenu"):
+            event.GetEventObject().PopupMenu(menu)
+        else:
+            self.PopupMenu(menu)
+        menu.Destroy()
+
+    def _append_context_choice(self, parent, title, attribute, choices, rebuild=False):
+        submenu = wx.Menu()
+        current = str(getattr(self, attribute))
+        for value, label in choices:
+            menu_id = wx.NewIdRef()
+            item = submenu.AppendRadioItem(menu_id, label)
+            item.Check(value == current)
+            submenu.Bind(
+                wx.EVT_MENU,
+                lambda _event, a=attribute, v=value, r=rebuild: self._set_context_option(a, v, r),
+                id=menu_id,
+            )
+        parent.AppendSubMenu(submenu, title)
+
+    def _set_context_option(self, attribute, value, rebuild=False):
+        if getattr(self, attribute) == value:
+            return
+        setattr(self, attribute, value)
+        if rebuild and hasattr(self, "exemplar"):
+            self._rebuild_city_context()
+        self._update_context_ambient_timer()
+        self._update_context_buttons()
+        self.SaveEditorState()
+        self._invalidate_pane_cache()
+        self._request_draw()
+
+    def OnCityContextMenu(self, event=None):
+        """Show all procedural-neighborhood controls in one translated menu."""
+        menu = wx.Menu()
+        show_id = wx.NewIdRef()
+        show_item = menu.AppendCheckItem(show_id, LEXContextShow, LEXLayerCityContextHint)
+        show_item.Check(self._is_layer_visible("3d", LAYER_CITY_CONTEXT))
+        menu.Bind(wx.EVT_MENU, self.OnToggleCityContext, id=show_id)
+        menu.AppendSeparator()
+        levels = (("low", LEXContextLow), ("medium", LEXContextMedium), ("high", LEXContextHigh))
+        self._append_context_choice(
+            menu,
+            LEXContextStyle,
+            "contextStyle",
+            (
+                ("auto", LEXContextAutomatic),
+                (STYLE_URBAN, LEXContextStyleUrban),
+                (STYLE_SUBURBAN, LEXContextStyleSuburban),
+                (STYLE_INDUSTRIAL, LEXContextStyleIndustrial),
+                (STYLE_CIVIC, LEXContextStyleCivic),
+                (STYLE_RURAL, LEXContextStyleRural),
+                (STYLE_MIXED, LEXContextStyleMixed),
+            ),
+            rebuild=True,
+        )
+        self._append_context_choice(menu, LEXContextDensity, "contextDensity", levels, rebuild=True)
+        self._append_context_choice(menu, LEXContextHeight, "contextHeight", levels, rebuild=True)
+        activity = (("off", LEXContextOff),) + levels
+        self._append_context_choice(menu, LEXContextTraffic, "contextTraffic", activity)
+        self._append_context_choice(menu, LEXContextPedestrians, "contextPedestrians", activity)
+        self._append_context_choice(menu, LEXContextDetail, "contextDetail", levels)
+        self._append_context_choice(
+            menu,
+            LEXContextSeason,
+            "contextSeason",
+            (
+                ("auto", LEXContextAutomatic),
+                (SEASON_SPRING, LEXContextSeasonSpring),
+                (SEASON_SUMMER, LEXContextSeasonSummer),
+                (SEASON_AUTUMN, LEXContextSeasonAutumn),
+                (SEASON_WINTER, LEXContextSeasonWinter),
+            ),
+            rebuild=True,
+        )
         menu.AppendSeparator()
         regen_id = wx.NewIdRef()
-        regen_item = menu.Append(regen_id, LEXContextRegenerate, LEXContextRegenerateHint)
-        regen_item.Enable(hasattr(self, "exemplar"))
+        menu.Append(regen_id, LEXContextRegenerate, LEXContextRegenerateHint)
         menu.Bind(wx.EVT_MENU, self.OnRegenerateContext, id=regen_id)
         reset_id = wx.NewIdRef()
         reset_item = menu.Append(reset_id, LEXContextReset, LEXContextResetHint)
         reset_item.Enable(self._contextNonce is not None)
         menu.Bind(wx.EVT_MENU, self.OnResetContext, id=reset_id)
+        defaults_id = wx.NewIdRef()
+        menu.Append(defaults_id, LEXContextResetSettings, LEXContextResetSettingsHint)
+        menu.Bind(wx.EVT_MENU, self.OnResetContextSettings, id=defaults_id)
         if event is not None and hasattr(event.GetEventObject(), "PopupMenu"):
             event.GetEventObject().PopupMenu(menu)
         else:
@@ -3190,6 +3395,8 @@ class LotEditorWin(wx.Frame):
         layers = self.visibleLayers3D if view_key == "3d" else self.visibleLayers2D
         layers[layer_key] = not bool(layers.get(layer_key, True))
         self.SaveEditorState()
+        if view_key == "3d" and layer_key == LAYER_CITY_CONTEXT:
+            self._update_context_ambient_timer()
         self.on_draw()
 
     def OnToggleShadowLockView(self, event):
@@ -3207,8 +3414,12 @@ class LotEditorWin(wx.Frame):
     def SetAllLayersVisible(self, view_key, visible):
         layers = self.visibleLayers3D if view_key == "3d" else self.visibleLayers2D
         for key in layers:
+            if key == LAYER_CITY_CONTEXT:
+                continue
             layers[key] = bool(visible)
         self.SaveEditorState()
+        if view_key == "3d":
+            self._update_context_ambient_timer()
         self.on_draw()
 
     def OnToggleCityContext(self, event=None):
@@ -3220,6 +3431,7 @@ class LotEditorWin(wx.Frame):
         visible = not self._is_layer_visible("3d", LAYER_CITY_CONTEXT)
         self.visibleLayers3D[LAYER_CITY_CONTEXT] = visible
         self.SaveEditorState()
+        self._update_context_ambient_timer()
         self.on_draw()
 
     def OnRegenerateContext(self, event=None):
@@ -3248,6 +3460,24 @@ class LotEditorWin(wx.Frame):
         self._update_context_buttons()
         self._invalidate_pane_cache()
         self.on_draw()
+
+    def OnResetContextSettings(self, event=None):
+        """Restore the translated menu's safe, automatic context defaults."""
+        self.contextStyle = "auto"
+        self.contextDensity = "medium"
+        self.contextHeight = "medium"
+        self.contextTraffic = "medium"
+        self.contextPedestrians = "medium"
+        self.contextDetail = "high"
+        self.contextSeason = "auto"
+        self._contextNonce = None
+        if hasattr(self, "exemplar"):
+            self._rebuild_city_context()
+        self._update_context_ambient_timer()
+        self._update_context_buttons()
+        self.SaveEditorState()
+        self._invalidate_pane_cache()
+        self._request_draw()
 
     def OnToggleSnap(self, event):
         if self.snapSize == 0:
@@ -3312,6 +3542,8 @@ class LotEditorWin(wx.Frame):
             self.t2.Stop()
         if hasattr(self, "previewPlayTimer") and self.previewPlayTimer.IsRunning():
             self.previewPlayTimer.Stop()
+        if hasattr(self, "contextAmbientTimer") and self.contextAmbientTimer.IsRunning():
+            self.contextAmbientTimer.Stop()
         self.Free()
         event.Skip()
         return True
@@ -3880,6 +4112,7 @@ class LotEditorWin(wx.Frame):
         self.pos3Dz = -10
         self._update_lot_context()
         self._update_context_buttons()
+        self._update_context_ambient_timer()
         if not bForIcon:
             self.RefreshAssetBrowser()
             self.UpdateSelectionInspector()
@@ -3895,7 +4128,7 @@ class LotEditorWin(wx.Frame):
         glEnable(GL_MULTISAMPLE)  # anti-aliased edges when an MSAA buffer exists
         glDisable(GL_CULL_FACE)
 
-    def _request_draw(self):
+    def _request_draw(self, ambient=False):
         """Queue a frame and let wx coalesce bursts of UI events.
 
         Rendering both lot views synchronously from mouse/key handlers blocks
@@ -3904,6 +4137,7 @@ class LotEditorWin(wx.Frame):
         followed by another EVT_PAINT frame.  Invalidating here keeps updates
         responsive while guaranteeing at most one pending paint per canvas.
         """
+        self._ambient_frame_pending = bool(ambient)
         canvas = self.glCanvas2D
         if canvas:
             canvas.Refresh(False)
@@ -3944,6 +4178,8 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.dx = 0
         self.glCanvas2D.dy = 0
         frame_start = time.perf_counter() if getattr(self, "showFps", False) else None
+        ambient_only = bool(getattr(self, "_ambient_frame_pending", False))
+        self._ambient_frame_pending = False
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         # In split view a pan drag moves only one half's camera; presenting
         # the other half from an offscreen snapshot halves the per-frame cost.
@@ -3954,6 +4190,12 @@ class LotEditorWin(wx.Frame):
             self._draw_pane_cached("3d", self.Draw3D)
             self.Draw2D()
         elif pan_drag_pane == "3d":
+            self._draw_pane_cached("2d", self.Draw2D)
+            self.Draw3D()
+        elif ambient_only and self.panel == 3:
+            # Ambient actors only affect 3D. Re-present the unchanged 2D half
+            # from its snapshot instead of redrawing every lot texture and
+            # overlay at the animation cadence.
             self._draw_pane_cached("2d", self.Draw2D)
             self.Draw3D()
         else:
@@ -4031,15 +4273,12 @@ class LotEditorWin(wx.Frame):
         )
 
     def _draw_pane_cached(self, pane, draw_func):
-        """Draw the non-dragged split-view pane from an offscreen snapshot.
+        """Draw an unchanged split-view pane from an offscreen snapshot.
 
-        During a pan drag confined to one half of the split view the other
-        half's inputs do not change, so re-rendering its full scene on every
-        motion event doubles the frame cost for nothing. The first drag frame
-        renders the pane once into an offscreen target (MSAA-resolved by
-        RenderTarget); later frames re-present that capture as one textured
-        quad. The cache is invalidated on mouse-up and by any state-key
-        change (zoom, rotation, preview clock, canvas size).
+        Used while dragging one pane and while only the 3D ambient layer is
+        advancing. The first frame renders the pane into an offscreen target
+        (MSAA-resolved by RenderTarget); later frames re-present that capture
+        as one textured quad. State changes invalidate the snapshot.
         """
         canvas = self.glCanvas2D
         width, height = canvas.GetPhysicalSize()
@@ -5185,6 +5424,7 @@ class LotEditorWin(wx.Frame):
         # Context uses this exact lot/camera transform, but remains cached,
         # non-selectable geometry and is suppressed during icon rendering.
         self.DrawCityContext()
+        self.DrawCityContextAmbient()
         glEnable(GL_DEPTH_TEST)
         if self._is_layer_visible("3d", LAYER_BASE):
             self.DrawQuads3D(self.texBases, False)
