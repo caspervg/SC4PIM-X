@@ -120,6 +120,62 @@ def project_shadow_decal(positions, uvs, direction, plane_y=0.0):
     return quad_positions, quad_uvs, uv_bounds
 
 
+def project_indexed_shadow_decals(positions, uvs, index_buffer, prim_block, direction, plane_y=0.0):
+    """Fit one decal per disconnected primitive island in the current frame."""
+    idx_bytes, idx_count = index_buffer
+    parent = {}
+
+    def find(index):
+        parent.setdefault(index, index)
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def add_face(face):
+        face = [int(index) for index in face if index < len(positions)]
+        if len(set(face)) < 3:
+            return
+        root = find(face[0])
+        for index in face[1:]:
+            other = find(index)
+            if root != other:
+                parent[other] = root
+
+    for type_prim, first, length in prim_block:
+        if type_prim not in (0, 1, 2) or length < 3 or first + length > idx_count:
+            continue
+        indices = np.frombuffer(idx_bytes, dtype=np.uint16, count=length, offset=first * 2)
+        if type_prim == 0:
+            for face in indices[:(length // 3) * 3].reshape(-1, 3):
+                add_face(face)
+        elif type_prim == 1:
+            for offset in range(length - 2):
+                add_face(indices[offset : offset + 3])
+        else:
+            for face in indices[:(length // 4) * 4].reshape(-1, 4):
+                add_face(face)
+
+    components = {}
+    for index in parent:
+        components.setdefault(find(index), []).append(index)
+    decals = []
+    positions = np.asarray(positions)
+    uvs = np.asarray(uvs)
+    for indices in sorted(components.values(), key=min):
+        decal = project_shadow_decal(positions[indices], uvs[indices], direction, plane_y)
+        if decal is not None:
+            decals.append(decal)
+    return decals
+
+
+def material_casts_shadow(material):
+    """Exclude additive glows while retaining ordinary alpha-blended silhouettes."""
+    if not material.get('flags', 0) & 16:
+        return True
+    return material.get('dstBlend') == 5 and material.get('srcBlend') in (1, 4)
+
+
 class S3DParseError(OSError):
     """A malformed S3D payload that cannot be decoded."""
 
@@ -452,14 +508,15 @@ class S3D(object):
         return buffer
 
     def draw(self, s3DTexturesHolder, shader_program, lighting_state, mvp, normal_matrix,
-             shadow=False, shadow_projection=None):
+             shadow=False, shadow_projection=None, frame_time=None):
         return self.draw_instanced(
             s3DTexturesHolder, shader_program, lighting_state, [mvp], [normal_matrix],
-            shadow=shadow, shadow_projection=shadow_projection,
+            shadow=shadow, shadow_projection=shadow_projection, frame_time=frame_time,
         )
 
     def draw_instanced(self, s3DTexturesHolder, shader_program, lighting_state,
-                       mvps, normal_matrices, shadow=False, shadow_projection=None):
+                       mvps, normal_matrices, shadow=False, shadow_projection=None,
+                       frame_time=None):
         if not mvps or len(mvps) != len(normal_matrices) or len(mvps) > 32:
             raise ValueError('S3D instance batch must contain 1..32 matching transforms')
         if self.entry is None:
@@ -475,7 +532,7 @@ class S3D(object):
             # time at the model's intended frameRate, not once per draw.
             fps = self.anims.get('frameRate') or 10
             interval = 1.0 / fps
-            now = time.monotonic()
+            now = time.monotonic() if frame_time is None else frame_time
             if self._lastFrameTime is None:
                 self._lastFrameTime = now
             elapsed = now - self._lastFrameTime
@@ -492,7 +549,7 @@ class S3D(object):
         funcTable = [
          GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS]
         blendTable = [GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ZERO, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR]
-        mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or []
+        mesh_tex_keys = getattr(self, 'mesh_tex_keys', None) or {}
         shader_program.bind_instanced(lighting_state, mvps, normal_matrices)
         instance_count = len(mvps)
 
@@ -534,7 +591,9 @@ class S3D(object):
             # historical single tgi2search if the per-mesh list is missing
             # (older code path, defensive).
             tex_key = None
-            if mi < len(mesh_tex_keys):
+            if isinstance(mesh_tex_keys, dict):
+                tex_key = mesh_tex_keys.get((mi, frameInfo['matsBlock']))
+            elif mi < len(mesh_tex_keys):
                 tex_key = mesh_tex_keys[mi]
             if tex_key is None and textures and hasattr(self, 'tgi2search'):
                 tex_key = (self.tgi2search[1], texInfo['textureID'])
@@ -548,9 +607,9 @@ class S3D(object):
                     wrap_t=texInfo.get('wrapT'),
                 ))
             flags = material['flags']
-            # Self-illuminated glow meshes (framebuffer-blended: light flares,
-            # lit windows) are not solid geometry and must not cast a shadow.
-            if shadow and (flags & 16):
+            # Additive glows do not cast; ordinary alpha-blended animated
+            # silhouettes still do.
+            if shadow and not material_casts_shadow(material):
                 continue
             # A projective shadow has no meaningful fallback without its alpha
             # texture.  During asynchronous FSH loading, treating the mesh as
@@ -562,8 +621,15 @@ class S3D(object):
                 continue
             if flags & 1:
                 alpha_func = material['alphaFunc']
+                alpha_threshold = material['alphaThreshold']
+            elif shadow and flags & 16:
+                # Ordinary alpha blending has no fixed-function alpha test,
+                # but its transparent carrier background must not cast.
+                alpha_func = 4
+                alpha_threshold = 1.0 / 255.0
             else:
                 alpha_func = 7
+                alpha_threshold = material['alphaThreshold']
             if shadow:
                 # Plain alpha-test discard in the shadow shader gives the crisp
                 # silhouette; alpha-to-coverage would fringe it.
@@ -574,7 +640,7 @@ class S3D(object):
                 glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE)
             shader_program.set_material(
                 alpha_func=alpha_func,
-                alpha_threshold=material['alphaThreshold'],
+                alpha_threshold=alpha_threshold,
                 textured=textured,
                 # Framebuffer-blended materials are self-illuminated glows
                 # (light flares, lit windows); render them unlit so night
@@ -594,26 +660,30 @@ class S3D(object):
                 if shadow_projection is None:
                     continue
                 direction, plane_y = shadow_projection
-                decal = project_shadow_decal(
-                    vertexBuffer['positions'], vertexBuffer['uvs'], direction, plane_y,
+                decals = project_indexed_shadow_decals(
+                    vertexBuffer['positions'], vertexBuffer['uvs'], indexBuffer, primBlock,
+                    direction, plane_y,
                 )
-                if decal is None:
+                if not decals:
                     continue
-                decal_positions, decal_uvs, uv_bounds = decal
-                shader_program.set_uv_bounds(uv_bounds)
-                normals = np.zeros((4, 3), dtype=np.float32)
-                idx_bytes = np.asarray((0, 1, 2, 0, 2, 3), dtype=np.uint16)
                 buffers = s3DTexturesHolder.get_mesh_buffers(self)
                 vert_block = frameInfo['vertBlock']
                 projection_key = tuple(round(float(value), 6) for value in (*direction, plane_y))
-                vao_key = ('shadow-decal', vert_block, projection_key)
-                vao = buffers.mesh_vao(
-                    vao_key, decal_positions, normals, decal_uvs, idx_bytes,
-                )
-                glBindVertexArray(vao)
-                glDrawElementsInstanced(
-                    GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, ctypes.c_void_p(0), instance_count,
-                )
+                normals = np.zeros((4, 3), dtype=np.float32)
+                quad_indices = np.asarray((0, 1, 2, 0, 2, 3), dtype=np.uint16)
+                for component, (decal_positions, decal_uvs, uv_bounds) in enumerate(decals):
+                    shader_program.set_uv_bounds(uv_bounds)
+                    vao_key = (
+                        'shadow-decal', vert_block, frameInfo['indexBlock'],
+                        frameInfo['primBlock'], component, projection_key,
+                    )
+                    vao = buffers.mesh_vao(
+                        vao_key, decal_positions, normals, decal_uvs, quad_indices,
+                    )
+                    glBindVertexArray(vao)
+                    glDrawElementsInstanced(
+                        GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, ctypes.c_void_p(0), instance_count,
+                    )
                 glBindVertexArray(0)
                 glBindSampler(0, 0)
                 continue
@@ -770,51 +840,47 @@ class S3D(object):
             return
         self.ReadFile()
         meshes = self.anims['animatedMeshes']
-        # Per-mesh resolved (group, instance) cache keys so draw() does not
-        # need to share a single self.tgi2search across meshes with different
-        # textures.
-        self.mesh_tex_keys = [None] * len(meshes)
+        # Animation frames may switch material/texture, so cache by mesh and
+        # material rather than pinning every frame to frame zero.
+        self.mesh_tex_keys = {}
         FSH_TYPE = 2058686020       # 0x7AB50E44
         SHARED_GROUP = 448690301    # 0x1ABE787D
         MAXIS_S3D_GROUP = 3134937073  # 0xBADB57F1
         NIGHT_OFFSET = 0x8000       # RKT1 group-of-20 convention per the
                                     # S3D Mats wiki; widely applied by modders.
+        precached = set()
         for mi, mesh in enumerate(meshes):
-            try:
-                frameInfo = mesh['frames'][0]
-                material = self.matBlocks[frameInfo['matsBlock']]
-            except IndexError:
-                continue
+            for frameInfo in mesh['frames']:
+                slot = (mi, frameInfo['matsBlock'])
+                if slot in self.mesh_tex_keys:
+                    continue
+                try:
+                    material = self.matBlocks[frameInfo['matsBlock']]
+                    textureID = material['textures'][0]['textureID']
+                except IndexError:
+                    continue
 
-            try:
-                textureID = material['textures'][0]['textureID']
-            except IndexError:
-                continue
-
-            # Per the S3D Mats wiki the texture is normally in the S3D's own
-            # group; transit / Maxis-shared content lives in 0x1ABE787D. Try
-            # own group first, then the shared group as fallback. Maxis content
-            # rarely ships its own group's textures, so try shared first there.
-            if self.tgi[1] in (MAXIS_S3D_GROUP, SHARED_GROUP):
-                candidate_groups = (SHARED_GROUP,)
-            else:
-                candidate_groups = (self.tgi[1], SHARED_GROUP)
-            day_entry = None
-            resolved_group = candidate_groups[0]
-            for group in candidate_groups:
-                day_entry = virtualDAT.getEntry(FSH_TYPE, group, textureID)
-                if day_entry is not None:
-                    resolved_group = group
-                    break
-            # Night sibling lives in the same group as the resolved day
-            # texture, at instance + 0x8000. Silent fallback if absent.
-            night_entry = virtualDAT.getEntry(
-                FSH_TYPE, resolved_group, textureID + NIGHT_OFFSET)
-            key = (resolved_group, textureID)
-            self.mesh_tex_keys[mi] = key
-            # Back-compat: legacy callers read self.tgi2search; keep the
-            # last-resolved entry available for them.
-            self.tgi2search = (FSH_TYPE, resolved_group, textureID)
-            s3DTexturesHolder.PrecacheTex(key, day_entry, night_entry=night_entry)
+                # Per the S3D Mats wiki the texture is normally in the S3D's own
+                # group; transit / Maxis-shared content lives in 0x1ABE787D.
+                candidate_groups = (
+                    (SHARED_GROUP,)
+                    if self.tgi[1] in (MAXIS_S3D_GROUP, SHARED_GROUP)
+                    else (self.tgi[1], SHARED_GROUP)
+                )
+                day_entry = None
+                resolved_group = candidate_groups[0]
+                for group in candidate_groups:
+                    day_entry = virtualDAT.getEntry(FSH_TYPE, group, textureID)
+                    if day_entry is not None:
+                        resolved_group = group
+                        break
+                night_entry = virtualDAT.getEntry(
+                    FSH_TYPE, resolved_group, textureID + NIGHT_OFFSET)
+                key = (resolved_group, textureID)
+                self.mesh_tex_keys[slot] = key
+                self.tgi2search = (FSH_TYPE, resolved_group, textureID)
+                if key not in precached:
+                    s3DTexturesHolder.PrecacheTex(key, day_entry, night_entry=night_entry)
+                    precached.add(key)
 
         return

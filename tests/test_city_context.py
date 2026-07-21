@@ -507,6 +507,37 @@ def test_s3d_shadow_projector_includes_sc4_quarter_turn():
     assert submitted["projection"][1] == 0.0
 
 
+def test_animated_rkt3_shadow_keeps_visible_geometry_position():
+    import sc4pimx.SC4LotPreview as preview
+
+    mesh = object()
+    model = object.__new__(preview.SC4Model1MeshPerZoom)
+    model.s3dMeshes = [mesh]
+    camera = preview.SC4Matrix.translate(12.0, 3.0, -7.0)
+    submitted = {}
+
+    class Dummy:
+        _render_context = preview.TransformStack(model=camera)
+
+        def _shadow_light_dir(self):
+            return (0.5, -1.0, 0.25)
+
+        def _submit_s3d_model(self, chosen, _shader, _lighting, _batches, **kwargs):
+            submitted["mesh"] = chosen
+            submitted["model"] = self._render_context.model.copy()
+            submitted["projection"] = kwargs["shadow_projection"]
+
+    preview.LotEditorWin._draw_state_member(
+        Dummy(), model, (0.0, 0.0, 0.0), 90.0, 0, 0, 0,
+        object(), None, {}, shadow=True, shadow_direction=(0.5, -1.0, 0.25),
+    )
+
+    assert submitted["mesh"] is mesh
+    assert submitted["model"] == pytest.approx(camera)
+    assert submitted["projection"][0] == pytest.approx((0.5, -1.0, 0.25))
+    assert submitted["projection"][1] == 0.0
+
+
 @pytest.mark.parametrize("lot_rotation", range(4))
 def test_s3d_shadow_uses_next_prerendered_view_for_each_lot_rotation(lot_rotation):
     import sc4pimx.SC4LotPreview as preview

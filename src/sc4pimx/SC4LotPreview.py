@@ -4703,6 +4703,7 @@ class LotEditorWin(wx.Frame):
                     lighting_state,
                     mvps[start : start + 32],
                     normals[start : start + 32],
+                    frame_time=getattr(self, "_animation_frame_time", None),
                 )
         batches.clear()
 
@@ -4724,6 +4725,7 @@ class LotEditorWin(wx.Frame):
                     [None] * len(chunk),
                     shadow=True,
                     shadow_projection=shadow_projection,
+                    frame_time=getattr(self, "_animation_frame_time", None),
                 )
         batches.clear()
 
@@ -4745,6 +4747,7 @@ class LotEditorWin(wx.Frame):
                 None,
                 shadow=True,
                 shadow_projection=shadow_projection,
+                frame_time=getattr(self, "_animation_frame_time", None),
             )
             return
         # Blended meshes depend on source order. Treat them as barriers while
@@ -4777,6 +4780,7 @@ class LotEditorWin(wx.Frame):
             lighting_state,
             self._render_context.mvp,
             self._render_context.normal_matrix,
+            frame_time=getattr(self, "_animation_frame_time", None),
         )
 
     def DrawModel(
@@ -4906,19 +4910,17 @@ class LotEditorWin(wx.Frame):
                     shadow_projection=shadow_projection(projector_yaw, offset[1]),
                 )
         elif what.__class__ == SC4Model1MeshPerZoom:
-            with render.pushed():
-                projector_yaw = 0.0
-                if shadow:
-                    render.rotate(self.SHADOW_PROJECTOR_YAW, 0, 1, 0)
-                    projector_yaw = self.SHADOW_PROJECTOR_YAW
-                self._submit_s3d_model(
-                    what.s3dMeshes[zoom],
-                    shader_program,
-                    lighting_state,
-                    model_batches,
-                    shadow=shadow,
-                    shadow_projection=shadow_projection(projector_yaw),
-                )
+            # RKT3 animation vertices are real world-relative geometry, not
+            # camera-baked RKT1 carriers. Rotating only the shadow pass moves
+            # distributed animation planes around the prop anchor.
+            self._submit_s3d_model(
+                what.s3dMeshes[zoom],
+                shader_program,
+                lighting_state,
+                model_batches,
+                shadow=shadow,
+                shadow_projection=shadow_projection(),
+            )
         elif what.__class__ == SC4ModelMesh:
             rotMapping = [180, -90, 0, 90]
             # RKT0 is a single mesh pre-projected for one (North) view and reused
@@ -5115,6 +5117,7 @@ class LotEditorWin(wx.Frame):
         )
 
     def Draw3D(self):
+        self._animation_frame_time = time.monotonic()
         viewZoom = self.zoom3D
         assetZoom = min(viewZoom, 4)
         if assetZoom == 4 or assetZoom == 3:
