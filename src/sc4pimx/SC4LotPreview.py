@@ -209,14 +209,22 @@ def format_overlay_color(color):
     return "#%02X%02X%02X" % tuple(channels)
 
 
-def should_cache_ambient_2d(ambient_only, panel, has_capture):
-    """Whether an ambient-only frame may reuse the split view's 2D snapshot."""
-    return bool(ambient_only and panel == 3 and not has_capture)
+def parse_overlay_opacity(value, default=1.0):
+    """Return a clamped 0..1 opacity from a persisted percentage."""
+    try:
+        return max(0.0, min(1.0, float(value) / 100.0))
+    except (TypeError, ValueError):
+        return default
 
 
-def marker_overlay_alpha(mode_edit, target_mode, active=0.5):
+def marker_overlay_alpha(mode_edit, target_mode, active=0.65):
     """Keep object markers subtle except while their edit mode is active."""
-    return active if mode_edit == target_mode else 0.1
+    return active if mode_edit == target_mode else active * 0.5
+
+
+def marker_detail_alpha(fill_alpha):
+    """Keep marker borders and glyphs clearer than their translucent fill."""
+    return math.sqrt(math.sqrt(max(0.0, min(1.0, fill_alpha))))
 
 
 # Compatibility aliases for the first release of configurable prop colors.
@@ -257,6 +265,14 @@ OVERLAY_COLOR_SPECS = (
     (LAYER_CARDINALS, LEXLayerCardinalLabels, "CardinalLabelColor", (1.0, 0.85, 0.2)),
 )
 OVERLAY_COLOR_DEFAULTS = {layer_key: default for layer_key, _label, _setting, default in OVERLAY_COLOR_SPECS}
+OVERLAY_OPACITY_SPECS = {
+    layer_key: (
+        setting_key.replace("Color", "Opacity"),
+        0.9 if layer_key == LAYER_BUILDING else 0.65 if layer_key in (LAYER_PROPS, LAYER_FLORA) else 1.0,
+    )
+    for layer_key, _label, setting_key, _default in OVERLAY_COLOR_SPECS
+}
+OVERLAY_OPACITY_DEFAULTS = {layer_key: default for layer_key, (_setting, default) in OVERLAY_OPACITY_SPECS.items()}
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -732,6 +748,10 @@ class LotEditorWin(wx.Frame):
         self.overlayColors = {
             layer_key: parse_overlay_color(settings.get(setting_key), default)
             for layer_key, _label, setting_key, default in OVERLAY_COLOR_SPECS
+        }
+        self.overlayOpacities = {
+            layer_key: parse_overlay_opacity(settings.get(setting_key, default * 100), default)
+            for layer_key, (setting_key, default) in OVERLAY_OPACITY_SPECS.items()
         }
         self.showFps = bool(settings.get("ShowFps", False))
         valid_levels = set(CONTEXT_LEVELS)
@@ -1350,6 +1370,9 @@ class LotEditorWin(wx.Frame):
         colors = getattr(self, "overlayColors", OVERLAY_COLOR_DEFAULTS)
         for layer_key, _label, setting_key, default in OVERLAY_COLOR_SPECS:
             state[setting_key] = format_overlay_color(colors.get(layer_key, default))
+        opacities = getattr(self, "overlayOpacities", OVERLAY_OPACITY_DEFAULTS)
+        for layer_key, (setting_key, default) in OVERLAY_OPACITY_SPECS.items():
+            state[setting_key] = round(max(0.0, min(1.0, opacities.get(layer_key, default))) * 100)
         return state
 
     def _default_visible_layers(self, view=None):
@@ -3221,8 +3244,10 @@ class LotEditorWin(wx.Frame):
         for layer_key, label, _setting_key, _default in OVERLAY_COLOR_SPECS:
             layer_menu = wx.Menu()
             choose_color_id = wx.NewIdRef()
+            choose_opacity_id = wx.NewIdRef()
             reset_color_id = wx.NewIdRef()
             layer_menu.Append(choose_color_id, LEXOverlayColorChoose)
+            layer_menu.Append(choose_opacity_id, LEXOverlayOpacityChoose)
             layer_menu.Append(reset_color_id, LEXOverlayColorReset)
             layer_menu.Bind(
                 wx.EVT_MENU,
@@ -3231,7 +3256,12 @@ class LotEditorWin(wx.Frame):
             )
             layer_menu.Bind(
                 wx.EVT_MENU,
-                lambda _event, key=layer_key: self.OnResetOverlayColor(key),
+                lambda _event, key=layer_key, name=label: self.OnChooseOverlayOpacity(key, name),
+                id=choose_opacity_id,
+            )
+            layer_menu.Bind(
+                wx.EVT_MENU,
+                lambda _event, key=layer_key: self.OnResetOverlayStyle(key),
                 id=reset_color_id,
             )
             color_menu.AppendSubMenu(layer_menu, label)
@@ -3270,16 +3300,45 @@ class LotEditorWin(wx.Frame):
             dialog.Destroy()
 
     def OnResetOverlayColor(self, layer_key):
-        self.SetOverlayColor(layer_key, OVERLAY_COLOR_DEFAULTS[layer_key])
+        self.OnResetOverlayStyle(layer_key)
+
+    def OnChooseOverlayOpacity(self, layer_key, label):
+        current = round(self.overlayOpacities[layer_key] * 100)
+        dialog = wx.NumberEntryDialog(
+            self,
+            LEXOverlayOpacityPrompt % label,
+            LEXOverlayOpacityField,
+            LEXOverlayOpacityTitle,
+            current,
+            0,
+            100,
+        )
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.SetOverlayOpacity(layer_key, dialog.GetValue() / 100.0)
+        finally:
+            dialog.Destroy()
+
+    def OnResetOverlayStyle(self, layer_key):
+        self.overlayColors[layer_key] = OVERLAY_COLOR_DEFAULTS[layer_key]
+        self.overlayOpacities[layer_key] = OVERLAY_OPACITY_DEFAULTS[layer_key]
+        self._persist_overlay_color_change()
 
     def OnResetAllOverlayColors(self, event=None):
         self.overlayColors = dict(OVERLAY_COLOR_DEFAULTS)
+        self.overlayOpacities = dict(OVERLAY_OPACITY_DEFAULTS)
         self._persist_overlay_color_change()
 
     def SetOverlayColor(self, layer_key, color):
         if layer_key not in OVERLAY_COLOR_DEFAULTS:
             return
         self.overlayColors[layer_key] = tuple(color)
+        self._persist_overlay_color_change()
+
+    def SetOverlayOpacity(self, layer_key, opacity):
+        if layer_key not in OVERLAY_OPACITY_DEFAULTS:
+            return
+        self.overlayOpacities[layer_key] = max(0.0, min(1.0, float(opacity)))
         self._persist_overlay_color_change()
 
     def _persist_overlay_color_change(self):
@@ -4256,7 +4315,6 @@ class LotEditorWin(wx.Frame):
         followed by another EVT_PAINT frame.  Invalidating here keeps updates
         responsive while guaranteeing at most one pending paint per canvas.
         """
-        self._ambient_frame_pending = bool(ambient)
         canvas = self.glCanvas2D
         if canvas:
             canvas.Refresh(False)
@@ -4297,27 +4355,16 @@ class LotEditorWin(wx.Frame):
         self.glCanvas2D.dx = 0
         self.glCanvas2D.dy = 0
         frame_start = time.perf_counter() if getattr(self, "showFps", False) else None
-        ambient_only = bool(getattr(self, "_ambient_frame_pending", False))
-        self._ambient_frame_pending = False
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        # In split view a pan drag moves only one half's camera; presenting
-        # the other half from an offscreen snapshot halves the per-frame cost.
+        # While panning 2D, the heavier unchanged 3D half can be presented
+        # from a snapshot. The 2D view is intentionally always rendered live:
+        # placement edits made stale snapshots visibly flash between frames.
         pan_drag_pane = None
         if self.panel == 3 and self.modeEdit == MODE_EDIT_PAN and canvas.HasCapture():
             pan_drag_pane = "2d" if canvas.click_x > canvas.GetClientSize()[0] // 2 else "3d"
         if pan_drag_pane == "2d":
             self._draw_pane_cached("3d", self.Draw3D)
             self.Draw2D()
-        elif pan_drag_pane == "3d":
-            self._draw_pane_cached("2d", self.Draw2D)
-            self.Draw3D()
-        elif should_cache_ambient_2d(ambient_only, self.panel, canvas.HasCapture()):
-            # Ambient actors only affect 3D. Re-present the unchanged 2D half
-            # from its snapshot only while the user is not interacting with
-            # it. Object drags mutate 2D placement continuously, so a cached
-            # pre-drag snapshot would visibly alternate with the live frame.
-            self._draw_pane_cached("2d", self.Draw2D)
-            self.Draw3D()
         else:
             if self.panel == 3 or self.panel == 2:
                 self.Draw2D()
@@ -4388,7 +4435,6 @@ class LotEditorWin(wx.Frame):
             self.previewMinutes,
             self.previewDate,
             tuple(sorted(layers.items())),
-            tuple(sorted(self.overlayColors.items())) if pane == "2d" else None,
             self._context_cache_key if pane == "3d" else None,
             tuple(self.glCanvas2D.GetPhysicalSize()),
         )
@@ -4396,10 +4442,11 @@ class LotEditorWin(wx.Frame):
     def _draw_pane_cached(self, pane, draw_func):
         """Draw an unchanged split-view pane from an offscreen snapshot.
 
-        Used while dragging one pane and while only the 3D ambient layer is
-        advancing. The first frame renders the pane into an offscreen target
-        (MSAA-resolved by RenderTarget); later frames re-present that capture
-        as one textured quad. State changes invalidate the snapshot.
+        Used for the unchanged 3D pane while dragging the 2D camera. The first
+        frame renders the pane into an offscreen target (MSAA-resolved by
+        RenderTarget); later frames re-present that capture as one textured
+        quad. State changes invalidate the snapshot. The 2D pane is never
+        cached because its editable contents can move between input frames.
         """
         canvas = self.glCanvas2D
         width, height = canvas.GetPhysicalSize()
@@ -4571,16 +4618,19 @@ class LotEditorWin(wx.Frame):
     def DrawHighLight(self, minx, miny, maxx, maxy, color=(1, 0, 0)):
         offsetX = -self.lotSizeXOffset
         offsetY = -self.lotSizeYOffset
-        glDisable(GL_BLEND)
+        rgba = tuple(color) if len(color) == 4 else (*color, 1.0)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         self.glCanvas2D.renderer.primitives.rect(
             minx + offsetX,
             miny + offsetY,
             maxx + offsetX,
             maxy + offsetY,
             self._render_context.mvp,
-            color=(*color, 1.0),
+            color=rgba,
             filled=False,
         )
+        glDisable(GL_BLEND)
 
     def _DrawConstraintOutlines(self, constraints, color):
         """Border each constraint tile in its type colour, always on top of
@@ -4590,7 +4640,9 @@ class LotEditorWin(wx.Frame):
             return
         offsetX = -self.lotSizeXOffset
         offsetY = -self.lotSizeYOffset
-        glDisable(GL_BLEND)
+        rgba = tuple(color) if len(color) == 4 else (*color, 1.0)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         primitives = self.glCanvas2D.renderer.primitives
         for texData in constraints:
             minx = texData[0] * 16 + offsetX
@@ -4601,14 +4653,17 @@ class LotEditorWin(wx.Frame):
                 minx + 16,
                 miny + 16,
                 self._render_context.mvp,
-                color=(*color, 1.0),
+                color=rgba,
                 filled=False,
             )
+        glDisable(GL_BLEND)
 
     def DrawQuadsHighLight(self, quads, color=(1, 0, 0)):
         offsetX = -self.lotSizeXOffset
         offsetY = -self.lotSizeYOffset
-        glDisable(GL_BLEND)
+        rgba = tuple(color) if len(color) == 4 else (*color, 1.0)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         for quad in quads:
             self.glCanvas2D.renderer.primitives.rect(
                 quad[0] + offsetX,
@@ -4616,9 +4671,10 @@ class LotEditorWin(wx.Frame):
                 quad[2] + offsetX,
                 quad[3] + offsetY,
                 self._render_context.mvp,
-                color=(*color, 1.0),
+                color=rgba,
                 filled=False,
             )
+        glDisable(GL_BLEND)
 
     def DrawQuadColor(self, flag, minx, miny, maxx, maxy, color, bMissing):
         offsetX = -self.lotSizeXOffset
@@ -4629,14 +4685,14 @@ class LotEditorWin(wx.Frame):
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         primitives.rect(minx, miny, maxx, maxy, self._render_context.mvp, color=color)
-        glDisable(GL_BLEND)
+        detail_alpha = marker_detail_alpha(color[3])
         primitives.rect(
             minx,
             miny,
             maxx,
             maxy,
             self._render_context.mvp,
-            color=(color[0], color[1], color[2], 1.0),
+            color=(*color[:3], detail_alpha),
             filled=False,
         )
         try:
@@ -4651,15 +4707,15 @@ class LotEditorWin(wx.Frame):
                 GL_REPEAT,
                 GL_REPEAT,
             )
-            glEnable(GL_BLEND)
             primitives.quad(
                 points,
                 self._render_context.mvp,
+                color=(1.0, 1.0, 1.0, detail_alpha),
                 uvs=texture_coords_for_flag(flag),
                 texture=texture,
                 sampler=sampler,
             )
-            glDisable(GL_BLEND)
+        glDisable(GL_BLEND)
         if bMissing:
             self.missingLines.extend(((minx, miny), (maxx, maxy), (minx, maxy), (maxx, miny)))
 
@@ -4702,8 +4758,8 @@ class LotEditorWin(wx.Frame):
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         primitives.quad_batch(quads, mvp, color=color)
-        glDisable(GL_BLEND)
-        primitives.draw(GL_LINES, outline, mvp, color=(color[0], color[1], color[2], 1.0))
+        detail_alpha = marker_detail_alpha(color[3])
+        primitives.draw(GL_LINES, outline, mvp, color=(*color[:3], detail_alpha))
         try:
             texture = self.textures[1802442183][0][0]
         except Exception:
@@ -4715,15 +4771,15 @@ class LotEditorWin(wx.Frame):
                 GL_REPEAT,
                 GL_REPEAT,
             )
-            glEnable(GL_BLEND)
             primitives.quad_batch(
                 quads,
                 mvp,
+                color=(1.0, 1.0, 1.0, detail_alpha),
                 uv_quads=uv_quads,
                 texture=texture,
                 sampler=sampler,
             )
-            glDisable(GL_BLEND)
+        glDisable(GL_BLEND)
 
     def Draw2D(self):
         self.missingLines = []
@@ -4812,6 +4868,7 @@ class LotEditorWin(wx.Frame):
                 else:
                     alpha = 1.0
                 base_rgb = self.overlayColors[layer_key]
+                alpha *= self.overlayOpacities[layer_key]
                 tint = (*base_rgb, alpha)
                 for texData in constraints:
                     if self.modeEdit in CONSTRAINT_EDIT_MODES:
@@ -4829,7 +4886,7 @@ class LotEditorWin(wx.Frame):
                             self.quadHighs = [[minx, miny, maxx, maxy]]
                 records = [(item[0], item[1], item[2], 1802442183) for item in constraints]
                 self.DrawQuads(records, True, tint=tint)
-                self._DrawConstraintOutlines(constraints, base_rgb)
+                self._DrawConstraintOutlines(constraints, (*base_rgb, alpha))
 
         if self.modeDisplay & MODE_TE_ONLY and self._is_layer_visible("2d", LAYER_TRANSIT):
             for texData in self.te:
@@ -4857,19 +4914,26 @@ class LotEditorWin(wx.Frame):
                 draw_sc4path_overlay_2d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         if self._is_layer_visible("2d", LAYER_ROAD_EDGES):
-            self.DrawQuads(self._road_edge_records(), True, tint=(*self.overlayColors[LAYER_ROAD_EDGES], 1.0))
+            self.DrawQuads(
+                self._road_edge_records(),
+                True,
+                tint=(*self.overlayColors[LAYER_ROAD_EDGES], self.overlayOpacities[LAYER_ROAD_EDGES]),
+            )
 
         if self.snapSize != 0 and self._is_layer_visible("2d", LAYER_SNAP_GRID):
             positions = self.snapGrids + numpy.array(
                 (-self.lotSizeXOffset, -self.lotSizeYOffset),
                 dtype=numpy.float32,
             )
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             self.glCanvas2D.renderer.primitives.draw(
                 GL_LINES,
                 positions,
                 self._render_context.mvp,
-                color=(*self.overlayColors[LAYER_SNAP_GRID], 1.0),
+                color=(*self.overlayColors[LAYER_SNAP_GRID], self.overlayOpacities[LAYER_SNAP_GRID]),
             )
+            glDisable(GL_BLEND)
         if self.modeDisplay & MODE_BUILDING_ONLY and self._is_layer_visible("2d", LAYER_BUILDING):
             if self.building:
                 minx = ToCoord(self.building[6])
@@ -4885,7 +4949,11 @@ class LotEditorWin(wx.Frame):
                         self.highlighted = [self.building[11]]
                         self.quadHighs = [[minx, miny, maxx, maxy]]
                         self.SetStatusText(hex2str(self.building[12]) + ":" + self.building[-1], 5)
-                alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_BUILDING, active=0.9)
+                alphaValue = marker_overlay_alpha(
+                    self.modeEdit,
+                    MODE_EDIT_BUILDING,
+                    active=self.overlayOpacities[LAYER_BUILDING],
+                )
                 self.DrawQuadColor(
                     self.building[2],
                     minx,
@@ -4923,7 +4991,11 @@ class LotEditorWin(wx.Frame):
                 markers.append((prop[2], minx, miny, maxx, maxy, propViewer is None))
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
-            alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_PROP)
+            alphaValue = marker_overlay_alpha(
+                self.modeEdit,
+                MODE_EDIT_PROP,
+                active=self.overlayOpacities[LAYER_PROPS],
+            )
             self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_PROPS], alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
@@ -4949,25 +5021,35 @@ class LotEditorWin(wx.Frame):
                 markers.append((prop[2], minx, miny, maxx, maxy, False))
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
-            alphaValue = marker_overlay_alpha(self.modeEdit, MODE_EDIT_FLORA)
+            alphaValue = marker_overlay_alpha(
+                self.modeEdit,
+                MODE_EDIT_FLORA,
+                active=self.overlayOpacities[LAYER_FLORA],
+            )
             self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_FLORA], alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
 
         if self._is_layer_visible("2d", LAYER_SELECTION):
-            self.DrawQuadsHighLight(self.quadHighs, self.overlayColors[LAYER_SELECTION])
+            self.DrawQuadsHighLight(
+                self.quadHighs,
+                (*self.overlayColors[LAYER_SELECTION], self.overlayOpacities[LAYER_SELECTION]),
+            )
             self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
             if self.dragQuad is not None:
                 self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1, 1, 1))
         if self._is_layer_visible("2d", LAYER_MISSING):
             positions = numpy.asarray(self.missingLines, dtype=numpy.float32)
             if len(positions):
+                glEnable(GL_BLEND)
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
                 self.glCanvas2D.renderer.primitives.draw(
                     GL_LINES,
                     positions,
                     self._render_context.mvp,
-                    color=(*self.overlayColors[LAYER_MISSING], 1.0),
+                    color=(*self.overlayColors[LAYER_MISSING], self.overlayOpacities[LAYER_MISSING]),
                 )
+                glDisable(GL_BLEND)
         if self._is_layer_visible("2d", LAYER_CARDINALS):
             self.DrawCardinalLabels(rot2D, scaling)
         if not bUnderMouse:
@@ -4997,13 +5079,15 @@ class LotEditorWin(wx.Frame):
                 ly,
                 label,
                 rot2D,
-                color=(*self.overlayColors[LAYER_CARDINALS], 1.0),
+                color=(*self.overlayColors[LAYER_CARDINALS], self.overlayOpacities[LAYER_CARDINALS]),
                 scale=0.3,
             )
 
     def _draw_text(self, x, y, text, rot2D, color=(1.0, 1.0, 1.0, 1.0), scale=0.18):
         # flip_y keeps text upright: the 2D model matrix negates Y (see Draw2D),
         # which would otherwise render every glyph vertically mirrored.
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         self.glCanvas2D.renderer.primitives.text(
             x,
             y,
@@ -5014,6 +5098,7 @@ class LotEditorWin(wx.Frame):
             rotation=-rot2D,
             flip_y=True,
         )
+        glDisable(GL_BLEND)
 
     def DrawQuad3D(self, x, y, flag, texID, bAlpha):
         zoom = self.zoom3D
