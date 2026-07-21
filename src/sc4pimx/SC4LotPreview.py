@@ -3204,6 +3204,10 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, "3d", LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
         color_menu = wx.Menu()
+        reset_all_id = wx.NewIdRef()
+        color_menu.Append(reset_all_id, LEXOverlayColorResetAll)
+        color_menu.Bind(wx.EVT_MENU, self.OnResetAllOverlayColors, id=reset_all_id)
+        color_menu.AppendSeparator()
         for layer_key, label, _setting_key, _default in OVERLAY_COLOR_SPECS:
             layer_menu = wx.Menu()
             choose_color_id = wx.NewIdRef()
@@ -3258,10 +3262,17 @@ class LotEditorWin(wx.Frame):
     def OnResetOverlayColor(self, layer_key):
         self.SetOverlayColor(layer_key, OVERLAY_COLOR_DEFAULTS[layer_key])
 
+    def OnResetAllOverlayColors(self, event=None):
+        self.overlayColors = dict(OVERLAY_COLOR_DEFAULTS)
+        self._persist_overlay_color_change()
+
     def SetOverlayColor(self, layer_key, color):
         if layer_key not in OVERLAY_COLOR_DEFAULTS:
             return
         self.overlayColors[layer_key] = tuple(color)
+        self._persist_overlay_color_change()
+
+    def _persist_overlay_color_change(self):
         self.SaveEditorState()
         # Split view may be re-presenting a cached 2D snapshot during ambient
         # 3D updates. Keeping that old-color snapshot caused visible flashing.

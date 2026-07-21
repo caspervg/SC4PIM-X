@@ -58,8 +58,35 @@ def test_setting_overlay_color_invalidates_cached_pane_before_drawing():
         def on_draw(self):
             calls.append("draw")
 
+        _persist_overlay_color_change = LotEditorWin._persist_overlay_color_change
+
     dummy = Dummy()
     LotEditorWin.SetOverlayColor(dummy, LAYER_PROPS, (0.2, 0.4, 0.6))
 
     assert dummy.overlayColors[LAYER_PROPS] == (0.2, 0.4, 0.6)
+    assert calls == ["save", "invalidate", "draw"]
+
+
+def test_reset_all_overlay_colors_persists_and_redraws_once():
+    calls = []
+
+    class Dummy:
+        overlayColors = {key: (0.1, 0.2, 0.3) for key in OVERLAY_COLOR_DEFAULTS}
+
+        def SaveEditorState(self):
+            calls.append("save")
+
+        def _invalidate_pane_cache(self):
+            calls.append("invalidate")
+
+        def on_draw(self):
+            calls.append("draw")
+
+        _persist_overlay_color_change = LotEditorWin._persist_overlay_color_change
+
+    dummy = Dummy()
+    LotEditorWin.OnResetAllOverlayColors(dummy)
+
+    assert dummy.overlayColors == OVERLAY_COLOR_DEFAULTS
+    assert dummy.overlayColors is not OVERLAY_COLOR_DEFAULTS
     assert calls == ["save", "invalidate", "draw"]
