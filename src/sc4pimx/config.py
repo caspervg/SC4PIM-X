@@ -38,6 +38,7 @@ DEFAULT_LOT_EDITOR = {
     "PreviewDay": 1,
     "PreviewMinutes": 720,
     "ShowInactiveProps": False,
+    "PropMarkerColor": "#FFFF00",
     "LightingProfile": "maxis",
     "CityContextStyle": "auto",
     "CityContextDensity": "medium",

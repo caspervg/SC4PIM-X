@@ -187,6 +187,28 @@ LAYER_CARDINALS = "cardinal_labels"
 LAYER_CITY_CONTEXT = "city_context"
 LAYER_LEGACY_BACKGROUND = "terrain_background"
 LAYER_SHADOWS = "shadows"
+DEFAULT_PROP_MARKER_COLOR = (1.0, 1.0, 0.0)
+
+
+def parse_prop_marker_color(value):
+    """Return a normalized RGB tuple for a persisted ``#RRGGBB`` color."""
+    if not isinstance(value, str):
+        return DEFAULT_PROP_MARKER_COLOR
+    text = value.strip()
+    if len(text) != 7 or not text.startswith("#"):
+        return DEFAULT_PROP_MARKER_COLOR
+    try:
+        return tuple(int(text[index:index + 2], 16) / 255.0 for index in (1, 3, 5))
+    except ValueError:
+        return DEFAULT_PROP_MARKER_COLOR
+
+
+def format_prop_marker_color(color):
+    """Serialize a normalized RGB tuple as ``#RRGGBB``."""
+    channels = [max(0, min(255, round(float(channel) * 255))) for channel in color]
+    return "#%02X%02X%02X" % tuple(channels)
+
+
 LAYER_SPECS = [
     (LAYER_BASE, LEXLayerBaseTextures),
     (LAYER_OVERLAY, LEXLayerOverlayTextures),
@@ -679,6 +701,7 @@ class LotEditorWin(wx.Frame):
         )
         self.previewMinutes = max(0, min(1439, int(settings.get("PreviewMinutes", 720))))
         self.showInactiveProps = bool(settings.get("ShowInactiveProps", False))
+        self.propMarkerColor = parse_prop_marker_color(settings.get("PropMarkerColor", "#FFFF00"))
         self.showFps = bool(settings.get("ShowFps", False))
         valid_levels = set(CONTEXT_LEVELS)
         valid_styles = {"auto", STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL, STYLE_MIXED}
@@ -1293,6 +1316,9 @@ class LotEditorWin(wx.Frame):
         state["CityContextPedestrians"] = str(getattr(self, "contextPedestrians", "medium"))
         state["CityContextDetail"] = str(getattr(self, "contextDetail", "high"))
         state["CityContextSeason"] = str(getattr(self, "contextSeason", "auto"))
+        state["PropMarkerColor"] = format_prop_marker_color(
+            getattr(self, "propMarkerColor", DEFAULT_PROP_MARKER_COLOR)
+        )
         return state
 
     def _default_visible_layers(self, view=None):
@@ -3156,6 +3182,15 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, "2d", LEXLayer2D, self.visibleLayers2D)
         self._append_layer_menu(menu, "3d", LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
+        color_menu = wx.Menu()
+        choose_color_id = wx.NewIdRef()
+        reset_color_id = wx.NewIdRef()
+        color_menu.Append(choose_color_id, LEXPropMarkerColorChoose)
+        color_menu.Append(reset_color_id, LEXPropMarkerColorReset)
+        color_menu.Bind(wx.EVT_MENU, self.OnChoosePropMarkerColor, id=choose_color_id)
+        color_menu.Bind(wx.EVT_MENU, self.OnResetPropMarkerColor, id=reset_color_id)
+        menu.AppendSubMenu(color_menu, LEXPropMarkerColor)
+        menu.AppendSeparator()
         shadow_lock_id = wx.NewIdRef()
         shadow_lock_item = menu.AppendCheckItem(shadow_lock_id, LEXShadowLockView)
         shadow_lock_item.Check(bool(getattr(self, "shadowLockToView", True)))
@@ -3169,6 +3204,29 @@ class LotEditorWin(wx.Frame):
         else:
             self.PopupMenu(menu)
         menu.Destroy()
+
+    def OnChoosePropMarkerColor(self, event=None):
+        data = wx.ColourData()
+        data.SetChooseFull(True)
+        data.SetColour(wx.Colour(*[round(channel * 255) for channel in self.propMarkerColor]))
+        dialog = wx.ColourDialog(self, data)
+        try:
+            dialog.SetTitle(LEXPropMarkerColorTitle)
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            colour = dialog.GetColourData().GetColour()
+            self.propMarkerColor = tuple(
+                channel / 255.0 for channel in (colour.Red(), colour.Green(), colour.Blue())
+            )
+            self.SaveEditorState()
+            self.on_draw()
+        finally:
+            dialog.Destroy()
+
+    def OnResetPropMarkerColor(self, event=None):
+        self.propMarkerColor = DEFAULT_PROP_MARKER_COLOR
+        self.SaveEditorState()
+        self.on_draw()
 
     def _append_context_choice(self, parent, title, attribute, choices, rebuild=False):
         submenu = wx.Menu()
@@ -4805,7 +4863,7 @@ class LotEditorWin(wx.Frame):
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
             alphaValue = 0.5 if self.modeEdit == MODE_EDIT_PROP else 0.1
-            self.DrawQuadColorBatch(markers, (1, 1, 0, alphaValue))
+            self.DrawQuadColorBatch(markers, (*self.propMarkerColor, alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
 

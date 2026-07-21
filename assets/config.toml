@@ -130,6 +130,8 @@ PreviewMonth = 1
 PreviewDay = 1
 PreviewMinutes = 720
 ShowInactiveProps = false
+# Fill and outline color for prop footprints in the 2D editor (#RRGGBB).
+PropMarkerColor = "#FFFF00"
 CityContextStyle = "auto"
 CityContextDensity = "medium"
 CityContextHeight = "medium"
