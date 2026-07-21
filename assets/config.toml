@@ -130,8 +130,17 @@ PreviewMonth = 1
 PreviewDay = 1
 PreviewMinutes = 720
 ShowInactiveProps = false
-# Fill and outline color for prop footprints in the 2D editor (#RRGGBB).
+# Colors for individually tintable overlays in the 2D editor (#RRGGBB).
+WaterConstraintColor = "#0D4DF2"
+LandConstraintColor = "#F28C0D"
+RoadEdgeColor = "#FFFFFF"
+BuildingMarkerColor = "#0000FF"
 PropMarkerColor = "#FFFF00"
+FloraMarkerColor = "#00FF00"
+SnapGridColor = "#800033"
+SelectionColor = "#FF0000"
+MissingMarkerColor = "#FF0000"
+CardinalLabelColor = "#FFD933"
 CityContextStyle = "auto"
 CityContextDensity = "medium"
 CityContextHeight = "medium"

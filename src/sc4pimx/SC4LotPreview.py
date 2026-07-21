@@ -190,23 +190,28 @@ LAYER_SHADOWS = "shadows"
 DEFAULT_PROP_MARKER_COLOR = (1.0, 1.0, 0.0)
 
 
-def parse_prop_marker_color(value):
+def parse_overlay_color(value, default=DEFAULT_PROP_MARKER_COLOR):
     """Return a normalized RGB tuple for a persisted ``#RRGGBB`` color."""
     if not isinstance(value, str):
-        return DEFAULT_PROP_MARKER_COLOR
+        return default
     text = value.strip()
     if len(text) != 7 or not text.startswith("#"):
-        return DEFAULT_PROP_MARKER_COLOR
+        return default
     try:
         return tuple(int(text[index:index + 2], 16) / 255.0 for index in (1, 3, 5))
     except ValueError:
-        return DEFAULT_PROP_MARKER_COLOR
+        return default
 
 
-def format_prop_marker_color(color):
+def format_overlay_color(color):
     """Serialize a normalized RGB tuple as ``#RRGGBB``."""
     channels = [max(0, min(255, round(float(channel) * 255))) for channel in color]
     return "#%02X%02X%02X" % tuple(channels)
+
+
+# Compatibility aliases for the first release of configurable prop colors.
+parse_prop_marker_color = parse_overlay_color
+format_prop_marker_color = format_overlay_color
 
 
 LAYER_SPECS = [
@@ -229,6 +234,19 @@ LAYER_SPECS = [
 ]
 # Layers that only make sense in the 3D preview; hidden from the 2D submenu.
 LAYER_3D_ONLY = {LAYER_SHADOWS, LAYER_CITY_CONTEXT}
+OVERLAY_COLOR_SPECS = (
+    (LAYER_WATER, LEXLayerWaterConstraints, "WaterConstraintColor", (0.05, 0.3, 0.95)),
+    (LAYER_LAND, LEXLayerLandConstraints, "LandConstraintColor", (0.95, 0.55, 0.05)),
+    (LAYER_ROAD_EDGES, LEXLayerRoadEdges, "RoadEdgeColor", (1.0, 1.0, 1.0)),
+    (LAYER_BUILDING, LEXLayerBuilding, "BuildingMarkerColor", (0.0, 0.0, 1.0)),
+    (LAYER_PROPS, LEXLayerProps, "PropMarkerColor", DEFAULT_PROP_MARKER_COLOR),
+    (LAYER_FLORA, LEXLayerFlora, "FloraMarkerColor", (0.0, 1.0, 0.0)),
+    (LAYER_SNAP_GRID, LEXLayerSnapGrid, "SnapGridColor", (0.5, 0.0, 0.2)),
+    (LAYER_SELECTION, LEXLayerSelection, "SelectionColor", (1.0, 0.0, 0.0)),
+    (LAYER_MISSING, LEXLayerMissingMarkers, "MissingMarkerColor", (1.0, 0.0, 0.0)),
+    (LAYER_CARDINALS, LEXLayerCardinalLabels, "CardinalLabelColor", (1.0, 0.85, 0.2)),
+)
+OVERLAY_COLOR_DEFAULTS = {layer_key: default for layer_key, _label, _setting, default in OVERLAY_COLOR_SPECS}
 ID_PAN = wx.NewIdRef()
 ID_PROP = wx.NewIdRef()
 ID_BUILDING = wx.NewIdRef()
@@ -701,7 +719,10 @@ class LotEditorWin(wx.Frame):
         )
         self.previewMinutes = max(0, min(1439, int(settings.get("PreviewMinutes", 720))))
         self.showInactiveProps = bool(settings.get("ShowInactiveProps", False))
-        self.propMarkerColor = parse_prop_marker_color(settings.get("PropMarkerColor", "#FFFF00"))
+        self.overlayColors = {
+            layer_key: parse_overlay_color(settings.get(setting_key), default)
+            for layer_key, _label, setting_key, default in OVERLAY_COLOR_SPECS
+        }
         self.showFps = bool(settings.get("ShowFps", False))
         valid_levels = set(CONTEXT_LEVELS)
         valid_styles = {"auto", STYLE_URBAN, STYLE_SUBURBAN, STYLE_INDUSTRIAL, STYLE_CIVIC, STYLE_RURAL, STYLE_MIXED}
@@ -1316,9 +1337,9 @@ class LotEditorWin(wx.Frame):
         state["CityContextPedestrians"] = str(getattr(self, "contextPedestrians", "medium"))
         state["CityContextDetail"] = str(getattr(self, "contextDetail", "high"))
         state["CityContextSeason"] = str(getattr(self, "contextSeason", "auto"))
-        state["PropMarkerColor"] = format_prop_marker_color(
-            getattr(self, "propMarkerColor", DEFAULT_PROP_MARKER_COLOR)
-        )
+        colors = getattr(self, "overlayColors", OVERLAY_COLOR_DEFAULTS)
+        for layer_key, _label, setting_key, default in OVERLAY_COLOR_SPECS:
+            state[setting_key] = format_overlay_color(colors.get(layer_key, default))
         return state
 
     def _default_visible_layers(self, view=None):
@@ -3183,13 +3204,24 @@ class LotEditorWin(wx.Frame):
         self._append_layer_menu(menu, "3d", LEXLayer3D, self.visibleLayers3D)
         menu.AppendSeparator()
         color_menu = wx.Menu()
-        choose_color_id = wx.NewIdRef()
-        reset_color_id = wx.NewIdRef()
-        color_menu.Append(choose_color_id, LEXPropMarkerColorChoose)
-        color_menu.Append(reset_color_id, LEXPropMarkerColorReset)
-        color_menu.Bind(wx.EVT_MENU, self.OnChoosePropMarkerColor, id=choose_color_id)
-        color_menu.Bind(wx.EVT_MENU, self.OnResetPropMarkerColor, id=reset_color_id)
-        menu.AppendSubMenu(color_menu, LEXPropMarkerColor)
+        for layer_key, label, _setting_key, _default in OVERLAY_COLOR_SPECS:
+            layer_menu = wx.Menu()
+            choose_color_id = wx.NewIdRef()
+            reset_color_id = wx.NewIdRef()
+            layer_menu.Append(choose_color_id, LEXOverlayColorChoose)
+            layer_menu.Append(reset_color_id, LEXOverlayColorReset)
+            layer_menu.Bind(
+                wx.EVT_MENU,
+                lambda _event, key=layer_key, name=label: self.OnChooseOverlayColor(key, name),
+                id=choose_color_id,
+            )
+            layer_menu.Bind(
+                wx.EVT_MENU,
+                lambda _event, key=layer_key: self.OnResetOverlayColor(key),
+                id=reset_color_id,
+            )
+            color_menu.AppendSubMenu(layer_menu, label)
+        menu.AppendSubMenu(color_menu, LEXOverlayColors)
         menu.AppendSeparator()
         shadow_lock_id = wx.NewIdRef()
         shadow_lock_item = menu.AppendCheckItem(shadow_lock_id, LEXShadowLockView)
@@ -3205,27 +3237,35 @@ class LotEditorWin(wx.Frame):
             self.PopupMenu(menu)
         menu.Destroy()
 
-    def OnChoosePropMarkerColor(self, event=None):
+    def OnChooseOverlayColor(self, layer_key, label):
         data = wx.ColourData()
         data.SetChooseFull(True)
-        data.SetColour(wx.Colour(*[round(channel * 255) for channel in self.propMarkerColor]))
+        current = self.overlayColors[layer_key]
+        data.SetColour(wx.Colour(*[round(channel * 255) for channel in current]))
         dialog = wx.ColourDialog(self, data)
         try:
-            dialog.SetTitle(LEXPropMarkerColorTitle)
+            dialog.SetTitle(LEXOverlayColorTitle % label)
             if dialog.ShowModal() != wx.ID_OK:
                 return
             colour = dialog.GetColourData().GetColour()
-            self.propMarkerColor = tuple(
+            selected = tuple(
                 channel / 255.0 for channel in (colour.Red(), colour.Green(), colour.Blue())
             )
-            self.SaveEditorState()
-            self.on_draw()
+            self.SetOverlayColor(layer_key, selected)
         finally:
             dialog.Destroy()
 
-    def OnResetPropMarkerColor(self, event=None):
-        self.propMarkerColor = DEFAULT_PROP_MARKER_COLOR
+    def OnResetOverlayColor(self, layer_key):
+        self.SetOverlayColor(layer_key, OVERLAY_COLOR_DEFAULTS[layer_key])
+
+    def SetOverlayColor(self, layer_key, color):
+        if layer_key not in OVERLAY_COLOR_DEFAULTS:
+            return
+        self.overlayColors[layer_key] = tuple(color)
         self.SaveEditorState()
+        # Split view may be re-presenting a cached 2D snapshot during ambient
+        # 3D updates. Keeping that old-color snapshot caused visible flashing.
+        self._invalidate_pane_cache()
         self.on_draw()
 
     def _append_context_choice(self, parent, title, attribute, choices, rebuild=False):
@@ -4326,6 +4366,7 @@ class LotEditorWin(wx.Frame):
             self.previewMinutes,
             self.previewDate,
             tuple(sorted(layers.items())),
+            tuple(sorted(self.overlayColors.items())) if pane == "2d" else None,
             self._context_cache_key if pane == "3d" else None,
             tuple(self.glCanvas2D.GetPhysicalSize()),
         )
@@ -4748,7 +4789,7 @@ class LotEditorWin(wx.Frame):
                     alpha = 0.35 if is_water else 1.0
                 else:
                     alpha = 1.0
-                base_rgb = (0.05, 0.3, 0.95) if is_water else (0.95, 0.55, 0.05)
+                base_rgb = self.overlayColors[layer_key]
                 tint = (*base_rgb, alpha)
                 for texData in constraints:
                     if self.modeEdit in CONSTRAINT_EDIT_MODES:
@@ -4794,7 +4835,7 @@ class LotEditorWin(wx.Frame):
                 draw_sc4path_overlay_2d(self, texData, self.modeEdit == MODE_EDIT_TRANSIT)
 
         if self._is_layer_visible("2d", LAYER_ROAD_EDGES):
-            self.DrawQuads(self._road_edge_records(), True)
+            self.DrawQuads(self._road_edge_records(), True, tint=(*self.overlayColors[LAYER_ROAD_EDGES], 1.0))
 
         if self.snapSize != 0 and self._is_layer_visible("2d", LAYER_SNAP_GRID):
             positions = self.snapGrids + numpy.array(
@@ -4805,7 +4846,7 @@ class LotEditorWin(wx.Frame):
                 GL_LINES,
                 positions,
                 self._render_context.mvp,
-                color=(0.5, 0, 0.2, 1),
+                color=(*self.overlayColors[LAYER_SNAP_GRID], 1.0),
             )
         if self.modeDisplay & MODE_BUILDING_ONLY and self._is_layer_visible("2d", LAYER_BUILDING):
             if self.building:
@@ -4831,7 +4872,7 @@ class LotEditorWin(wx.Frame):
                     miny,
                     maxx,
                     maxy,
-                    (0, 0, 1, alphaValue),
+                    (*self.overlayColors[LAYER_BUILDING], alphaValue),
                     self.buildingViewer == [] or self.buildingViewer[self.currentBuilding] is None,
                 )
                 if self.building[4] != 0 and self.building[11] in self.selected:
@@ -4863,7 +4904,7 @@ class LotEditorWin(wx.Frame):
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
             alphaValue = 0.5 if self.modeEdit == MODE_EDIT_PROP else 0.1
-            self.DrawQuadColorBatch(markers, (*self.propMarkerColor, alphaValue))
+            self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_PROPS], alphaValue))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
 
@@ -4888,12 +4929,12 @@ class LotEditorWin(wx.Frame):
                 markers.append((prop[2], minx, miny, maxx, maxy, False))
                 if prop[4] != 0 and prop[11] in selected_ids:
                     labels.append((ToCoord(prop[3]) - lx, ToCoord(prop[5]) - ly, "%.02f" % ToCoord(prop[4])))
-            self.DrawQuadColorBatch(markers, (0, 1.0, 0, 0.9))
+            self.DrawQuadColorBatch(markers, (*self.overlayColors[LAYER_FLORA], 0.9))
             for label_x, label_y, label_text in labels:
                 self._draw_text(label_x, label_y, label_text, rot2D)
 
         if self._is_layer_visible("2d", LAYER_SELECTION):
-            self.DrawQuadsHighLight(self.quadHighs)
+            self.DrawQuadsHighLight(self.quadHighs, self.overlayColors[LAYER_SELECTION])
             self.DrawQuadsHighLight(self.quadSelected, (1, 1, 1))
             if self.dragQuad is not None:
                 self.DrawHighLight(self.dragQuad[0], self.dragQuad[1], self.dragQuad[2], self.dragQuad[3], (1, 1, 1))
@@ -4904,7 +4945,7 @@ class LotEditorWin(wx.Frame):
                     GL_LINES,
                     positions,
                     self._render_context.mvp,
-                    color=(1, 0, 0, 1),
+                    color=(*self.overlayColors[LAYER_MISSING], 1.0),
                 )
         if self._is_layer_visible("2d", LAYER_CARDINALS):
             self.DrawCardinalLabels(rot2D, scaling)
@@ -4930,7 +4971,14 @@ class LotEditorWin(wx.Frame):
             (LEXFacingEast, x + margin, -1.0),
             (LEXFacingWest, -x - margin, -1.0),
         ):
-            self._draw_text(lx, ly, label, rot2D, color=(1.0, 0.85, 0.2, 1.0), scale=0.3)
+            self._draw_text(
+                lx,
+                ly,
+                label,
+                rot2D,
+                color=(*self.overlayColors[LAYER_CARDINALS], 1.0),
+                scale=0.3,
+            )
 
     def _draw_text(self, x, y, text, rot2D, color=(1.0, 1.0, 1.0, 1.0), scale=0.18):
         # flip_y keeps text upright: the 2D model matrix negates Y (see Draw2D),
