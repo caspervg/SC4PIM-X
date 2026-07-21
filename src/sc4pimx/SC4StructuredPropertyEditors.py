@@ -321,18 +321,18 @@ class DemandPairEditorDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(wx.StaticText(self, -1, prop_name), 0, wx.EXPAND | wx.ALL, 8)
         self.list = wx.ListCtrl(self, -1, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
-        self.list.InsertColumn(0, "Type", width=150)
-        self.list.InsertColumn(1, "ID", width=95)
-        self.list.InsertColumn(2, "Amount", width=85)
+        self.list.InsertColumn(0, propEditDemandColType, width=150)
+        self.list.InsertColumn(1, propEditDemandColId, width=95)
+        self.list.InsertColumn(2, propEditDemandColAmount, width=85)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         row_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        add_btn = icon_button(self, "plus", "Add")
-        edit_btn = icon_button(self, "pencil", "Edit")
-        del_btn = icon_button(self, "trash", "Delete")
-        up_btn = icon_button(self, "arrow-up", "Up")
-        down_btn = icon_button(self, "arrow-down", "Down")
+        add_btn = icon_button(self, "plus", propEditListAdd)
+        edit_btn = icon_button(self, "pencil", propEditListEdit)
+        del_btn = icon_button(self, "trash", propEditListDelete)
+        up_btn = icon_button(self, "arrow-up", propEditListUp)
+        down_btn = icon_button(self, "arrow-down", propEditListDown)
         add_btn.Bind(wx.EVT_BUTTON, self._on_add)
         edit_btn.Bind(wx.EVT_BUTTON, self._on_edit)
         del_btn.Bind(wx.EVT_BUTTON, self._on_delete)
@@ -418,7 +418,7 @@ class DemandPairEditorDialog(wx.Dialog):
 
     def _on_ok(self, _event):
         if not self._pairs:
-            wx.MessageBox("Add at least one pair.", "Invalid values", wx.OK | wx.ICON_ERROR, self)
+            wx.MessageBox(propEditDemandEmpty, propEditInvalidTitle, wx.OK | wx.ICON_ERROR, self)
             return
         self._value_text = demand_pairs_to_text(self._pairs)
         self.EndModal(wx.ID_OK)
@@ -427,7 +427,7 @@ class DemandPairEditorDialog(wx.Dialog):
 class DemandPairDialog(wx.Dialog):
 
     def __init__(self, parent, prop_def, demand_id, amount):
-        wx.Dialog.__init__(self, parent, -1, "Edit pair")
+        wx.Dialog.__init__(self, parent, -1, propEditDemandPairTitle)
         self._prop_def = prop_def
         self._pair = None
         self._items = _option_items(prop_def)
@@ -436,15 +436,15 @@ class DemandPairDialog(wx.Dialog):
         form = wx.FlexGridSizer(3, 2, 6, 8)
         form.AddGrowableCol(1)
 
-        form.Add(wx.StaticText(self, -1, "Known type"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, -1, propEditDemandKnownType), 0, wx.ALIGN_CENTER_VERTICAL)
         self.choice = wx.Choice(self, -1, choices=[name for _, name in self._items])
         form.Add(self.choice, 1, wx.EXPAND)
 
-        form.Add(wx.StaticText(self, -1, "ID"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, -1, propEditDemandColId), 0, wx.ALIGN_CENTER_VERTICAL)
         self.id_text = wx.TextCtrl(self, -1, hex2str(demand_id))
         form.Add(self.id_text, 1, wx.EXPAND)
 
-        form.Add(wx.StaticText(self, -1, "Amount"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, -1, propEditDemandColAmount), 0, wx.ALIGN_CENTER_VERTICAL)
         self.amount_text = wx.TextCtrl(self, -1, str(int(amount)))
         form.Add(self.amount_text, 1, wx.EXPAND)
         sizer.Add(form, 1, wx.EXPAND | wx.ALL, 10)
@@ -479,13 +479,18 @@ class DemandPairDialog(wx.Dialog):
             demand_id = int(self.id_text.GetValue().strip(), 0)
             amount = int(self.amount_text.GetValue().strip(), 0)
         except ValueError:
-            wx.MessageBox("Enter valid integer values.", "Invalid pair", wx.OK | wx.ICON_ERROR, self)
+            wx.MessageBox(
+                propEditDemandInvalidInteger,
+                propEditDemandInvalidPairTitle,
+                wx.OK | wx.ICON_ERROR,
+                self,
+            )
             return
         if demand_id < 0 or demand_id > 0xFFFFFFFF:
-            wx.MessageBox("ID must be a 32-bit unsigned value.", "Invalid pair", wx.OK | wx.ICON_ERROR, self)
+            wx.MessageBox(propEditDemandIdRange, propEditDemandInvalidPairTitle, wx.OK | wx.ICON_ERROR, self)
             return
         if amount < 0 or amount > 0xFFFFFFFF:
-            wx.MessageBox("Amount must be a 32-bit unsigned value.", "Invalid pair", wx.OK | wx.ICON_ERROR, self)
+            wx.MessageBox(propEditDemandAmountRange, propEditDemandInvalidPairTitle, wx.OK | wx.ICON_ERROR, self)
             return
         self._pair = (demand_id, amount)
         self.EndModal(wx.ID_OK)

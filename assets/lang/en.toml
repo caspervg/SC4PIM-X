@@ -698,6 +698,16 @@ propEditListColValue = "Value"
 propEditEntryTitle = "Edit value"
 propEditRawLabel = "Raw (comma-separated):"
 propEditCountMismatch = "Expected %d value(s)."
+propEditDemandColType = "Type"
+propEditDemandColId = "ID"
+propEditDemandColAmount = "Amount"
+propEditDemandPairTitle = "Edit pair"
+propEditDemandKnownType = "Known type"
+propEditDemandEmpty = "Add at least one pair."
+propEditDemandInvalidInteger = "Enter valid integer values."
+propEditDemandInvalidPairTitle = "Invalid pair"
+propEditDemandIdRange = "ID must be a 32-bit unsigned value."
+propEditDemandAmountRange = "Amount must be a 32-bit unsigned value."
 
 [lists]
 modeNamesMsg = ["Full", "LE-like", "Transit Enable", "Water land constraints"]

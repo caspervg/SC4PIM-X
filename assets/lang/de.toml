@@ -646,6 +646,16 @@ propEditListColValue = "Wert"
 propEditEntryTitle = "Wert bearbeiten"
 propEditRawLabel = "unformatiert (komma-separiert):"
 propEditCountMismatch = "Erwartete(r) %d Wert(e)."
+propEditDemandColType = "Typ"
+propEditDemandColId = "ID"
+propEditDemandColAmount = "Menge"
+propEditDemandPairTitle = "Paar bearbeiten"
+propEditDemandKnownType = "Bekannter Typ"
+propEditDemandEmpty = "Füge mindestens ein Paar hinzu."
+propEditDemandInvalidInteger = "Trage gültige Ganzzahlwerte ein."
+propEditDemandInvalidPairTitle = "Ungültiges Paar"
+propEditDemandIdRange = "Die ID muss ein vorzeichenloser 32-Bit-Wert sein."
+propEditDemandAmountRange = "Die Menge muss ein vorzeichenloser 32-Bit-Wert sein."
 
 [lists]
 modeNamesMsg = ["Voll", "Lot Editor-ähnlich", "Transit-Enabled", "Wasser-/Landbeschränkung"]
