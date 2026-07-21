@@ -2,7 +2,7 @@
 
 import wx
 
-from .TablerIcons import icon_bitmap, set_button_icon
+from .TablerIcons import dialog_button, icon_bitmap, set_button_icon
 from .translation import *
 
 MODE_CLONE = 'clone'
@@ -54,7 +54,7 @@ class ConvertLotBuildingDialog(wx.Dialog):
         self.back = wx.Button(self, label=convertBuildingBack)
         self.next = wx.Button(self, label=convertBuildingNext)
         self.finish = wx.Button(self, wx.ID_OK, convertBuildingFinish)
-        self.cancel = wx.Button(self, wx.ID_CANCEL)
+        self.cancel = dialog_button(self, wx.ID_CANCEL)
         set_button_icon(self.back, 'arrow-back-up')
         set_button_icon(self.next, 'arrow-forward-up')
         set_button_icon(self.finish, 'check')

@@ -5,6 +5,8 @@
 Name = "Deutsch"
 
 [strings]
+dialogOK = "OK"
+dialogCancel = "Abbrechen"
 DepDlgBuilding = "Gebäude"
 DepDlgBuildingFoundation = "Fundament"
 DepDlgCatalogExactTGI = "Genaue Ressourcen-Übereinstimmung"
@@ -96,6 +98,7 @@ LETreeTools = "Werkzeuge"
 LEWealthDependantTextureMsg = "wohlstandsabhängige Textur"
 LEXAssetBrowserAll = "Alle"
 LEXAssetBrowserAssets = "Assets"
+LEXAssetBrowserSearchHint = "Assets nach Name oder ID filtern…"
 LEXAssetBrowserBaseBadge = "Basis"
 LEXAssetBrowserCompact = "Kompakt"
 LEXAssetBrowserCurrentLot = "Aktueller Lot"

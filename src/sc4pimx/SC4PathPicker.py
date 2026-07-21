@@ -28,7 +28,7 @@ from .SC4PathReader import (
     list_sc4path_entries,
     load_catalog_item,
 )
-from .TablerIcons import set_button_icon
+from .TablerIcons import dialog_button, set_button_icon
 from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
@@ -742,9 +742,9 @@ class SC4PathPickerDialog(wx.Dialog):
         # --- Footer --------------------------------------------------------
         self.clearButton = wx.Button(self, -1, LEXSC4PathPickerClear)
         set_button_icon(self.clearButton, "route-off")
-        self.okButton = wx.Button(self, wx.ID_OK)
+        self.okButton = dialog_button(self, wx.ID_OK)
         self.okButton.SetDefault()
-        cancelButton = wx.Button(self, wx.ID_CANCEL)
+        cancelButton = dialog_button(self, wx.ID_CANCEL)
 
         btns = wx.StdDialogButtonSizer()
         btns.AddButton(self.okButton)

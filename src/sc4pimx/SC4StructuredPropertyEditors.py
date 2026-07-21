@@ -5,7 +5,7 @@ import struct
 import wx
 
 from .SC4DatTools import format_float_value, hex2str
-from .TablerIcons import icon_button
+from .TablerIcons import dialog_button, icon_button
 from .translation import *  # noqa: F401,F403
 
 POLLUTION_VECTOR_IDS = {0x27812851, 0xAA5832F3, 0x68EE9764}
@@ -285,8 +285,8 @@ class VectorEditorDialog(wx.Dialog):
         sizer.Add(form, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)
@@ -343,8 +343,8 @@ class DemandPairEditorDialog(wx.Dialog):
         sizer.Add(row_buttons, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)
@@ -456,8 +456,8 @@ class DemandPairDialog(wx.Dialog):
         self.choice.Bind(wx.EVT_CHOICE, self._on_choice)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)
@@ -541,8 +541,8 @@ class SingleValuePropertyDialog(wx.Dialog):
             self._update_conversion()
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)
@@ -717,8 +717,8 @@ class TablePropertyDialog(wx.Dialog):
         sizer.Add(self.raw, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)
@@ -866,8 +866,8 @@ class NumberEntryDialog(wx.Dialog):
         sizer.Add(self.text, 0, wx.EXPAND | wx.ALL, 10)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)

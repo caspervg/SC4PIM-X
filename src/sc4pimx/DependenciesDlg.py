@@ -16,7 +16,7 @@ from .DependencyCatalog import DependencyCatalogClient
 from .SC4Data import *
 from .SC4DatTools import *
 from .SC4PathReader import SC4PATH_MODEL_GID, SC4PATH_TEXTURE_GID, SC4PATH_TYPE
-from .TablerIcons import icon_bitmap, set_button_icon
+from .TablerIcons import dialog_button_sizer, icon_bitmap, set_button_icon
 from .translation import *
 
 offsetGID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 16, 17, 18, 19, 20, 35]
@@ -627,7 +627,7 @@ class DependenciesDlg(sc.SizedDialog):
         self.RenderRows()
         self.lb.Render(self.rows, self._catalog_requested)
 
-        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
+        self.SetButtonSizer(dialog_button_sizer(self))
         self.Fit()
         self.SetMinSize((1320, 640))
 

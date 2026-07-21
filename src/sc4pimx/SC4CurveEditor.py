@@ -6,7 +6,7 @@ import wx
 import wx.lib.plot as wxplot
 
 from .SC4DatTools import format_float_value
-from .TablerIcons import icon_button
+from .TablerIcons import dialog_button, icon_button
 
 
 def is_curve_property(prop, prop_def):
@@ -130,8 +130,8 @@ class CurveEditorDialog(wx.Dialog):
         sizer.Add(body, 1, wx.EXPAND)
 
         dialog_buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         dialog_buttons.AddButton(ok_btn)
@@ -273,8 +273,8 @@ class PointEditDialog(wx.Dialog):
         sizer.Add(form, 1, wx.EXPAND | wx.ALL, 10)
 
         buttons = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(self, wx.ID_OK)
-        cancel_btn = wx.Button(self, wx.ID_CANCEL)
+        ok_btn = dialog_button(self, wx.ID_OK)
+        cancel_btn = dialog_button(self, wx.ID_CANCEL)
         ok_btn.SetDefault()
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         buttons.AddButton(ok_btn)

@@ -6,10 +6,33 @@ from functools import lru_cache
 import wx
 
 from .paths import asset_path
+from .translation import dialogCancel, dialogOK
 
 DEFAULT_COLOUR = "#000000"
 COMPACT_ICON_SIZE = 18
 COMPACT_BUTTON_SIZE = (34, 30)
+
+
+def dialog_button(parent, window_id):
+    """Create an application-localized standard OK or Cancel button."""
+    labels = {wx.ID_OK: dialogOK, wx.ID_CANCEL: dialogCancel}
+    try:
+        label = labels[window_id]
+    except KeyError as exc:
+        raise ValueError("Unsupported standard dialog button ID") from exc
+    return wx.Button(parent, window_id, label)
+
+
+def dialog_button_sizer(parent):
+    """Create a standard platform-ordered, localized OK/Cancel footer."""
+    buttons = wx.StdDialogButtonSizer()
+    ok_button = dialog_button(parent, wx.ID_OK)
+    cancel_button = dialog_button(parent, wx.ID_CANCEL)
+    ok_button.SetDefault()
+    buttons.AddButton(ok_button)
+    buttons.AddButton(cancel_button)
+    buttons.Realize()
+    return buttons
 
 
 @lru_cache(maxsize=None)

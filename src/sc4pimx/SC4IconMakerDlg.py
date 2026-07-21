@@ -5,6 +5,7 @@ from PIL import Image
 from PIL.Image import Resampling
 
 from .paths import asset_path
+from .TablerIcons import dialog_button
 from .translation import IconDlgPicture, IconDlgTitle
 
 
@@ -36,9 +37,9 @@ class IconDlg(wx.Dialog):
         static_line1 = wx.StaticLine(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.LI_HORIZONTAL)
         box_sizer1.Add(static_line1, 0, wx.ALL | wx.EXPAND, 5)
         sdb_sizer1 = wx.StdDialogButtonSizer()
-        sdb_sizer1_ok = wx.Button(self, wx.ID_OK)
+        sdb_sizer1_ok = dialog_button(self, wx.ID_OK)
         sdb_sizer1.AddButton(sdb_sizer1_ok)
-        sdb_sizer1_cancel = wx.Button(self, wx.ID_CANCEL)
+        sdb_sizer1_cancel = dialog_button(self, wx.ID_CANCEL)
         sdb_sizer1.AddButton(sdb_sizer1_cancel)
         sdb_sizer1.Realize()
         box_sizer1.Add(sdb_sizer1, 0, wx.EXPAND, 5)

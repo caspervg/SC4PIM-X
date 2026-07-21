@@ -134,7 +134,7 @@ from .SC4TransitLotTools import (
     tile_quad,
     transit_path_status,
 )
-from .TablerIcons import icon_bundle, icon_button
+from .TablerIcons import dialog_button_sizer, icon_bundle, icon_button
 from .translation import *
 
 logger = logging.getLogger(__name__)
@@ -6233,7 +6233,7 @@ class LotCreatorDlg(sc.SizedDialog):
                 style=wx.CB_DROPDOWN | wx.CB_READONLY,
                 choices=[str(v) for v in range(max(1, s - 1), min(s + 2, 16))],
             )
-        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
+        self.SetButtonSizer(dialog_button_sizer(self))
         self.Fit()
         self.SetMinSize(self.GetSize())
         if not bRebuild:

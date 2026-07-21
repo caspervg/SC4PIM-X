@@ -39,7 +39,7 @@ from typing import Callable, Iterable, Optional
 import wx
 import wx.lib.mixins.listctrl as listmix
 
-from .TablerIcons import icon_button, set_button_icon
+from .TablerIcons import dialog_button, icon_button, set_button_icon
 from .translation import *  # noqa: F401,F403
 
 logger = logging.getLogger(__name__)
@@ -319,9 +319,9 @@ class TSECRowDialog(wx.Dialog):
         self.previewText = wx.TextCtrl(self, -1, "", style=wx.TE_READONLY | wx.TE_CENTER)
         self.previewText.SetMinSize((180, -1))
 
-        self.okButton = wx.Button(self, wx.ID_OK)
+        self.okButton = dialog_button(self, wx.ID_OK)
         self.okButton.SetDefault()
-        cancelButton = wx.Button(self, wx.ID_CANCEL)
+        cancelButton = dialog_button(self, wx.ID_CANCEL)
 
         # Layout.
         sizer = wx.BoxSizer(wx.VERTICAL)

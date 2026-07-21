@@ -1710,6 +1710,7 @@ class LEAssetBrowserPanel(wx.Panel):
         self.search = wx.SearchCtrl(self, -1, style=wx.TE_PROCESS_ENTER)
         self.search.ShowSearchButton(True)
         self.search.ShowCancelButton(True)
+        self.search.SetDescriptiveText(LEXAssetBrowserSearchHint)
         root.Add(self.search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         scopes = wx.BoxSizer(wx.HORIZONTAL)
         self.scope_buttons = {}

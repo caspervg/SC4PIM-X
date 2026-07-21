@@ -14,7 +14,7 @@ from typing import Iterable, Optional
 import wx
 import wx.lib.agw.ultimatelistctrl as ULC
 
-from .TablerIcons import set_button_icon
+from .TablerIcons import dialog_button, set_button_icon
 from .translation import *  # noqa: F401,F403
 
 PROP_OCCUPANT_GROUPS = 0xAA1DD396
@@ -191,11 +191,11 @@ class OccupantGroupPickerDialog(wx.Dialog):
         self.list.SetMinSize((620, 320))
         self.countText = wx.StaticText(self, -1, "")
 
-        self.okButton = wx.Button(self, wx.ID_OK)
+        self.okButton = dialog_button(self, wx.ID_OK)
         self.okButton.SetDefault()
         if allow_manual:
             self.okButton.Bind(wx.EVT_BUTTON, self._on_ok)
-        cancelButton = wx.Button(self, wx.ID_CANCEL)
+        cancelButton = dialog_button(self, wx.ID_CANCEL)
 
         top = wx.BoxSizer(wx.HORIZONTAL)
         top.Add(self.search, 1, wx.RIGHT | wx.EXPAND, 6)

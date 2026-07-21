@@ -45,7 +45,7 @@ from .S3DViewer import S3DViewer
 from .SC4Data import conversion_target_kind, list_convertible_categories
 from .SC4LotPreview import *
 from .settings import *
-from .TablerIcons import icon_bitmap, icon_button, set_button_icon
+from .TablerIcons import dialog_button, dialog_button_sizer, icon_bitmap, icon_button, set_button_icon
 from .textutil import decode_sc4_string_prop, decode_sc4_text, decode_unicode_escape, encode_sc4_text
 from .translation import *
 from .util import DictWrapper, basic_cmp, clamp_to_tile
@@ -1369,7 +1369,7 @@ class RecomputePreviewDialog(wx.Dialog):
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.applySelected = wx.Button(self, wx.ID_OK, recomputePreviewApplySelected)
         self.applyAll = wx.Button(self, -1, recomputePreviewApplyAll)
-        self.cancel = wx.Button(self, wx.ID_CANCEL)
+        self.cancel = dialog_button(self, wx.ID_CANCEL)
         set_button_icon(self.applySelected, "check")
         set_button_icon(self.applyAll, "checks")
         self.applySelected.SetDefault()
@@ -2237,7 +2237,7 @@ class EditDialog(sc.SizedDialog):
         pane.SetSizerType('vertical')
         wx.StaticText(pane, 1, editUnicodeWarning)
         self.editor = wx.TextCtrl(pane, -1, txt, style=wx.TE_MULTILINE, size=Size(400, 100))
-        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
+        self.SetButtonSizer(dialog_button_sizer(self))
         self.Fit()
         self.SetMinSize(self.GetSize())
 
@@ -3316,9 +3316,9 @@ class NoteBookPanel(wx.Panel):
         sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 6)
 
         btns = wx.StdDialogButtonSizer()
-        ok_btn = wx.Button(dlg, wx.ID_OK)
+        ok_btn = dialog_button(dlg, wx.ID_OK)
         ok_btn.SetDefault()
-        cancel_btn = wx.Button(dlg, wx.ID_CANCEL)
+        cancel_btn = dialog_button(dlg, wx.ID_CANCEL)
         btns.AddButton(ok_btn)
         btns.AddButton(cancel_btn)
         btns.Realize()
@@ -5019,7 +5019,7 @@ class ConfigureDialog(sc.SizedDialog):
         )
         self.showAtStartup.SetValue(self.showFileConfigurationAtStartup)
         buttonPane = sc.SizedPanel(pane, -1)
-        self.SetButtonSizer(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL))
+        self.SetButtonSizer(dialog_button_sizer(self))
         self.Fit()
         self.SetMinSize(self.GetSize())
         self.Bind(wx.EVT_BUTTON, self.OnOK, id=wx.ID_OK)
