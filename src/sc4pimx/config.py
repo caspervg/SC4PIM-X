@@ -67,6 +67,10 @@ DEFAULT_LOT_EDITOR = {
     "CityContextDetail": "high",
     "CityContextSeason": "auto",
     "CityContextVerticalScale": 1.33,
+    "CityContextVisibilityMode": "lens",
+    "CityContextFadeStyle": "smooth",
+    "CityContextFadeOpacity": 20,
+    "CityContextLensRadius": 140,
 }
 
 DEFAULT_MAIN_WINDOW = {

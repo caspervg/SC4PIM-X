@@ -106,7 +106,9 @@ from OpenGL.GL import (
     glSamplerParameteri,
     glTexImage2D,
     glTexParameteri,
+    glUniform1f,
     glUniform1i,
+    glUniform2f,
     glUniformMatrix4fv,
     glUseProgram,
     glVertexAttribPointer,
@@ -240,10 +242,37 @@ PRIMITIVE_FRAGMENT_SHADER = """#version 330 core
 uniform sampler2D u_texture;
 // 0 = untextured, 1 = RGBA texture, 2 = single-channel glyph atlas.
 uniform int u_texture_mode;
+// Context-only fade. Ordinary primitive draws keep mode 0. 1 = cursor lens,
+// 2 = global ghost coverage, 4 = opaque complement outside the cursor lens.
+uniform int u_fade_mode;
+uniform vec2 u_fade_center;
+uniform vec2 u_fade_radius;
+uniform float u_fade_coverage;
+// 0 = smooth alpha, 1 = fine irregular grain, 2 = ordered 4x4,
+// 3 = clean cutaway.
+uniform int u_fade_style;
 
 in vec4 v_color;
 in vec2 v_texcoord;
 out vec4 out_color;
+
+float bayer4(ivec2 pixel)
+{
+    const float values[16] = float[16](
+         0.5,  8.5,  2.5, 10.5,
+        12.5,  4.5, 14.5,  6.5,
+         3.5, 11.5,  1.5,  9.5,
+        15.5,  7.5, 13.5,  5.5
+    );
+    ivec2 cell = ivec2(pixel.x & 3, pixel.y & 3);
+    return values[cell.y * 4 + cell.x] / 16.0;
+}
+
+float fine_noise(ivec2 pixel)
+{
+    vec2 p = vec2(pixel);
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
 
 void main()
 {
@@ -252,6 +281,41 @@ void main()
         texel = texture(u_texture, v_texcoord);
     else if (u_texture_mode == 2)
         texel.a = texture(u_texture, v_texcoord).r;
+    if (u_fade_mode == 4)
+    {
+        if (distance(gl_FragCoord.xy, u_fade_center) < u_fade_radius.y)
+            discard;
+        out_color = v_color * texel;
+        return;
+    }
+    if (u_fade_mode != 0)
+    {
+        float coverage = u_fade_coverage;
+        if (u_fade_mode == 1)
+        {
+            float distance_px = distance(gl_FragCoord.xy, u_fade_center);
+            coverage = mix(
+                u_fade_coverage,
+                1.0,
+                smoothstep(u_fade_radius.x, u_fade_radius.y, distance_px)
+            );
+        }
+        // Vertex alpha is fade participation. Context ground uses a smaller
+        // value so roads remain useful while tall obstructions become x-rayed.
+        coverage = mix(1.0, coverage, clamp(v_color.a, 0.0, 1.0));
+        if (u_fade_style == 0)
+        {
+            if (u_fade_mode == 1 && distance(gl_FragCoord.xy, u_fade_center) >= u_fade_radius.y)
+                discard;
+            out_color = vec4(v_color.rgb * texel.rgb, texel.a * coverage);
+            return;
+        }
+        float threshold = u_fade_style == 1
+            ? fine_noise(ivec2(gl_FragCoord.xy))
+            : bayer4(ivec2(gl_FragCoord.xy));
+        if (u_fade_style == 3 ? coverage < 0.999 : coverage < threshold)
+            discard;
+    }
     out_color = v_color * texel;
 }
 """
@@ -435,6 +499,11 @@ class PrimitiveRenderer:
         self._mvp_location = glGetUniformLocation(self.program, "u_mvp")
         self._texture_location = glGetUniformLocation(self.program, "u_texture")
         self._texture_mode_location = glGetUniformLocation(self.program, "u_texture_mode")
+        self._fade_mode_location = glGetUniformLocation(self.program, "u_fade_mode")
+        self._fade_center_location = glGetUniformLocation(self.program, "u_fade_center")
+        self._fade_radius_location = glGetUniformLocation(self.program, "u_fade_radius")
+        self._fade_coverage_location = glGetUniformLocation(self.program, "u_fade_coverage")
+        self._fade_style_location = glGetUniformLocation(self.program, "u_fade_style")
         self._capacity = 0
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         stride = self._FLOATS_PER_VERTEX * 4
@@ -473,7 +542,7 @@ class PrimitiveRenderer:
         )
 
     def draw_interleaved(self, mode, vertices, mvp, *, texture=0, sampler=0,
-                         texture_mode=None):
+                         texture_mode=None, fade=None):
         """Draw prebuilt position/RGBA/UV rows without a per-frame array copy."""
         vertices = numpy.asarray(vertices, dtype=numpy.float32)
         if vertices.size == 0:
@@ -494,6 +563,16 @@ class PrimitiveRenderer:
         if texture_mode is None:
             texture_mode = 1 if texture else 0
         glUniform1i(self._texture_mode_location, int(texture_mode))
+        if fade is None:
+            glUniform1i(self._fade_mode_location, 0)
+        else:
+            fade_mode, center, radii, coverage = fade[:4]
+            fade_style = fade[4] if len(fade) > 4 else 2
+            glUniform1i(self._fade_mode_location, int(fade_mode))
+            glUniform2f(self._fade_center_location, float(center[0]), float(center[1]))
+            glUniform2f(self._fade_radius_location, float(radii[0]), float(radii[1]))
+            glUniform1f(self._fade_coverage_location, float(coverage))
+            glUniform1i(self._fade_style_location, int(fade_style))
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, int(texture or 0))
         glBindSampler(0, int(sampler or 0))

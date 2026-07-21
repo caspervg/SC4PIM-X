@@ -2718,7 +2718,10 @@ def _rect_arrays(rects, center_x, center_z, palette):
     if not rects:
         return _empty_arrays()
     data = numpy.asarray([(r.x0, r.z0, r.x1, r.z1, r.y) for r in rects], dtype=numpy.float64)
-    color = numpy.asarray([palette[r.material] + (1.0,) for r in rects], dtype=numpy.float64)
+    # Alpha is repurposed by the context-only screen-door shader as fade
+    # participation. Flat ground/roads retain most of their coverage while
+    # genuinely obstructive buildings, props, actors and trees use alpha 1.
+    color = numpy.asarray([palette[r.material] + (0.25,) for r in rects], dtype=numpy.float64)
     x0, z0, x1, z1, y = (data[:, i] for i in range(5))
     corners = numpy.stack(
         [

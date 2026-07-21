@@ -777,6 +777,17 @@ class LotEditorWin(wx.Frame):
         self.contextDetail = self.contextDetail if self.contextDetail in valid_levels else "high"
         self.contextSeason = str(settings.get("CityContextSeason", "auto"))
         self.contextSeason = self.contextSeason if self.contextSeason in valid_seasons else "auto"
+        self.contextVisibilityMode = str(settings.get("CityContextVisibilityMode", "lens"))
+        if self.contextVisibilityMode not in {"normal", "lens", "ghost"}:
+            self.contextVisibilityMode = "lens"
+        self.contextFadeStyle = str(settings.get("CityContextFadeStyle", "smooth"))
+        if self.contextFadeStyle not in {"smooth", "fine", "ordered", "cutaway"}:
+            self.contextFadeStyle = "smooth"
+        self.contextFadeOpacity = parse_overlay_opacity(settings.get("CityContextFadeOpacity", 20), 0.20)
+        try:
+            self.contextLensRadius = max(40, min(400, int(settings.get("CityContextLensRadius", 140))))
+        except (TypeError, ValueError):
+            self.contextLensRadius = 140
         try:
             self.contextVerticalScale = min(
                 2.0,
@@ -1384,6 +1395,12 @@ class LotEditorWin(wx.Frame):
         state["CityContextPedestrians"] = str(getattr(self, "contextPedestrians", "medium"))
         state["CityContextDetail"] = str(getattr(self, "contextDetail", "high"))
         state["CityContextSeason"] = str(getattr(self, "contextSeason", "auto"))
+        state["CityContextVisibilityMode"] = str(getattr(self, "contextVisibilityMode", "lens"))
+        state["CityContextFadeStyle"] = str(getattr(self, "contextFadeStyle", "smooth"))
+        state["CityContextFadeOpacity"] = round(
+            max(0.0, min(1.0, float(getattr(self, "contextFadeOpacity", 0.20)))) * 100
+        )
+        state["CityContextLensRadius"] = int(getattr(self, "contextLensRadius", 140))
         colors = getattr(self, "overlayColors", OVERLAY_COLOR_DEFAULTS)
         for layer_key, _label, setting_key, default in OVERLAY_COLOR_SPECS:
             state[setting_key] = format_overlay_color(colors.get(layer_key, default))
@@ -1586,22 +1603,82 @@ class LotEditorWin(wx.Frame):
             self._context_tint_key = key
         return self._context_tinted
 
+    def _context_fade(self, shadow=False):
+        """Primitive-renderer fade tuple for the current context visibility mode."""
+        mode = getattr(self, "contextVisibilityMode", "lens")
+        coverage = max(0.0, min(1.0, float(getattr(self, "contextFadeOpacity", 0.20))))
+        if mode == "normal":
+            return None
+        style = {"smooth": 0, "fine": 1, "ordered": 2, "cutaway": 3}.get(
+            getattr(self, "contextFadeStyle", "smooth"), 0
+        )
+        # Smooth color transparency cannot affect a color-masked stencil pass.
+        # Suppress its context shadows in the x-rayed area instead.
+        if shadow and style == 0:
+            style = 3
+        if mode == "ghost":
+            return 2, (0.0, 0.0), (0.0, 0.0), coverage, style
+        if mode != "lens":
+            return None
+
+        canvas = self.glCanvas2D
+        width, height = canvas.GetClientSize()
+        mouse_x = float(getattr(canvas, "mouseX", -1))
+        mouse_y = float(getattr(canvas, "mouseY", -1))
+        if self.panel == 3:
+            in_3d = 0.0 <= mouse_x < width // 2 and 0.0 <= mouse_y < height
+        else:
+            in_3d = self.panel == 1 and 0.0 <= mouse_x < width and 0.0 <= mouse_y < height
+        if not in_3d:
+            return None
+
+        scale = float(canvas.GetContentScaleFactor())
+        radius = float(getattr(self, "contextLensRadius", 140)) * scale
+        center = (mouse_x * scale, (height - mouse_y) * scale)
+        return 1, center, (radius * 0.70, radius), coverage, style
+
+    @staticmethod
+    def _draw_context_vertices(renderer, vertices, mvp, fade):
+        """Draw one context batch, splitting smooth lenses at their boundary."""
+        smooth = fade is not None and fade[4] == 0
+        if smooth and fade[0] == 1:
+            # Preserve ordinary occlusion outside the lens without placing any
+            # context depth inside it. The translucent pass can then yield to
+            # the editable lot without a hard circular depth-reset boundary.
+            outside = (4, fade[1], fade[2], 1.0, 0)
+            glDisable(GL_BLEND)
+            glDepthMask(GL_TRUE)
+            renderer.draw_interleaved(GL_TRIANGLES, vertices, mvp, fade=outside)
+
+        if smooth:
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glDepthMask(GL_FALSE)
+        else:
+            glDisable(GL_BLEND)
+            glDepthMask(GL_TRUE)
+        renderer.draw_interleaved(GL_TRIANGLES, vertices, mvp, fade=fade)
+        glDepthMask(GL_TRUE)
+        glDisable(GL_BLEND)
+
     def DrawCityContext(self):
         """Draw the cached opaque context in one base and one optional LOD batch."""
         if self._icon_render or self._context_mesh is None or not self._is_layer_visible("3d", LAYER_CITY_CONTEXT):
             return
         glEnable(GL_DEPTH_TEST)
-        glDisable(GL_BLEND)
         glDisable(GL_CULL_FACE)
         glDepthMask(GL_TRUE)
         vertices, detail = self._tinted_context_vertices()
         renderer = self.glCanvas2D.renderer.primitives
-        renderer.draw_interleaved(GL_TRIANGLES, vertices, self._render_context.mvp)
+        fade = self._context_fade()
+        self._draw_context_vertices(renderer, vertices, self._render_context.mvp, fade)
         detail_threshold = {"low": 3, "medium": 2, "high": 1}.get(self.contextDetail, 2)
         if self.zoom3D >= detail_threshold:
-            renderer.draw_interleaved(GL_TRIANGLES, detail, self._render_context.mvp)
+            self._draw_context_vertices(renderer, detail, self._render_context.mvp, fade)
             if self.nightMode:
-                renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.night_vertices, self._render_context.mvp)
+                self._draw_context_vertices(
+                    renderer, self._context_mesh.night_vertices, self._render_context.mvp, fade
+                )
 
     def DrawCityContextAmbient(self):
         """Draw moving traffic and pedestrians as a separate dynamic batch."""
@@ -1631,13 +1708,12 @@ class LotEditorWin(wx.Frame):
             getattr(self, "lightingProfile", None),
         )
         glEnable(GL_DEPTH_TEST)
-        glDisable(GL_BLEND)
         glDepthMask(GL_TRUE)
-        self.glCanvas2D.renderer.primitives.draw_interleaved(GL_TRIANGLES, lit, self._render_context.mvp)
+        fade = self._context_fade()
+        renderer = self.glCanvas2D.renderer.primitives
+        self._draw_context_vertices(renderer, lit, self._render_context.mvp, fade)
         if self.nightMode and len(ambient.emissive_vertices):
-            self.glCanvas2D.renderer.primitives.draw_interleaved(
-                GL_TRIANGLES, ambient.emissive_vertices, self._render_context.mvp
-            )
+            self._draw_context_vertices(renderer, ambient.emissive_vertices, self._render_context.mvp, fade)
 
     def DrawCityContextShadows(self, flatten):
         """Project cached context casters into the active coverage mask."""
@@ -1646,12 +1722,13 @@ class LotEditorWin(wx.Frame):
         glDisable(GL_CULL_FACE)
         mvp = self._render_context.projection @ self._render_context.model @ flatten
         renderer = self.glCanvas2D.renderer.primitives
-        renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.shadow_vertices, mvp)
+        fade = self._context_fade(shadow=True)
+        renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.shadow_vertices, mvp, fade=fade)
         if self.zoom3D >= 2:
-            renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.detail_shadow_vertices, mvp)
+            renderer.draw_interleaved(GL_TRIANGLES, self._context_mesh.detail_shadow_vertices, mvp, fade=fade)
             ambient = getattr(self, "_context_ambient_mesh", None)
             if ambient is not None and len(ambient.shadow_vertices):
-                renderer.draw_interleaved(GL_TRIANGLES, ambient.shadow_vertices, mvp)
+                renderer.draw_interleaved(GL_TRIANGLES, ambient.shadow_vertices, mvp, fade=fade)
 
     def _road_edge_records(self):
         """Road-texture overlay records for all four verified mask edges."""
@@ -3437,6 +3514,35 @@ class LotEditorWin(wx.Frame):
         show_item.Check(self._is_layer_visible("3d", LAYER_CITY_CONTEXT))
         menu.Bind(wx.EVT_MENU, self.OnToggleCityContext, id=show_id)
         menu.AppendSeparator()
+        self._append_context_choice(
+            menu,
+            LEXContextVisibility,
+            "contextVisibilityMode",
+            (
+                ("normal", LEXContextVisibilityNormal),
+                ("lens", LEXContextVisibilityLens),
+                ("ghost", LEXContextVisibilityGhost),
+            ),
+        )
+        self._append_context_choice(
+            menu,
+            LEXContextFadeStyle,
+            "contextFadeStyle",
+            (
+                ("smooth", LEXContextFadeStyleSmooth),
+                ("fine", LEXContextFadeStyleFine),
+                ("ordered", LEXContextFadeStyleOrdered),
+                ("cutaway", LEXContextFadeStyleCutaway),
+            ),
+        )
+        opacity_id = wx.NewIdRef()
+        menu.Append(opacity_id, LEXContextFadeOpacity)
+        menu.Bind(wx.EVT_MENU, self.OnChooseContextFadeOpacity, id=opacity_id)
+        radius_id = wx.NewIdRef()
+        radius_item = menu.Append(radius_id, LEXContextLensRadius)
+        radius_item.Enable(self.contextVisibilityMode == "lens")
+        menu.Bind(wx.EVT_MENU, self.OnChooseContextLensRadius, id=radius_id)
+        menu.AppendSeparator()
         levels = (("low", LEXContextLow), ("medium", LEXContextMedium), ("high", LEXContextHigh))
         self._append_context_choice(
             menu,
@@ -3489,6 +3595,44 @@ class LotEditorWin(wx.Frame):
         else:
             self.PopupMenu(menu)
         menu.Destroy()
+
+    def OnChooseContextFadeOpacity(self, event=None):
+        dialog = wx.NumberEntryDialog(
+            self,
+            LEXContextFadeOpacityPrompt,
+            LEXOverlayOpacityField,
+            LEXContextVisibility,
+            round(self.contextFadeOpacity * 100),
+            0,
+            100,
+        )
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.contextFadeOpacity = dialog.GetValue() / 100.0
+                self.SaveEditorState()
+                self._invalidate_pane_cache()
+                self._request_draw()
+        finally:
+            dialog.Destroy()
+
+    def OnChooseContextLensRadius(self, event=None):
+        dialog = wx.NumberEntryDialog(
+            self,
+            LEXContextLensRadiusPrompt,
+            LEXContextLensRadiusField,
+            LEXContextVisibility,
+            self.contextLensRadius,
+            40,
+            400,
+        )
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.contextLensRadius = dialog.GetValue()
+                self.SaveEditorState()
+                self._invalidate_pane_cache()
+                self._request_draw()
+        finally:
+            dialog.Destroy()
 
     def _ensure_s3d_shader_program(self):
         if self.s3d_shader_program is None:
@@ -3704,6 +3848,10 @@ class LotEditorWin(wx.Frame):
         self.contextPedestrians = "medium"
         self.contextDetail = "high"
         self.contextSeason = "auto"
+        self.contextVisibilityMode = "lens"
+        self.contextFadeStyle = "smooth"
+        self.contextFadeOpacity = 0.20
+        self.contextLensRadius = 140
         self._contextNonce = None
         if hasattr(self, "exemplar"):
             self._rebuild_city_context()

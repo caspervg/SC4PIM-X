@@ -161,6 +161,13 @@ CityContextSeason = "auto"
 # BAT convention: compensate SC4's apparent vertical squash. Set to 1.0 for
 # unscaled real-world/Maxis-like proportions.
 CityContextVerticalScale = 1.33
+# How surrounding geometry yields to the editable lot: "normal", "lens", or
+# "ghost". Lens follows the cursor in the 3D view; ghost fades all context.
+CityContextVisibilityMode = "lens"
+# "smooth", "fine", "ordered", or "cutaway".
+CityContextFadeStyle = "smooth"
+CityContextFadeOpacity = 20
+CityContextLensRadius = 140
 
 # --- Graphics / rendering quality ---
 # Tunes the OpenGL 3.3 preview pipeline. All values degrade gracefully: each is

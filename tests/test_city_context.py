@@ -932,3 +932,54 @@ def test_context_ui_state_is_3d_only_icon_safe_and_does_not_persist_variation():
     state = LotEditorWin._editor_state(dummy)
     assert "_contextNonce" not in state
     assert "ContextNonce" not in state
+
+
+def test_context_cursor_lens_uses_hidpi_screen_coordinates():
+    from sc4pimx.SC4LotPreview import LotEditorWin
+
+    class Canvas:
+        mouseX = 120
+        mouseY = 80
+
+        def GetClientSize(self):
+            return 800, 400
+
+        def GetContentScaleFactor(self):
+            return 2.0
+
+    dummy = type(
+        "Dummy",
+        (),
+        {
+            "glCanvas2D": Canvas(),
+            "panel": 3,
+            "contextVisibilityMode": "lens",
+            "contextFadeStyle": "smooth",
+            "contextFadeOpacity": 0.20,
+            "contextLensRadius": 140,
+        },
+    )()
+
+    assert LotEditorWin._context_fade(dummy) == (1, (240.0, 640.0), (196.0, 280.0), 0.20, 0)
+    dummy.glCanvas2D.mouseX = 600
+    assert LotEditorWin._context_fade(dummy) is None
+    dummy.contextVisibilityMode = "ghost"
+    assert LotEditorWin._context_fade(dummy) == (2, (0.0, 0.0), (0.0, 0.0), 0.20, 0)
+    assert LotEditorWin._context_fade(dummy, shadow=True)[4] == 3
+
+    dummy.contextFadeStyle = "fine"
+    assert LotEditorWin._context_fade(dummy)[4] == 1
+    dummy.contextFadeStyle = "ordered"
+    assert LotEditorWin._context_fade(dummy)[4] == 2
+    dummy.contextFadeStyle = "cutaway"
+    assert LotEditorWin._context_fade(dummy)[4] == 3
+
+
+def test_context_ground_has_lower_fade_participation_than_obstructions():
+    scene = generate_city_context(2, 2, road_edges_from_flags(0), STYLE_URBAN, 123)
+    mesh = build_context_mesh(scene)
+
+    # Ground rectangles lead the base batch; boxes/roofs remain full
+    # participants in the cursor x-ray effect.
+    assert mesh.vertices[0, 6] == pytest.approx(0.25)
+    assert numpy.max(mesh.vertices[:, 6]) == pytest.approx(1.0)
