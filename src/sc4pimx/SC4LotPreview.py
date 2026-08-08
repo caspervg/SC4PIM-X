@@ -667,12 +667,13 @@ class LotEditorWin(wx.Frame):
     def atc_world_scale(zoom):
         """Metres per sprite pixel for the ATC variant at this asset zoom.
 
-        ATC/AVP frames are pixel art authored per zoom level; a 16 m tile
-        spans 8<<zoom pixels (8 at zoom 0 up to 128 at zoom 4), so the
-        conversion halves with every zoom step. A fixed constant only ever
-        matched one zoom and left Sims tiny at every other one.
+        ATC/AVP frames are pixel art authored per zoom level at 1<<zoom px/m
+        (16 px/m at the closest zoom 4 -- measured against Maxis Sim AVPs,
+        whose seated sprites are 25 px at index 4 and 13 px at index 3), so
+        the conversion halves with every zoom step. A fixed constant only
+        ever matched one zoom and left Sims tiny at every other one.
         """
-        return 16.0 / (8 << zoom)
+        return 1.0 / (1 << zoom)
 
     def __init__(self, parent, ID, title, size):
         wx.Frame.__init__(self, parent, ID, title, size=size, style=wx.DEFAULT_FRAME_STYLE)
@@ -5768,9 +5769,12 @@ class LotEditorWin(wx.Frame):
                 rotMapping = [1, 0, 3, 2]
                 if what.draw_le(zoom, rotMapping[rot]):
                     billboard = render.model.copy()
-                    billboard[0:3, 0:3] = numpy.diag((1.0, 1.0, -1.0))
-                    scale = LotEditorWin.atc_world_scale(zoom)
-                    billboard = billboard @ SC4Matrix.scale(scale, scale, scale)
+                    # Screen-facing basis: drop the camera rotations but keep
+                    # its uniform scale (any column norm), otherwise the sprite
+                    # renders at a fixed pixel size at every view zoom.
+                    camera_scale = float(numpy.linalg.norm(render.model[0:3, 0]))
+                    scale = camera_scale * LotEditorWin.atc_world_scale(zoom)
+                    billboard[0:3, 0:3] = numpy.diag((scale, scale, -scale))
                     what.DrawGL(
                         self.s3DTexturesHolder,
                         self.glCanvas2D.renderer,

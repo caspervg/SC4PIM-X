@@ -604,17 +604,47 @@ def test_atc_billboards_are_depth_tested_without_writing_depth(monkeypatch):
     )
 
 
-def test_atc_world_scale_matches_tile_pixel_density_per_zoom():
+def test_atc_world_scale_matches_sprite_pixel_density_per_zoom():
     import sc4pimx.SC4LotPreview as preview
 
-    # 16 m tile spans 8<<zoom sprite pixels: 8, 16, 32, 64, 128.
+    # AVP sprites are authored at 1<<zoom px/m: 1, 2, 4, 8, 16.
     assert [preview.LotEditorWin.atc_world_scale(z) for z in range(5)] == [
-        2.0,
         1.0,
         0.5,
         0.25,
         0.125,
+        0.0625,
     ]
+
+
+def test_atc_billboard_keeps_the_camera_zoom_scale(monkeypatch):
+    import sc4pimx.SC4LotPreview as preview
+    from sc4pimx import SC4Matrix
+
+    atc = preview.ATC(None, None)
+    atc.draw_le = lambda *_args: True
+    drawn_models = []
+    atc.DrawGL = lambda *_args: drawn_models.append(_args[-1])
+    for name in ("glDepthFunc", "glDepthMask", "glDisable", "glEnable"):
+        monkeypatch.setattr(preview, name, lambda *args: None)
+
+    render_context = preview.TransformStack()
+    render_context.model = SC4Matrix.scale(2.0, 2.0, -2.0)
+
+    class Dummy:
+        _render_context = render_context
+        s3DTexturesHolder = object()
+        glCanvas2D = type("Canvas", (), {"renderer": object()})()
+
+        def _flush_model_batches(self, _batches):
+            return None
+
+    preview.LotEditorWin._draw_state_member(Dummy(), atc, (0, 0, 0), 0, 0, 0, 4, None, None, None)
+
+    expected = 2.0 * preview.LotEditorWin.atc_world_scale(4)
+    assert drawn_models[0][0, 0] == pytest.approx(expected)
+    assert drawn_models[0][1, 1] == pytest.approx(expected)
+    assert drawn_models[0][2, 2] == pytest.approx(-expected)
 
 
 def test_s3d_shadow_projector_includes_sc4_quarter_turn():
