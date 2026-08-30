@@ -170,7 +170,12 @@ def invalidate_menu_cache(virtual_dat) -> None:
 # -- scanning ---------------------------------------------------------------
 
 
-def _resolve_name(virtual_dat, exemplar):
+def resolve_display_name(virtual_dat, exemplar):
+    """The name the game shows for an exemplar, or None.
+
+    Prefers the User Visible Name Key, which points at the LTEXT the menu
+    draws, and falls back to the internal Exemplar Name.
+    """
     key = exemplar.GetProp(PROP_USER_VISIBLE_NAME_KEY)
     if key and tuple(key) != (0, 0, 0):
         entry = virtual_dat.getEntry(key[0], key[1], key[2])
@@ -212,7 +217,7 @@ def scan_menus(virtual_dat, force=False):
         icon = exemplar.GetProp(PROP_ITEM_ICON)
         button_id = exemplar.GetProp(PROP_ITEM_BUTTON_ID) or icon
         value = int(button_id[0]) if button_id else entry.tgi[2]
-        name = _resolve_name(virtual_dat, exemplar) or ("0x%08X" % value)
+        name = resolve_display_name(virtual_dat, exemplar) or ("0x%08X" % value)
         order = exemplar.GetProp(PROP_ITEM_ORDER)
         menus[value] = ScannedMenu(
             value=value, label=name, parent_id=int(parent[0]),

@@ -45,10 +45,19 @@ from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path
 from .S3DViewer import S3DViewer
 from .SC4Data import conversion_target_kind, list_convertible_categories, make_ltext_entry
 from .SC4DataFunctions import (
+    LOT_CONFIG_BUILDING_TYPE as _LOT_CONFIG_BUILDING_TYPE,
     LOT_CONFIG_PROPERTY_FIRST as _LOT_CONFIG_PROPERTY_FIRST,
     LOT_CONFIG_PROPERTY_LAST as _LOT_CONFIG_PROPERTY_LAST,
+    lot_building_rows as _lot_building_rows,
+    lot_config_rows as _lot_config_rows,
 )
 from .SC4LotPreview import *
+from .SC4AdaptiveLots import (
+    ADAPTIVE_COHORT_GROUP,
+    PROP_NETWORK_PIECE_MAP,
+    invalidate_adaptive_cache,
+    rows_to_values,
+)
 from .SC4MenuScanner import EXEMPLAR_PATCH_GROUP, SUBMENU_BUTTON_GROUP, invalidate_menu_cache
 from .settings import *
 from .TablerIcons import dialog_button, dialog_button_sizer, icon_bitmap, icon_button, set_button_icon
@@ -80,7 +89,6 @@ _BUILDING_EXEMPLAR_TYPE = 0x6534284A
 # Safety cap on animated-prop GIF length (frames). Vanilla ATCs sit well under
 # this; the cap just bounds file size/time for a pathological frame count.
 _ATC_GIF_MAX_FRAMES = 120
-_LOT_CONFIG_BUILDING_TYPE = 0
 _LOT_CONFIG_TRANSIT_SWITCH_TYPE = 7
 _LOT_EXEMPLAR_GROUP = 0xA8FBD372
 _LTEXT_TYPE = 0x2026960B
@@ -173,19 +181,6 @@ def _non_building_lot_object_rows(props, row_offset=3):
     ]
 
 
-def _lot_config_rows(exemplar):
-    """Return resolved lot-config rows ordered by property ID."""
-    rows = exemplar.GetPropRange(_LOT_CONFIG_PROPERTY_FIRST, _LOT_CONFIG_PROPERTY_LAST + 1)
-    return [(prop_id, list(values)) for prop_id, values in sorted(rows.items())]
-
-
-def _lot_building_rows(exemplar):
-    return [
-        (prop_id, values) for prop_id, values in _lot_config_rows(exemplar)
-        if values and values[0] == _LOT_CONFIG_BUILDING_TYPE
-    ]
-
-
 def _converted_lot_row_values(rows, building_iid, preserve_transit_switches):
     """Patch one building row and apply the target-dependent TE policy."""
     converted = []
@@ -256,6 +251,22 @@ def _new_exemplar_patch_entry(iid, file_name, virtual_dat, props):
         file_name,
         virtual_dat,
         props,
+        cohort=True,
+    )
+
+
+def _new_adaptive_mapping_entry(building_id, file_name, virtual_dat, rows):
+    """Create the cohort the Adaptive Lots DLL reads for one catalog building.
+
+    The instance ID is dictated by the building, not allocated: the DLL looks
+    the cohort up by the IID of the building whose menu item was clicked.
+    """
+    values = rows_to_values(rows)
+    return _new_populated_exemplar_entry(
+        (_COHORT_TYPE, ADAPTIVE_COHORT_GROUP, int(building_id) & 0xFFFFFFFF),
+        file_name,
+        virtual_dat,
+        [CreateAProp(virtual_dat.properties[PROP_NETWORK_PIECE_MAP], values)],
         cohort=True,
     )
 
@@ -753,6 +764,27 @@ def _publish_new_entries(virtual_dat, entries):
             if entry.tgi[0] == _COHORT_TYPE and id(entry) not in known:
                 cohorts.append(entry)
     invalidate_menu_cache(virtual_dat)
+    invalidate_adaptive_cache(virtual_dat)
+
+
+def _unpublish_entry(virtual_dat, entry):
+    """Drop one entry from the in-memory index after it left its package.
+
+    ``GetAllEntriesFromFile`` reads ``allEntries``, so an entry left there
+    would be written back the next time its package is rewritten. The TGI index
+    holds positions in that list, so it is rebuilt. One pass over the entry
+    list is acceptable for a single user-driven delete.
+    """
+    try:
+        virtual_dat.allEntries.remove(entry)
+    except ValueError:
+        return
+    virtual_dat.TGIIndex = {e.tgi: index for index, e in enumerate(virtual_dat.allEntries)}
+    cohorts = getattr(virtual_dat, 'cohorts', None)
+    if isinstance(cohorts, list) and entry in cohorts:
+        cohorts.remove(entry)
+    invalidate_menu_cache(virtual_dat)
+    invalidate_adaptive_cache(virtual_dat)
 
 
 def create_submenu_flow(window, frame, virtual_dat, source_icon=None, parent_id=None):
@@ -1054,6 +1086,184 @@ def _open_submenu_button_page(frame, virtual_dat, tgi):
     if entry is None or getattr(entry, 'exemplar', None) is None:
         return
     frame.FillPropList(BuildingDesc(entry), False)
+
+
+def _writable(file_name):
+    return bool(file_name) and os.path.isfile(file_name) and os.access(file_name, os.W_OK)
+
+
+def _adaptive_notes(virtual_dat):
+    """Return ``(status_for_row, notice_for_mapping)`` for the adaptive views.
+
+    A row note has to be worth reading. Almost every variant in a mapping is a
+    replacement, so "the DLL hides this building" is the normal case, not a
+    warning: as a per-row note it repeated on every line. It is counted per
+    mapping instead. The only per-row note left is a lot that is missing from
+    the scanned plugins, which is rare and needs the user to act.
+
+    Neither function writes anything. A submenu is never changed here.
+    """
+    from .SC4AdaptiveLots import (
+        building_id_for_lot_id,
+        hidden_building_ids,
+        lot_config_descriptor,
+        scan_adaptive_mappings,
+    )
+    from .SC4MenuScanner import menu_members
+
+    building_of_lot = functools.lru_cache(maxsize=None)(
+        lambda lot_id: building_id_for_lot_id(virtual_dat, lot_id))
+    hidden = hidden_building_ids(scan_adaptive_mappings(virtual_dat), building_of_lot)
+    in_submenu = {member.tgi[2] for members in menu_members(virtual_dat).values()
+                  for member in members}
+
+    def status_for_row(row):
+        if lot_config_descriptor(virtual_dat, row.lot_config_id) is None:
+            return LEXAdaptiveStatusLotMissing
+        return ''
+
+    def notice_for_mapping(rows):
+        buildings = {building_of_lot(row.lot_config_id) for row in rows}
+        affected = {b for b in buildings if b in hidden and b in in_submenu}
+        return LEXAdaptiveNoticeHidden % len(affected) if affected else ''
+
+    return status_for_row, notice_for_mapping
+
+
+def _find_adaptive_mapping_entry(virtual_dat, building_id):
+    """The cohort that already maps this building, or None."""
+    return virtual_dat.getEntry(_COHORT_TYPE, ADAPTIVE_COHORT_GROUP,
+                                int(building_id) & 0xFFFFFFFF)
+
+
+def _rewrite_package(virtual_dat, file_name, target_tgi, replacement=None):
+    """Rewrite a package with one entry replaced, added or removed.
+
+    A DBPF must be written whole, so every other entry is read and written back
+    unchanged. Same approach as ``change_submenu_icon_flow``. Pass
+    ``replacement=None`` to remove the entry.
+    """
+    entries = list(virtual_dat.GetAllEntriesFromFile(file_name))
+    if not entries:
+        raise ValueError(file_name)
+    for entry in entries:
+        entry.read_file(None, True, False)
+    kept = [entry for entry in entries if tuple(entry.tgi) != tuple(target_tgi)]
+    if replacement is not None:
+        kept.append(replacement)
+    backup = _next_backup_path(file_name)
+    shutil.copy2(file_name, backup)
+    if kept:
+        _write_entries_atomic(file_name, kept)
+    else:
+        # The package held nothing else. An empty DBPF would stay in the
+        # plugins folder and load for no reason; the backup keeps it undoable.
+        os.unlink(file_name)
+    return backup
+
+
+def edit_adaptive_mapping_flow(window, frame, virtual_dat, building_id):
+    """Create or change the adaptive lot mapping of one catalog building.
+
+    Returns the number of variants written, or None if the user cancelled.
+    """
+    from .SC4AdaptiveLotDlg import open_adaptive_mapping_dialog
+    from .SC4AdaptiveLots import scan_adaptive_mappings
+
+    building_id = int(building_id) & 0xFFFFFFFF
+    mapping = scan_adaptive_mappings(virtual_dat).get(building_id)
+    existing = _find_adaptive_mapping_entry(virtual_dat, building_id)
+    # The DLL reads one cohort per building. A second file with the same TGI
+    # does not merge; SimCity 4 load order picks one. So an existing mapping is
+    # rewritten in place whenever its package can be written.
+    in_place = existing is not None and _writable(existing.fileName)
+    if existing is not None:
+        message = (LEXAdaptiveExistingFound if in_place else LEXAdaptiveExistingReadOnly)
+        wx.MessageBox(message % os.path.basename(existing.fileName or ''),
+                      LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
+
+    status_for_row, notice_for_mapping = _adaptive_notes(virtual_dat)
+    rows = open_adaptive_mapping_dialog(
+        window, virtual_dat, building_id,
+        rows=mapping.rows if mapping is not None else (),
+        status_for_row=status_for_row, notice_for_mapping=notice_for_mapping,
+    )
+    if rows is None:
+        return None
+
+    file_name = existing.fileName if in_place else _unused_output_path(
+        frame.rootFolder, 'AdaptiveLot_0x%08X' % building_id, '.SC4Desc')
+    entry = _new_adaptive_mapping_entry(building_id, file_name, virtual_dat, rows)
+    try:
+        if in_place:
+            _rewrite_package(virtual_dat, file_name, entry.tgi, entry)
+        else:
+            _write_entries_atomic(file_name, [entry])
+    except Exception as error:
+        logger.exception('Failed to write adaptive lot mapping into %s', file_name)
+        wx.MessageBox(LEXAdaptiveWriteFailed % error, LEXAdaptiveDialogTitle,
+                      wx.OK | wx.ICON_ERROR, window)
+        return None
+
+    _publish_new_entries(virtual_dat, [entry])
+    wx.MessageBox(
+        LEXAdaptiveSaved % (len(rows), '0x%08X' % building_id, os.path.basename(file_name)),
+        LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
+    return len(rows)
+
+
+def delete_adaptive_mapping_flow(window, virtual_dat, building_id):
+    """Remove the mapping cohort of one building from its package."""
+    building_id = int(building_id) & 0xFFFFFFFF
+    entry = _find_adaptive_mapping_entry(virtual_dat, building_id)
+    if entry is None:
+        return False
+    label = '0x%08X' % building_id
+    file_name = entry.fileName or ''
+    if not _writable(file_name):
+        wx.MessageBox(LEXAdaptiveDeleteReadOnly % (label, os.path.basename(file_name)),
+                      LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
+        return False
+    answer = wx.MessageBox(
+        LEXAdaptiveDeleteConfirm % (label, os.path.basename(file_name)),
+        LEXAdaptiveDialogTitle, wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, window)
+    if answer != wx.YES:
+        return False
+    try:
+        _rewrite_package(virtual_dat, file_name, entry.tgi)
+    except Exception as error:
+        logger.exception('Failed to delete adaptive lot mapping from %s', file_name)
+        wx.MessageBox(LEXAdaptiveWriteFailed % error, LEXAdaptiveDialogTitle,
+                      wx.OK | wx.ICON_ERROR, window)
+        return False
+
+    _unpublish_entry(virtual_dat, entry)
+    wx.MessageBox(LEXAdaptiveDeleted % (label, os.path.basename(file_name)),
+                  LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
+    return True
+
+
+def open_adaptive_lot_tree_view(frame, virtual_dat):
+    """Show the adaptive lot tree wired to the frame's edit and open actions."""
+    from .SC4AdaptiveLotDlg import AdaptiveLotTreeActions, open_adaptive_lot_tree
+    from .SC4AdaptiveLots import lot_config_descriptor
+
+    def open_lot(lot_config_id):
+        descriptor = lot_config_descriptor(virtual_dat, lot_config_id)
+        if descriptor is not None:
+            frame.FillPropList(descriptor, False)
+
+    actions = AdaptiveLotTreeActions(
+        edit_mapping=lambda building_id: edit_adaptive_mapping_flow(
+            frame, frame, virtual_dat, building_id),
+        delete_mapping=lambda building_id: delete_adaptive_mapping_flow(
+            frame, virtual_dat, building_id),
+        open_lot=open_lot,
+    )
+    status_for_row, notice_for_mapping = _adaptive_notes(virtual_dat)
+    return open_adaptive_lot_tree(frame, virtual_dat, actions=actions,
+                                  status_for_row=status_for_row,
+                                  notice_for_mapping=notice_for_mapping)
 
 
 def open_submenu_tree_view(frame, virtual_dat):
@@ -3494,6 +3704,7 @@ class NoteBookPanel(wx.Panel):
             self.popupID40 = wx.NewIdRef()
             self.popupID41 = wx.NewIdRef()
             self.popupID43 = wx.NewIdRef()
+            self.popupID44 = wx.NewIdRef()  # Adaptive Lot Variants…
             self.popupID1 = wx.NewIdRef()
             self.popupID2 = wx.NewIdRef()
             self.popupID3 = wx.NewIdRef()
@@ -3548,6 +3759,7 @@ class NoteBookPanel(wx.Panel):
             self.Bind(wx.EVT_MENU, self.OnApplyTransitPreset, id=self.popupID39)
             self.Bind(wx.EVT_MENU, self.OnEditBuildingSubmenus, id=self.popupID40)
             self.Bind(wx.EVT_MENU, self.OnPatchIntoSubmenu, id=self.popupID43)
+            self.Bind(wx.EVT_MENU, self.OnEditAdaptiveLots, id=self.popupID44)
             self.Bind(wx.EVT_MENU, self.OnConvertLotBuilding, id=self.popupID41)
         menu = wx.Menu()
         if self.exemplar.GetProp(16)[0] == 16:
@@ -3689,6 +3901,7 @@ class NoteBookPanel(wx.Panel):
             # main Submenus menu instead.
             menu.Append(self.popupID40, LEXBuildingSubmenuMenuItem)
             menu.Append(self.popupID43, LEXSubmenuPatchMenuItem)
+            menu.Append(self.popupID44, LEXAdaptiveBuildingMenuItem)
             if self.virtual_dat.FindAllLotsFromBuilding(self.exemplar):
                 menu.Append(self.popupID41, popupPropertyMenuItem41)
             if _can_create_growable_lot(
@@ -4089,6 +4302,11 @@ class NoteBookPanel(wx.Panel):
             seed = PatchTarget("flora", self.exemplar, self.descriptor.name)
 
         patch_into_submenu_flow(self, self.parent.parent, self.virtual_dat, seed=seed)
+
+    def OnEditAdaptiveLots(self, _event):
+        """Edit the adaptive lot mapping keyed by the building on this page."""
+        edit_adaptive_mapping_flow(self, self.parent.parent, self.virtual_dat,
+                                   self.exemplar.entry.tgi[2])
 
     def _write_occupant_groups(self, ogs):
         prop = CreateAProp(self.virtual_dat.properties[2854081430], tuple(sorted(set(ogs))))
@@ -5756,7 +5974,11 @@ class MainFrame(wx.Frame):
         submenuMenu.AppendSeparator()
         self.submenuTreeMenuItem = submenuMenu.Append(wx.ID_ANY, LEXSubmenuTreeMenuItem)
         menuBar.Append(submenuMenu, LEXSubmenuMenuTitle)
+        adaptiveMenu = wx.Menu()
+        self.adaptiveTreeMenuItem = adaptiveMenu.Append(wx.ID_ANY, LEXAdaptiveTreeMenuItem)
+        menuBar.Append(adaptiveMenu, LEXAdaptiveMenuTitle)
         self.SetMenuBar(menuBar)
+        self.Bind(wx.EVT_MENU, self.OnShowAdaptiveLotTree, self.adaptiveTreeMenuItem)
         self.Bind(wx.EVT_MENU, self.OnQuit, id=104)
         self.Bind(wx.EVT_MENU, self.OnConfigure, id=201)
         self.Bind(wx.EVT_MENU, self.OnShowSubmenuTree, self.submenuTreeMenuItem)
@@ -5765,7 +5987,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnPatchIntoSubmenu, self.patchSubmenuMenuItem)
         # Every one of these reads the plugins index, so they stay off until
         # the scan has finished (see _set_core_ready).
-        self._set_submenu_tools_enabled(False)
+        self._set_plugin_tools_enabled(False)
         splitter = wx.SplitterWindow(self, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
         splitterHoriz = wx.SplitterWindow(splitter, -1, style=wx.CLIP_CHILDREN | wx.SP_LIVE_UPDATE | wx.SP_3D)
         self.splitter = splitter
@@ -6581,13 +6803,17 @@ class MainFrame(wx.Frame):
             len(self.virtualDAT.standardModels),
             len(self.virtualDAT.allTextures))
 
-    def _set_submenu_tools_enabled(self, enabled):
+    def _set_plugin_tools_enabled(self, enabled):
         for item in (self.submenuTreeMenuItem, self.newSubmenuMenuItem,
-                     self.exemplarBatchMenuItem, self.patchSubmenuMenuItem):
+                     self.exemplarBatchMenuItem, self.patchSubmenuMenuItem,
+                     self.adaptiveTreeMenuItem):
             item.Enable(enabled)
 
     def OnShowSubmenuTree(self, _event):
         open_submenu_tree_view(self, self.virtualDAT)
+
+    def OnShowAdaptiveLotTree(self, _event):
+        open_adaptive_lot_tree_view(self, self.virtualDAT)
 
     def OnNewSubmenu(self, _event):
         create_submenu_flow(self, self, self.virtualDAT)
@@ -6601,7 +6827,7 @@ class MainFrame(wx.Frame):
     def _set_core_ready(self, background_work=False):
         self.splitter.Enable(True)
         self.configureMenuItem.Enable(True)
-        self._set_submenu_tools_enabled(True)
+        self._set_plugin_tools_enabled(True)
         self.startupPanel.SetReady(background_work=background_work)
         if not background_work:
             self._show_main_viewer()

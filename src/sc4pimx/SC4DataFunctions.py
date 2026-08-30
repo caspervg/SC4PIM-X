@@ -19,6 +19,24 @@ MODEL_IS_PRELIT_PROP = 0x6A845768
 LOT_CONFIG_PROPERTY_FIRST = 0x88EDC900
 LOT_CONFIG_PROPERTY_LAST = 0x88EDCDFF
 
+# First value of a LotConfigPropertyLotObject row: 0 is the building the lot
+# places, 7 is a transit switch.
+LOT_CONFIG_BUILDING_TYPE = 0
+
+
+def lot_config_rows(exemplar):
+    """Return resolved lot-config rows ordered by property ID."""
+    rows = exemplar.GetPropRange(LOT_CONFIG_PROPERTY_FIRST, LOT_CONFIG_PROPERTY_LAST + 1)
+    return [(prop_id, list(values)) for prop_id, values in sorted(rows.items())]
+
+
+def lot_building_rows(exemplar):
+    """Return the lot-config rows that place a building."""
+    return [
+        (prop_id, values) for prop_id, values in lot_config_rows(exemplar)
+        if values and values[0] == LOT_CONFIG_BUILDING_TYPE
+    ]
+
 
 def night_state_for(exemplar):
     """Return the model state to display under night lighting for *exemplar*.
