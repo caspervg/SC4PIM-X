@@ -50,6 +50,7 @@ def override_label(name: str) -> str:
         return ""
     try:
         import xml.etree.ElementTree as ET
+
         return (ET.parse(path).getroot().get("DisplayName") or "").strip()
     except Exception:
         return ""
@@ -135,3 +136,27 @@ def sc4path_thumb_path(iid: int, size: tuple[int, int] = SC4PATH_THUMB_SIZE) -> 
     """
     w, h = size
     return sc4path_thumb_dir() / ("0x%08X-%dx%d.png" % (int(iid) & 0xFFFFFFFF, w, h))
+
+
+def image_db_lots_dir() -> Path:
+    """Directory holding the cached lot-preview PNGs (one per view).
+
+    Sibling of ``ImageDB`` / ``ImageDBLarge``. Unlike the baked-background model
+    thumbnail JPGs, lot previews are rendered with transparency so the app
+    composites the grey background at display time; they get their own PNG
+    cache keyed on GID + IID + view side + day/night phase.
+    """
+    return user_data_dir() / "ImageDBLots"
+
+
+def image_db_lots_path(gid: int, iid: int, side: str, night: bool = False) -> Path:
+    """Path to a single cached lot-preview PNG inside :func:`image_db_lots_dir`.
+
+    Keyed on GID + IID (IID alone is not unique across groups — a building and
+    its lot can share an IID under different GIDs), the compass ``side`` letter
+    facing the viewer (``S``/``E``/``N``/``W``) and the day/night phase, e.g.
+    ``0xa8fbd372-0xe6b9b2a7-S-D.png``.
+    """
+    phase = "N" if night else "D"
+    name = "0x%08x-0x%08x-%s-%s.png" % (int(gid) & 0xFFFFFFFF, int(iid) & 0xFFFFFFFF, side, phase)
+    return image_db_lots_dir() / name

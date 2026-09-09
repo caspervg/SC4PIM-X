@@ -1,5 +1,6 @@
 """SC4 lot preview and editor with 2D/3D rendering."""
 
+import hashlib
 import logging
 import math
 import os
@@ -60,7 +61,8 @@ from PIL import Image
 from . import FSHConverter, SC4IconMakerDlg, SC4Matrix, treeDnD
 from .ATCReader import ATC
 from .config import load_lot_editor, save_lot_editor
-from .paths import background_path
+from .lot_image_cache import lot_view_fresh, lot_view_path, lot_views
+from .paths import background_path, image_db_lots_dir
 from .S3DShaders import (
     DAY_PRESET,
     NIGHT_PRESET,
@@ -180,6 +182,27 @@ MODE_EDIT_CONSTRAINT_LAND = 128
 CONSTRAINT_EDIT_MODES = (MODE_EDIT_CONSTRAINT, MODE_EDIT_CONSTRAINT_LAND)
 LE_TOOLBAR_ICON_SIZE = 22
 LE_TOOLBAR_BUTTON_SIZE = (36, 32)
+# Fixed clock times giving an unambiguous day / night lighting pair for the
+# cached lot previews (minutes past midnight: noon and midnight).
+LOT_PREVIEW_DAY_MINUTES = 720
+LOT_PREVIEW_NIGHT_MINUTES = 0
+# Preview date (autumn): seasonal trees show colourful foliage rather than the
+# bare winter branches Jan 1 would give, while still reading as seasonal.
+# Desirable side effect: "SPOT" direction-helper props are authored to show
+# only on Jan 1, so an autumn date also keeps those plopping aids out of the
+# exported images.
+LOT_PREVIEW_MONTH = 10
+LOT_PREVIEW_DAY = 1
+# Only temporally-active props are drawn: with both a 12:00 day and a 00:00
+# night capture most timed props appear in whichever phase they run, which is
+# clearer than forcing inactive ones and avoids odd mixed-state scenes.
+LOT_PREVIEW_SHOW_INACTIVE_PROPS = False
+# Extra discrete zoom-out steps tried when a tall building still clips a pane
+# edge after the footprint fit (each step doubles the visible world span).
+LOT_PREVIEW_MAX_ZOOM_OUT = 3
+# Transparent border kept around the lot on each side of the square export, as
+# a fraction of the lot's bounding box, so the building never touches the edge.
+LOT_PREVIEW_PADDING = 0.04
 LAYER_BASE = "base_textures"
 LAYER_OVERLAY = "overlay_textures"
 LAYER_WATER = "water_constraints"
@@ -197,6 +220,10 @@ LAYER_CARDINALS = "cardinal_labels"
 LAYER_CITY_CONTEXT = "city_context"
 LAYER_LEGACY_BACKGROUND = "terrain_background"
 LAYER_SHADOWS = "shadows"
+# Editor-only 3D overlays excluded from the cached lot previews so the export
+# shows just the lot and its models, not the road-access edge textures or the
+# transit / SC4Path guide lines drawn for editing.
+LOT_PREVIEW_HIDDEN_LAYERS = (LAYER_ROAD_EDGES, LAYER_SC4PATHS)
 DEFAULT_PROP_MARKER_COLOR = (1.0, 1.0, 0.0)
 
 
@@ -757,6 +784,12 @@ class LotEditorWin(wx.Frame):
         self._context_generation_ms = 0.0
         self._contextBuildingDescriptors = []
         self._icon_render = False
+        # Suppresses the opaque 3D backdrop so an offscreen capture keeps the
+        # transparent clear (used by the lot-preview cache render).
+        self._captureTransparent = False
+        # Skips the window's own paint/redraw (bulk render draws explicitly to
+        # an offscreen buffer; the reused hidden window must never paint).
+        self._suppress_paint = False
         self._texDragTile = None
         self._undo_stack = []
         self._redo_stack = []
@@ -2017,6 +2050,65 @@ class LotEditorWin(wx.Frame):
                 if desc.exemplar.entry.tgi == selected_tgi:
                     return desc
         return members[0]
+
+    def _seeded_family_member(self, family_id, occurrence_seed):
+        """Deterministically pick a family member for one placed occurrence.
+
+        Keyed on the lot's GID+IID, the family, and the object's position, so a
+        parking lot of a car family shows a stable, varied mix (not the same
+        first member everywhere) that is identical on every re-render. Returns
+        None for non-families or single-member families (caller falls back).
+        """
+        members = self._family_members(family_id)
+        if len(members) <= 1:
+            return None
+        tgi = self.exemplar.entry.tgi
+        digest = hashlib.blake2b(
+            b"sc4pimx-lot-family:%d:%d:%d:%d"
+            % (
+                int(tgi[1]) & 0xFFFFFFFF,
+                int(tgi[2]) & 0xFFFFFFFF,
+                int(family_id) & 0xFFFFFFFF,
+                int(occurrence_seed) & 0xFFFFFFFFFFFFFFFF,
+            ),
+            digest_size=8,
+        ).digest()
+        return members[int.from_bytes(digest, "little") % len(members)]
+
+    def _cache_family_viewer(self, values, cache, loader):
+        """Load (viewer, name) for a prop/flora occurrence.
+
+        During export a multi-member family picks a deterministic per-occurrence
+        member (see :meth:`_seeded_family_member`) cached by member TGI;
+        otherwise the whole family shares one cached viewer as before.
+        """
+        family_id = values[12]
+        member = None
+        if self._icon_render:
+            occurrence = ((int(values[3]) & 0xFFFFFFFF) << 32) | (int(values[5]) & 0xFFFFFFFF)
+            member = self._seeded_family_member(family_id, occurrence)
+        if member is None:
+            key = family_id
+        else:
+            key = (family_id, member.exemplar.entry.tgi)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        if member is None:
+            result = loader(family_id)
+        else:
+            had = family_id in self.familyVariations
+            previous = self.familyVariations.get(family_id)
+            self.familyVariations[family_id] = member.exemplar.entry.tgi
+            try:
+                result = loader(family_id)
+            finally:
+                if had:
+                    self.familyVariations[family_id] = previous
+                else:
+                    self.familyVariations.pop(family_id, None)
+        cache[key] = result
+        return result
 
     def SetFamilyVariation(self, desc):
         family_id = None
@@ -4024,10 +4116,13 @@ class LotEditorWin(wx.Frame):
         dlg.Destroy()
 
     def OnCloseWindow(self, event):
-        self.SaveEditorState()
-        if self.LETools:
-            self.LETools.Save()
-            self.LETools = None
+        # A headless render frame (paint suppressed) must not persist its
+        # default layout over the user's real lot-editor state.
+        if not self._suppress_paint:
+            self.SaveEditorState()
+            if self.LETools:
+                self.LETools.Save()
+        self.LETools = None
         if hasattr(self, "t2"):
             self.t2.Stop()
         if hasattr(self, "previewPlayTimer") and self.previewPlayTimer.IsRunning():
@@ -4431,12 +4526,7 @@ class LotEditorWin(wx.Frame):
             self.building.append(self.LoadBuildingModel(values[12]))
         if values[0] == 1:
             is_effect = values[12] in self._effectModelIds
-            cached = self._propViewerByModel.get(values[12])
-            if cached is not None:
-                viewer, name = cached
-            else:
-                viewer, name = self.LoadPropModel(values[12])
-                self._propViewerByModel[values[12]] = (viewer, name)
+            viewer, name = self._cache_family_viewer(values, self._propViewerByModel, self.LoadPropModel)
             values.append(name)
             self.props.append(values)
             self.propViewers.append(viewer)
@@ -4456,12 +4546,7 @@ class LotEditorWin(wx.Frame):
             else:
                 self.texOverlays.append(texData)
         if values[0] == 4:
-            cached = self._floraViewerByModel.get(values[12])
-            if cached is not None:
-                viewer, name = cached
-            else:
-                viewer, name = self.LoadFloraModel(values[12])
-                self._floraViewerByModel[values[12]] = (viewer, name)
+            viewer, name = self._cache_family_viewer(values, self._floraViewerByModel, self.LoadFloraModel)
             values.append(name)
             self.floras.append(values)
             self.floraViewers.append(viewer)
@@ -4637,6 +4722,8 @@ class LotEditorWin(wx.Frame):
         # instead of touching a freed C/C++ object.
         canvas = self.glCanvas2D
         if not canvas:
+            return
+        if self._suppress_paint:
             return
         try:
             canvas.SetCurrent()
@@ -5779,6 +5866,13 @@ class LotEditorWin(wx.Frame):
                     billboard = render.model.copy()
                     billboard[0:3, 0:3] = numpy.diag((1.0, 1.0, -1.0))
                     scale = LotEditorWin.atc_world_scale(zoom)
+                    if self._icon_render:
+                        # The diag() above strips the view-zoom scaling that
+                        # models keep, so billboards are only sized right at
+                        # zoomScale3D == 1. Re-apply it so the export's zoom
+                        # scales props like the rest of the scene.
+                        table = LotEditorWin.zoomScale3D
+                        scale *= table[min(max(int(self.zoom3D), 0), len(table) - 1)]
                     billboard = billboard @ SC4Matrix.scale(scale, scale, scale)
                     what.DrawGL(
                         self.s3DTexturesHolder,
@@ -5973,7 +6067,8 @@ class LotEditorWin(wx.Frame):
                 vp[2] / (2 * valW) if valW else 0,
                 vp[3] / (2 * valH) if valH else 0,
             )
-        self.Draw3DBackdrop(valW, valH)
+        if not self._captureTransparent:
+            self.Draw3DBackdrop(valW, valH)
         rotation = self.rotation3D
         rot2D = rotation * 90.0
         self.rx = angleX
@@ -6173,6 +6268,152 @@ class LotEditorWin(wx.Frame):
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.resize((44, 44))
         return image
+
+    def RenderLotView(self, rotation, night, size=512):
+        """Capture one context-free RGBA preview of the current lot.
+
+        Renders the 3D pane only (``_icon_render`` suppresses the city
+        context, ``_captureTransparent`` the opaque backdrop) at the given
+        rep-3 rotation (0-3) and day/night phase into an offscreen target, over
+        a transparent clear, and returns a square RGBA PIL image.
+
+        Framing is by the rendered pixels, not the ground footprint: the lot is
+        fit-framed with headroom (``_fit_pane`` only knows the footprint, so a
+        tall building would otherwise clip at the top), zoomed out further while
+        any drawn pixel still touches a pane edge, then cropped to its alpha
+        bounding box and padded into the square. Editor state is changed in
+        place; :meth:`GenerateLotPreviews` snapshots and restores it.
+        """
+        canvas = self.glCanvas2D
+        pw, ph = canvas.GetPhysicalSize()
+        canvas.SetCurrent()
+        self.panel = 1  # 3D-only, so Draw3D frames the full canvas width.
+        self.rotation3D = int(rotation) & 3
+        self.previewDate = clamp_date(LOT_PREVIEW_MONTH, LOT_PREVIEW_DAY)
+        self.previewMinutes = LOT_PREVIEW_NIGHT_MINUTES if night else LOT_PREVIEW_DAY_MINUTES
+        self.showInactiveProps = LOT_PREVIEW_SHOW_INACTIVE_PROPS
+        self._apply_preview_night_mode()
+        self._icon_render = True
+        self._captureTransparent = True
+        for _layer in LOT_PREVIEW_HIDDEN_LAYERS:
+            self.visibleLayers3D[_layer] = False
+        self._fit_pane("3d")  # footprint fit (also recentres pan)...
+        self.zoom3D = max(0, self.zoom3D - 1)  # ...then a step out for building headroom.
+        # First draw registers the lot's textures (async FSH decode); block on
+        # the upload before the capture so it is never of an untextured lot.
+        self.Draw3D()
+        self.s3DTexturesHolder.flush_pending()
+        target = RenderTarget(pw, ph, srgb=getattr(canvas, "srgb", False))
+        image = None
+        bbox = None
+        try:
+            for _attempt in range(LOT_PREVIEW_MAX_ZOOM_OUT + 1):
+                with target.bound():
+                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+                    self.Draw3D()
+                    data = target.read_rgba(0, 0, pw, ph)
+                image = Image.frombytes("RGBA", (pw, ph), data).transpose(Image.FLIP_TOP_BOTTOM)
+                bbox = image.getbbox()
+                if bbox is None:
+                    break
+                x0, y0, x1, y1 = bbox
+                clipped = x0 <= 0 or y0 <= 0 or x1 >= pw or y1 >= ph
+                if not clipped or self.zoom3D <= 0:
+                    break
+                self.zoom3D -= 1  # a drawn pixel still touches an edge; zoom out and retry.
+        finally:
+            target.release_gl()
+        if bbox is not None:
+            image = image.crop(bbox)
+        edge = int(round(max(image.width, image.height) * (1.0 + 2.0 * LOT_PREVIEW_PADDING)))
+        edge = max(edge, image.width, image.height)
+        square = Image.new("RGBA", (edge, edge), (0, 0, 0, 0))
+        square.paste(image, ((edge - image.width) // 2, (edge - image.height) // 2))
+        if edge != size:
+            square = square.resize((size, size), Image.LANCZOS)
+        return square
+
+    def GenerateLotPreviews(self, size=512, skip_fresh=False, updated=None, version_current=True, restore_view=True):
+        """Render and cache all eight views of the current lot.
+
+        Writes ``S/W/N/E`` x day/night RGBA PNGs under
+        :func:`image_db_lots_dir`, keyed on the lot's GID+IID, and returns the
+        list of written paths. With ``skip_fresh`` a view is left untouched
+        only when it is present, current-generation and newer than ``updated``
+        (the lot's mtime) -- so a stale cache re-renders (resumable bulk
+        rendering); with ``restore_view`` false the final on-screen repaint is
+        skipped (bulk rendering into a hidden window). Only meaningful for a
+        LotConfigurations exemplar (the only thing the lot editor displays).
+        """
+        tgi = self.exemplar.entry.tgi
+        gid, iid = tgi[1], tgi[2]
+        image_db_lots_dir().mkdir(parents=True, exist_ok=True)
+        snapshot = (
+            self.panel,
+            self.rotation3D,
+            self.zoom3D,
+            self.viewScale3D,
+            self.pos3Dx,
+            self.pos3Dy,
+            self.pos3Dz,
+            self.previewDate,
+            self.previewMinutes,
+            self.showInactiveProps,
+            self._icon_render,
+            self._captureTransparent,
+        )
+        hidden_layer_state = {layer: self.visibleLayers3D.get(layer, True) for layer in LOT_PREVIEW_HIDDEN_LAYERS}
+        written = []
+        try:
+            for view in lot_views():
+                path = lot_view_path(gid, iid, view)
+                if skip_fresh and lot_view_fresh(gid, iid, view, updated, version_current):
+                    continue
+                image = self.RenderLotView(view.rotation, view.night, size)
+                image.save(str(path), "PNG")
+                written.append(path)
+        finally:
+            (
+                self.panel,
+                self.rotation3D,
+                self.zoom3D,
+                self.viewScale3D,
+                self.pos3Dx,
+                self.pos3Dy,
+                self.pos3Dz,
+                self.previewDate,
+                self.previewMinutes,
+                self.showInactiveProps,
+                self._icon_render,
+                self._captureTransparent,
+            ) = snapshot
+            self.visibleLayers3D.update(hidden_layer_state)
+            self._apply_preview_night_mode()
+            if restore_view:
+                self.on_draw()
+        return written
+
+    def ReleaseLotGL(self):
+        """Free the current lot's GL textures and meshes without tearing down.
+
+        The reused bulk-render editor otherwise keeps every lot's model
+        textures resident in ``s3DTexturesHolder``; the growing set makes each
+        day/night toggle (``SetNightMode``) rescan thousands of textures, so
+        per-lot time explodes. Call between lots — the next ``Display``
+        repopulates from scratch.
+        """
+        canvas = self.glCanvas2D
+        if canvas is None:
+            return
+        canvas.SetCurrent()
+        for tex in self.textures.values():
+            for name in tex[0]:
+                delete_gl_texture(name)
+        self.textures = {}
+        holder = getattr(self, "s3DTexturesHolder", None)
+        if holder is not None:
+            holder.Free()
+            holder.textures.clear()
 
     def SetMatForUnproj(self):
         self.size = self.glCanvas2D.GetClientSize()

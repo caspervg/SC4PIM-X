@@ -41,7 +41,8 @@ from .ATCViewer import *
 from .ConvertLotBuildingDlg import MODE_OVERRIDE, ConvertLotBuildingDialog
 from .DependenciesDlg import *
 from .logsetup import configure_logging
-from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_path, is_user_override, override_label, user_data_path
+from .lot_image_cache import cache_version_current, default_lot_view, ensure_cache_version, lot_views, stale_lot_pictures, write_cache_version
+from .paths import asset_path, ensure_user_data_dir, image_db_dir, image_db_lots_dir, image_db_lots_path, image_db_path, is_user_override, override_label, user_data_path
 from .S3DViewer import S3DViewer
 from .SC4Data import conversion_target_kind, list_convertible_categories, make_ltext_entry
 from .SC4DataFunctions import (
@@ -82,6 +83,14 @@ _BUILDING_EXEMPLAR_TYPE = 0x6534284A
 _ATC_GIF_MAX_FRAMES = 120
 _LOT_CONFIG_BUILDING_TYPE = 0
 _LOT_CONFIG_TRANSIT_SWITCH_TYPE = 7
+# Rough per-image size (measured avg was ~200 KB on large towers; most lots
+# are smaller) used only for the pre-render disk estimate.
+_LOT_PREVIEW_AVG_BYTES = 150 * 1024
+# "LotConfig Required Roads" (Uint8 bitmask); its first set edge picks the
+# preview's default road-facing rotation.
+_REQUIRED_ROADS_PROP = 0x4A4A88F0
+# Rotation dropdown order: selection index -> compass side letter.
+_LOT_ROTATION_DROPDOWN_SIDES = ("S", "E", "N", "W")
 _LOT_EXEMPLAR_GROUP = 0xA8FBD372
 _LTEXT_TYPE = 0x2026960B
 _PIM_RESOURCE_GROUP = 0x6A386D26
@@ -117,6 +126,56 @@ _PLOP_LOT_AIRPORT_STAGES = (
 
 def _env_true(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _human_size(num_bytes):
+    """Format a byte count as a short human-readable size."""
+    value = float(num_bytes)
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if value < 1024.0 or unit == 'TB':
+            return '%.1f %s' % (value, unit)
+        value /= 1024.0
+
+
+def _offscreen_position():
+    """A point just beyond the right edge of every display.
+
+    Used to park the bulk-render lot editor off-screen; a fixed negative
+    offset can still fall on a second monitor in a multi-display layout.
+    """
+    right = 0
+    top = 0
+    for index in range(max(wx.Display.GetCount(), 1)):
+        try:
+            geometry = wx.Display(index).GetGeometry()
+        except Exception:
+            continue
+        right = max(right, geometry.GetRight())
+        top = min(top, geometry.GetTop())
+    return wx.Point(right + 100, top)
+
+
+def _iter_lot_descriptors(virtual_dat):
+    """Yield each unique LotConfigurations descriptor in the loaded DAT.
+
+    Lots (ExemplarType 16) can appear in several categories, so results are
+    de-duplicated by TGI. Exemplar objects are already decoded on the
+    descriptors, so reading property 16 here is cheap.
+    """
+    seen = set()
+    for category in virtual_dat.categories.values():
+        for desc in category.descriptors:
+            exemplar = desc.exemplar
+            tgi = exemplar.entry.tgi
+            if tgi in seen or tgi[0] != 1697917002:
+                continue
+            try:
+                kind = exemplar.GetProp(16)
+            except Exception:
+                continue
+            if kind and kind[0] == 16:
+                seen.add(tgi)
+                yield desc
 
 
 def _exit_after(stage):
@@ -1666,6 +1725,53 @@ class StartupPanel(wx.Panel):
             self.SetStatus(startupWorkspaceReady, '')
 
 
+class LotPreviewModel:
+    """Cached-PNG preview for a LotConfigurations exemplar.
+
+    Behaves like a model in the ``currentModel.draw()`` pipeline: the rotation
+    dropdown selects the compass side and the Day/Night choice the phase, so
+    the eight cached views switch through the existing selectors. Like
+    ``ResourceViewer``, it retargets the shared S3D viewer (the current viewer
+    may be the ATC one) before drawing.
+    """
+
+    def __init__(self, exemplar, mainFrame):
+        self.exemplar = exemplar
+        self.tgi = tuple(int(v) & 0xFFFFFFFF for v in exemplar.entry.tgi)
+        self.mainFrame = mainFrame
+        self._shown = None
+
+    def draw(self, viewer, staticFileName, zoom, rot, state=0):
+        from PIL import Image
+
+        viewer = self.mainFrame.s3dviewer
+        if viewer is None:
+            return
+        self.mainFrame.viewer = viewer
+        viewer.init_gl()
+        gid, iid = self.tgi[1], self.tgi[2]
+        side = _LOT_ROTATION_DROPDOWN_SIDES[int(rot) % 4]
+        night = bool(self.mainFrame._resolve_state()[1])
+        staticFileName.SetLabel("0x%08X-0x%08X" % (gid, iid))
+        key = (side, night)
+        if key == self._shown and viewer.preview_image_tex:
+            return
+        path = image_db_lots_path(gid, iid, side, night=night)
+        if path.exists():
+            try:
+                image = Image.open(str(path))
+                image.load()
+                viewer.set_preview_image(image)
+                self._shown = key
+                return
+            except Exception:
+                logger.exception("Failed to load lot preview %s", path)
+        self._shown = None
+        viewer.clear_preview_image()
+        viewer.s3d_mesh = None
+        viewer.refresh(False)
+
+
 class StartupPreviewPanel(wx.Panel):
     """Startup thumbnail renderer occupying the normal lower-left viewer slot."""
 
@@ -2874,6 +2980,11 @@ class NoteBookPanel(wx.Panel):
             view = ResourceViewer(662775844, rkt4, self.virtual_dat, self.parent.parent, self.exemplar.entry.tgi)
         elif rkt5:
             view = ResourceViewer(662775845, rkt5, self.virtual_dat, self.parent.parent, self.exemplar.entry.tgi)
+        if view is None:
+            kind = self.exemplar.GetProp(16)
+            if kind and kind[0] == 16:
+                view = LotPreviewModel(self.exemplar, self.parent.parent)
+                self.parent.parent._apply_default_lot_view_rotation(self.exemplar)
         self.view = view
         return
 
@@ -5414,6 +5525,7 @@ class SC4NoteBook(wx.Notebook):
         else:
             self.parent.currentModel = None
             self.parent.staticFileName.SetLabel(unknownRK)
+        self.parent._sync_preview_controls()
         self.Thaw()
         return
 
@@ -5756,6 +5868,9 @@ class MainFrame(wx.Frame):
         submenuMenu.AppendSeparator()
         self.submenuTreeMenuItem = submenuMenu.Append(wx.ID_ANY, LEXSubmenuTreeMenuItem)
         menuBar.Append(submenuMenu, LEXSubmenuMenuTitle)
+        imagesMenu = wx.Menu()
+        self.renderLotsMenuItem = imagesMenu.Append(wx.ID_ANY, LEXImagesRenderLotsMenuItem)
+        menuBar.Append(imagesMenu, LEXImagesMenuTitle)
         self.SetMenuBar(menuBar)
         self.Bind(wx.EVT_MENU, self.OnQuit, id=104)
         self.Bind(wx.EVT_MENU, self.OnConfigure, id=201)
@@ -5763,6 +5878,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnNewSubmenu, self.newSubmenuMenuItem)
         self.Bind(wx.EVT_MENU, self.OnBatchEditSubmenuExemplars, self.exemplarBatchMenuItem)
         self.Bind(wx.EVT_MENU, self.OnPatchIntoSubmenu, self.patchSubmenuMenuItem)
+        self.Bind(wx.EVT_MENU, self.OnRenderLots, self.renderLotsMenuItem)
         # Every one of these reads the plugins index, so they stay off until
         # the scan has finished (see _set_core_ready).
         self._set_submenu_tools_enabled(False)
@@ -5840,6 +5956,10 @@ class MainFrame(wx.Frame):
         self.cbStateChoice = wx.ComboBox(leftPanel, -1, viewerModel, style=wx.CB_READONLY)
         self.Bind(wx.EVT_COMBOBOX, self.EvtComboBoxState, self.cbStateChoice)
         self.SetModelStateChoices([])
+        self.renderLotButton = wx.Button(leftPanel, -1, LEXLotPreviewRender)
+        self.renderLotButton.SetToolTip(LEXLotPreviewRenderTooltip)
+        self.renderLotButton.Enable(False)
+        self.Bind(wx.EVT_BUTTON, self.OnRenderCurrentLot, self.renderLotButton)
         self.staticFileName = wx.StaticText(leftPanel, -1, '??')
         self.listSearch = wx.SearchCtrl(rightUpPanel, -1, style=wx.TE_PROCESS_ENTER)
         self.listSearch.SetDescriptiveText(listSearchHint)
@@ -5871,6 +5991,7 @@ class MainFrame(wx.Frame):
         hsizer.Add(self.cbZoom, 0, wx.ALL, 5)
         hsizer.Add(self.cbRotation, 0, wx.ALL, 5)
         hsizer.Add(self.cbStateChoice, 0, wx.ALL, 5)
+        hsizer.Add(self.renderLotButton, 0, wx.ALL, 5)
         boxLeft.Add(hsizer, 0, wx.ALL | wx.EXPAND, 5)
         boxLeft.Add(self.staticFileName, 0, wx.ALL, 5)
         leftPanel.SetSizer(boxLeft)
@@ -6598,6 +6719,173 @@ class MainFrame(wx.Frame):
     def OnPatchIntoSubmenu(self, _event):
         patch_into_submenu_flow(self, self, self.virtualDAT)
 
+    def OnRenderLots(self, _event=None):
+        """Bulk-render the cached previews for every LotConfigurations lot.
+
+        Counts the lots, shows a disk estimate and confirmation, then renders
+        only the missing views (resumable) through a cancellable progress
+        dialog reusing one offscreen lot editor.
+        """
+        virtual_dat = getattr(self, 'virtualDAT', None)
+        if virtual_dat is None:
+            return
+        descriptors = list(_iter_lot_descriptors(virtual_dat))
+        if not descriptors:
+            wx.MessageBox(LEXRenderLotsNoLots, LEXRenderLotsDialogTitle, wx.OK | wx.ICON_INFORMATION, self)
+            return
+        by_tgi = {(d.exemplar.entry.tgi[1], d.exemplar.entry.tgi[2]): d for d in descriptors}
+        version_current = cache_version_current()
+        lots = [
+            (gid, iid, getattr(desc.exemplar.entry, 'dateUpdated', 0))
+            for (gid, iid), desc in by_tgi.items()
+        ]
+        worklist = stale_lot_pictures(lots, version_current)
+        if not worklist:
+            wx.MessageBox(LEXRenderLotsAllCached % len(by_tgi), LEXRenderLotsDialogTitle,
+                          wx.OK | wx.ICON_INFORMATION, self)
+            return
+        render_keys = {(gid, iid) for _path, gid, iid, _view in worklist}
+        estimate = _human_size(len(worklist) * _LOT_PREVIEW_AVG_BYTES)
+        message = LEXRenderLotsPrompt % (
+            len(by_tgi), len(by_tgi) - len(render_keys), len(render_keys), len(worklist),
+            estimate, str(image_db_lots_dir()),
+        )
+        if wx.MessageBox(message, LEXRenderLotsDialogTitle, wx.YES_NO | wx.ICON_QUESTION, self) != wx.YES:
+            return
+        todo = [by_tgi[key] for key in render_keys]
+        self._run_lot_render(todo, version_current)
+
+    def _get_offscreen_lot_editor(self):
+        """Lazily create and reuse one hidden editor for offscreen rendering.
+
+        Reused across renders so the heavyweight editor (its GL context and the
+        one-off wx construction warnings) is built once per session rather than
+        per lot or per button click. Made invisible (paint suppressed + fully
+        transparent + parked beyond every monitor).
+        """
+        frame = getattr(self, '_lotRenderFrame', None)
+        if frame:
+            return frame
+        # The headless editor's construction emits benign wx status-bar/layout
+        # warnings and a wx.PyDropTarget deprecation; suppress them for this
+        # offscreen frame only (the interactive editor's are tracked separately).
+        import warnings
+        suppress = wx.LogNull()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                frame = LotEditorWin(self, -1, LEXRenderLotsProgressTitle, size=(800, 800))
+                frame._suppress_paint = True
+                try:
+                    frame.ShowWithoutActivating()
+                except Exception:
+                    frame.Show()
+                frame.SetPosition(_offscreen_position())
+                try:
+                    frame.SetTransparent(0)
+                except Exception:
+                    pass
+        finally:
+            del suppress
+        self._lotRenderFrame = frame
+        return frame
+
+    def _render_one_lot(self, frame, exemplar, skip_fresh, updated=None, version_current=True):
+        """Render one lot's previews on a reused offscreen editor."""
+        frame.Display(exemplar, self.virtualDAT, True)
+        # Display queues a deferred on_draw and an ambient-animation timer; over
+        # reused renders those flood the event loop. We render explicitly, so
+        # stop both.
+        if getattr(frame, 't2', None) is not None:
+            frame.t2.Stop()
+        ambient = getattr(frame, 'contextAmbientTimer', None)
+        if ambient is not None and ambient.IsRunning():
+            ambient.Stop()
+        written = frame.GenerateLotPreviews(
+            skip_fresh=skip_fresh, updated=updated, version_current=version_current, restore_view=False
+        )
+        # Free this lot's GL textures/meshes; otherwise the reused editor
+        # accumulates them and each lot gets progressively slower.
+        frame.ReleaseLotGL()
+        return written
+
+    def _run_lot_render(self, descriptors, version_current):
+        progress = wx.ProgressDialog(
+            LEXRenderLotsProgressTitle,
+            LEXRenderLotsProgressMessage % (0, len(descriptors)),
+            maximum=len(descriptors),
+            parent=self,
+            style=wx.PD_CAN_ABORT | wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME | wx.PD_AUTO_HIDE,
+        )
+        frame = self._get_offscreen_lot_editor()
+        rendered_lots = 0
+        rendered_images = 0
+        skipped = 0
+        completed = True
+        batch_start = time.perf_counter()
+        try:
+            for index, descriptor in enumerate(descriptors, 1):
+                keep_going, _ = progress.Update(index - 1, LEXRenderLotsProgressMessage % (index, len(descriptors)))
+                if not keep_going:
+                    completed = False
+                    break
+                try:
+                    updated = getattr(descriptor.exemplar.entry, 'dateUpdated', 0)
+                    rendered_images += len(
+                        self._render_one_lot(frame, descriptor.exemplar, True, updated, version_current)
+                    )
+                    rendered_lots += 1
+                except Exception as exc:
+                    # Bad lot data; skip and record a one-line reason in the log
+                    # without a terminal-spamming traceback.
+                    skipped += 1
+                    logger.warning('Skipped lot %s: %s: %s',
+                                   descriptor.exemplar.entry.tgi, type(exc).__name__, exc)
+        finally:
+            # A full pass (not cancelled) means the whole cache is now at the
+            # current generator version; record it so later runs don't re-flag
+            # everything as version-stale.
+            if completed:
+                write_cache_version()
+            logger.info('Lot render finished: %d lots, %d images, %d skipped in %.1f s',
+                        rendered_lots, rendered_images, skipped, time.perf_counter() - batch_start)
+            progress.Destroy()
+        if skipped:
+            message = LEXRenderLotsDoneSkipped % (rendered_lots, rendered_images, skipped)
+        else:
+            message = LEXRenderLotsDone % (rendered_lots, rendered_images)
+        wx.MessageBox(message, LEXRenderLotsDialogTitle, wx.OK | wx.ICON_INFORMATION, self)
+
+    def OnRenderCurrentLot(self, _event=None):
+        """Render (or re-render) the eight previews for the selected lot."""
+        model = self.currentModel
+        if not isinstance(model, LotPreviewModel):
+            return
+        failed = False
+        wx.BeginBusyCursor()
+        try:
+            frame = self._get_offscreen_lot_editor()
+            self._render_one_lot(frame, model.exemplar, skip_fresh=False)
+        except Exception as exc:
+            failed = True
+            logger.warning('Skipped lot %s: %s: %s', model.exemplar.entry.tgi, type(exc).__name__, exc)
+        finally:
+            wx.EndBusyCursor()
+        if failed:
+            wx.MessageBox(LEXLotPreviewRenderFailed, LEXLotPreviewRender, wx.OK | wx.ICON_WARNING, self)
+            return
+        # The cache now has current-generation images for at least this lot;
+        # bootstrap the version sidecar if it was never written.
+        ensure_cache_version()
+        # Reload the preview from the freshly written images and relabel button.
+        model._shown = None
+        zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
+        rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
+        state, _night = self._resolve_state()
+        self._apply_night_mode(_night)
+        model.draw(self.viewer, self.staticFileName, zoom, rot, state)
+        self._sync_lot_render_button()
+
     def _set_core_ready(self, background_work=False):
         self.splitter.Enable(True)
         self.configureMenuItem.Enable(True)
@@ -6621,9 +6909,59 @@ class MainFrame(wx.Frame):
             self.glCanvas.Show()
             self.leftPanel.Layout()
 
-    def RefreshEvent(self):
-        if not hasattr(self, 'viewer') or not hasattr(self.viewer, 's3d_mesh'):
+    def _sync_zoom_control(self):
+        """Grey out the zoom dropdown for lot previews (fixed-size cached PNGs)."""
+        enabled = not isinstance(self.currentModel, LotPreviewModel)
+        if self.cbZoom.IsEnabled() != enabled:
+            self.cbZoom.Enable(enabled)
+
+    def _sync_lot_render_button(self):
+        """Enable the render button only for lots, labelled by cache presence."""
+        button = getattr(self, 'renderLotButton', None)
+        if button is None:
             return
+        model = self.currentModel
+        if isinstance(model, LotPreviewModel):
+            gid, iid = model.tgi[1], model.tgi[2]
+            cached = all(
+                image_db_lots_path(gid, iid, view.side, night=view.night).exists()
+                for view in lot_views()
+            )
+            button.SetLabel(LEXLotPreviewRerender if cached else LEXLotPreviewRender)
+            button.Enable(True)
+        else:
+            button.SetLabel(LEXLotPreviewRender)
+            button.Enable(False)
+
+    def _sync_preview_controls(self):
+        self._sync_zoom_control()
+        self._sync_lot_render_button()
+        # A non-lot selection must drop any lingering cached lot image; the
+        # viewer keeps it resident until something clears it (a building with
+        # no model draws nothing and would otherwise show the previous lot).
+        if not isinstance(self.currentModel, LotPreviewModel):
+            viewer = getattr(self, 's3dviewer', None)
+            if viewer is not None and getattr(viewer, 'preview_image_tex', 0):
+                viewer.clear_preview_image()
+
+    def _apply_default_lot_view_rotation(self, exemplar):
+        """Point the rotation dropdown at the lot's road-access side on first show.
+
+        The default view faces the lot's first required-road edge; applied once
+        per lot so a later manual rotation is kept until another lot is shown.
+        """
+        control = getattr(self, 'cbRotation', None)
+        if control is None:
+            return
+        tgi = tuple(int(v) & 0xFFFFFFFF for v in exemplar.entry.tgi)
+        if getattr(self, '_lotDefaultRotationTgi', None) == tgi:
+            return
+        self._lotDefaultRotationTgi = tgi
+        flags = exemplar.GetProp(_REQUIRED_ROADS_PROP)
+        side = default_lot_view(flags[0] if flags else None).side
+        control.SetSelection(_LOT_ROTATION_DROPDOWN_SIDES.index(side))
+
+    def RefreshEvent(self):
         if self.currentModel is not None:
             zoom = self.cbZoom.GetClientData(self.cbZoom.GetSelection())
             rot = self.cbRotation.GetClientData(self.cbRotation.GetSelection())
@@ -6881,6 +7219,7 @@ class MainFrame(wx.Frame):
                 self.staticFileName.SetLabel(row.fileName)
                 data.draw(self.viewer, self.staticFileName, zoom, rot)
                 self.currentModel = data
+                self._sync_preview_controls()
             elif self.listItemsCat.__class__.__name__ == 'DictWrapper':
                 self.FillPropList(row, not wx.GetKeyState(wx.WXK_CONTROL))
         return
@@ -6938,6 +7277,7 @@ class MainFrame(wx.Frame):
                 self.viewer.s3d_mesh = None
                 self.viewer.refresh(False)
             self.currentModel = None
+            self._sync_preview_controls()
         return
 
 
