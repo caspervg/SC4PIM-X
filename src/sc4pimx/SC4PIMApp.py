@@ -54,6 +54,8 @@ from .SC4DataFunctions import (
 from .SC4LotPreview import *
 from .SC4AdaptiveLots import (
     ADAPTIVE_COHORT_GROUP,
+    PROP_ADAPTIVE_TOOLTIP_DESC_KEY,
+    PROP_ADAPTIVE_TOOLTIP_KEY,
     PROP_NETWORK_PIECE_MAP,
     invalidate_adaptive_cache,
     rows_to_values,
@@ -255,18 +257,30 @@ def _new_exemplar_patch_entry(iid, file_name, virtual_dat, props):
     )
 
 
-def _new_adaptive_mapping_entry(building_id, file_name, virtual_dat, rows):
+def _new_adaptive_mapping_entry(building_id, file_name, virtual_dat, rows, extra_props=()):
     """Create the cohort the Adaptive Lots DLL reads for one catalog building.
 
     The instance ID is dictated by the building, not allocated: the DLL looks
     the cohort up by the IID of the building whose menu item was clicked.
+
+    ``extra_props`` are text lines to carry over from an existing cohort. The
+    mapping rows own 0xA0907C13, so a caller rewriting a cohort must pass its
+    other properties (e.g. the adaptive tooltip key and description key) here;
+    otherwise re-editing a mapping would silently drop them.
     """
     values = rows_to_values(rows)
+    props = [CreateAProp(virtual_dat.properties[PROP_NETWORK_PIECE_MAP], values)]
+    for line in extra_props:
+        # The caller invents the piece map and owns it; anything with the same
+        # id is a stale copy from the cohort being edited.
+        if line.startswith('0x%08x' % PROP_NETWORK_PIECE_MAP):
+            continue
+        props.append(line)
     return _new_populated_exemplar_entry(
         (_COHORT_TYPE, ADAPTIVE_COHORT_GROUP, int(building_id) & 0xFFFFFFFF),
         file_name,
         virtual_dat,
-        [CreateAProp(virtual_dat.properties[PROP_NETWORK_PIECE_MAP], values)],
+        props,
         cohort=True,
     )
 
@@ -1111,9 +1125,14 @@ def _adaptive_notes(virtual_dat):
     )
     from .SC4MenuScanner import menu_members
 
+    # A missing lot's building is never hidden: the DLL compacts unavailable
+    # rows away before it builds the hidden set, so predict it here too.
     building_of_lot = functools.lru_cache(maxsize=None)(
         lambda lot_id: building_id_for_lot_id(virtual_dat, lot_id))
-    hidden = hidden_building_ids(scan_adaptive_mappings(virtual_dat), building_of_lot)
+    hidden = hidden_building_ids(
+        scan_adaptive_mappings(virtual_dat), building_of_lot,
+        is_available=lambda lot_id: lot_config_descriptor(virtual_dat, lot_id) is not None,
+    )
     in_submenu = {member.tgi[2] for members in menu_members(virtual_dat).values()
                   for member in members}
 
@@ -1136,21 +1155,26 @@ def _find_adaptive_mapping_entry(virtual_dat, building_id):
                                 int(building_id) & 0xFFFFFFFF)
 
 
-def _rewrite_package(virtual_dat, file_name, target_tgi, replacement=None):
-    """Rewrite a package with one entry replaced, added or removed.
+def _rewrite_package(virtual_dat, file_name, target_tgi, replacement=None,
+                     additional=(), remove_tgis=()):
+    """Rewrite a package with entries replaced, added and/or removed.
 
     A DBPF must be written whole, so every other entry is read and written back
-    unchanged. Same approach as ``change_submenu_icon_flow``. Pass
-    ``replacement=None`` to remove the entry.
+    unchanged. Same approach as ``change_submenu_icon_flow``. ``replacement``
+    replaces *target_tgi*; ``additional`` are appended; ``remove_tgis`` are
+    dropped alongside *target_tgi*. Pass ``replacement=None`` to remove the
+    entry.
     """
     entries = list(virtual_dat.GetAllEntriesFromFile(file_name))
     if not entries:
         raise ValueError(file_name)
     for entry in entries:
         entry.read_file(None, True, False)
-    kept = [entry for entry in entries if tuple(entry.tgi) != tuple(target_tgi)]
+    removed = set(map(tuple, remove_tgis)) | {tuple(target_tgi)}
+    kept = [entry for entry in entries if tuple(entry.tgi) not in removed]
     if replacement is not None:
         kept.append(replacement)
+    kept.extend(additional)
     backup = _next_backup_path(file_name)
     shutil.copy2(file_name, backup)
     if kept:
@@ -1162,13 +1186,78 @@ def _rewrite_package(virtual_dat, file_name, target_tgi, replacement=None):
     return backup
 
 
+def _as_key(values):
+    """Normalize a raw property value to a resource-key triple, or None."""
+    if not values or len(values) < 3:
+        return None
+    return (int(values[0]) & 0xFFFFFFFF,
+            int(values[1]) & 0xFFFFFFFF,
+            int(values[2]) & 0xFFFFFFFF)
+
+
+def _same_file(a, b):
+    """True when both paths name the same file, tolerating case differences."""
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _adaptive_ltext_in_file(virtual_dat, key, file_name):
+    """The LTEXT entry *key* points at, if it lives in *file_name*."""
+    if not key or len(key) < 3 or key[0] != _LTEXT_TYPE:
+        return None
+    entry = virtual_dat.getEntry(*key)
+    if entry is None or not _same_file(entry.fileName, file_name):
+        return None
+    return entry
+
+
+def _remove_local_ltext(virtual_dat, key, file_name):
+    """TGIs of an old adaptive LTEXT in *file_name* we stop keeping."""
+    entry = _adaptive_ltext_in_file(virtual_dat, key, file_name)
+    return [tuple(entry.entry.tgi)] if entry is not None else []
+
+
+def _plan_tooltip_ltext(virtual_dat, prop_id, old_key, old_text, new_text,
+                        file_name):
+    """Plan one tooltip override one step: ``(key_prop, new_entries, removed_tgis)``.
+
+    ``file_name`` is where a fresh LTEXT would be written (the package owning
+    the owner exemplar -- for adaptive lots, the replacement lot's package).
+    A blank ``new_text`` drops the override (the DLL then falls back to its
+    default chain). ``old_text`` is what ``old_key`` currently resolves to. If
+    the text is unchanged and ``old_key`` is still usable, it is kept without
+    authoring a fresh LTEXT. Otherwise a new LTEXT is written into
+    ``file_name`` and any old LTEXT that lived there is dropped.
+
+    ``key_prop`` is a text-prop line to set on the owner exemplar, or None for
+    no override.
+    """
+    new_text = (new_text or "").strip()
+    if not new_text:
+        return None, [], _remove_local_ltext(virtual_dat, old_key, file_name)
+    if old_key and old_text == new_text:
+        return CreateAProp(virtual_dat.properties[prop_id], old_key), [], []
+    iid = _allocate_conversion_iid(
+        virtual_dat, [(_LTEXT_TYPE, _PIM_RESOURCE_GROUP)])
+    key = (_LTEXT_TYPE, _PIM_RESOURCE_GROUP, iid)
+    ltext = make_ltext_entry(*key, new_text, file_name)
+    removed = _remove_local_ltext(virtual_dat, old_key, file_name)
+    return CreateAProp(virtual_dat.properties[prop_id], key), [ltext], removed
+
+
 def edit_adaptive_mapping_flow(window, frame, virtual_dat, building_id):
     """Create or change the adaptive lot mapping of one catalog building.
 
     Returns the number of variants written, or None if the user cancelled.
     """
     from .SC4AdaptiveLotDlg import open_adaptive_mapping_dialog
-    from .SC4AdaptiveLots import scan_adaptive_mappings
+    from .SC4AdaptiveLots import (
+        lot_tooltip_description,
+        lot_tooltip_name,
+        lot_config_descriptor,
+        scan_adaptive_mappings,
+    )
 
     building_id = int(building_id) & 0xFFFFFFFF
     mapping = scan_adaptive_mappings(virtual_dat).get(building_id)
@@ -1183,17 +1272,84 @@ def edit_adaptive_mapping_flow(window, frame, virtual_dat, building_id):
                       LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
 
     status_for_row, notice_for_mapping = _adaptive_notes(virtual_dat)
-    rows = open_adaptive_mapping_dialog(
+    result = open_adaptive_mapping_dialog(
         window, virtual_dat, building_id,
         rows=mapping.rows if mapping is not None else (),
         status_for_row=status_for_row, notice_for_mapping=notice_for_mapping,
     )
-    if rows is None:
+    if result is None:
         return None
+    rows, tooltip_edits = result
+
+    # The tooltip overrides (0xA0907C14/C15) live on the replacement lot
+    # exemplar, keyed by lot config ID. Apply the per-lot edits gathered from
+    # the row editor by rewriting each affected lot's package.
+    failed_lots = []
+    for lot_id, (new_name, new_description) in tooltip_edits.items():
+        descriptor = lot_config_descriptor(virtual_dat, lot_id)
+        exemplar = getattr(descriptor, "exemplar", None)
+        entry = getattr(exemplar, "entry", None)
+        lot_package = getattr(entry, "fileName", "")
+        if exemplar is None or entry is None or not _writable(lot_package):
+            failed_lots.append(lot_id)
+            continue
+        old_name = lot_tooltip_name(virtual_dat, lot_id) or ""
+        old_desc = lot_tooltip_description(virtual_dat, lot_id) or ""
+        new_name = (new_name or "").strip()
+        new_description = (new_description or "").strip()
+        if old_name == new_name and old_desc == new_description:
+            continue  # Nothing changed for this lot.
+
+        new_entries = []
+        remove_tgis = []
+        for prop_id, old_key, old_text, new_text in (
+            (PROP_ADAPTIVE_TOOLTIP_KEY,
+             exemplar.GetProp(PROP_ADAPTIVE_TOOLTIP_KEY), old_name, new_name),
+            (PROP_ADAPTIVE_TOOLTIP_DESC_KEY,
+             exemplar.GetProp(PROP_ADAPTIVE_TOOLTIP_DESC_KEY), old_desc, new_description),
+        ):
+            if old_text == new_text:
+                continue
+            key_prop, ltext_entries, removed = _plan_tooltip_ltext(
+                virtual_dat, prop_id, _as_key(old_key), old_text, new_text,
+                lot_package)
+            exemplar.RemoveProp(prop_id)
+            if key_prop:
+                exemplar.AddTextProp(key_prop)
+            new_entries.extend(ltext_entries)
+            remove_tgis.extend(removed)
+
+        replacement = _clone_exemplar_entry(
+            exemplar, tuple(entry.tgi), lot_package, virtual_dat)
+        try:
+            _rewrite_package(virtual_dat, lot_package, tuple(entry.tgi),
+                             replacement, additional=new_entries,
+                             remove_tgis=remove_tgis)
+        except Exception as error:
+            logger.exception(
+                'Failed to write tooltip for lot %s into %s',
+                '0x%08X' % lot_id, lot_package)
+            failed_lots.append(lot_id)
+            continue
+        _publish_new_entries(virtual_dat, new_entries)
 
     file_name = existing.fileName if in_place else _unused_output_path(
         frame.rootFolder, 'AdaptiveLot_0x%08X' % building_id, '.SC4Desc')
-    entry = _new_adaptive_mapping_entry(building_id, file_name, virtual_dat, rows)
+
+    # Preserve the cohort's other properties (the piece map is rebuilt here).
+    # The tooltip props belong on lots, not the cohort, so they are copied
+    # through unchanged if present.
+    extra_props = ()
+    if existing is not None:
+        exemplar = getattr(existing, 'exemplar', None)
+        if exemplar is not None:
+            extra_props = tuple(
+                prop.TextRep() for prop in getattr(exemplar, 'props', ())
+                if prop.id != PROP_NETWORK_PIECE_MAP
+            )
+
+    entry = _new_adaptive_mapping_entry(
+        building_id, file_name, virtual_dat, rows, extra_props=extra_props)
     try:
         if in_place:
             _rewrite_package(virtual_dat, file_name, entry.tgi, entry)
@@ -1206,9 +1362,13 @@ def edit_adaptive_mapping_flow(window, frame, virtual_dat, building_id):
         return None
 
     _publish_new_entries(virtual_dat, [entry])
-    wx.MessageBox(
-        LEXAdaptiveSaved % (len(rows), '0x%08X' % building_id, os.path.basename(file_name)),
-        LEXAdaptiveDialogTitle, wx.OK | wx.ICON_INFORMATION, window)
+    saved_message = LEXAdaptiveSaved % (len(rows), '0x%08X' % building_id,
+                                        os.path.basename(file_name))
+    if failed_lots:
+        names = ', '.join('0x%08X' % lot_id for lot_id in sorted(failed_lots))
+        saved_message += '\n\n' + LEXAdaptiveTooltipWriteFailed % names
+    wx.MessageBox(saved_message, LEXAdaptiveDialogTitle,
+                  wx.OK | wx.ICON_INFORMATION, window)
     return len(rows)
 
 
@@ -1229,6 +1389,9 @@ def delete_adaptive_mapping_flow(window, virtual_dat, building_id):
         LEXAdaptiveDialogTitle, wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, window)
     if answer != wx.YES:
         return False
+    # The adaptive tooltip overrides and their LTEXTs live on the replacement
+    # lot exemplars, not on the cohort, so deleting the mapping leaves them in
+    # place (the lots still use them).
     try:
         _rewrite_package(virtual_dat, file_name, entry.tgi)
     except Exception as error:

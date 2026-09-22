@@ -5756,6 +5756,18 @@ For use with Adaptive Lots DLL: the lot configuration this catalog building plac
 </HELP>
     <FORMATHELP>Groups of 4 IDs of the form network type, network piece ID, variant index, lot configuration ID. Network type 0xFFFFFFFF is a wildcard and needs a network piece ID of 0.</FORMATHELP>
   </PROPERTY>
+  <PROPERTY Name="Adaptive Lot Tooltip Key" ID="0xa0907c14" Type="Uint32" Count="3" Default="0x00000000" ShowAsHex="Y">
+    <HELP>
+For use with Adaptive Lots DLL: LTEXT key whose text replaces the tooltip title the game shows when placing this mapping's lot. When the key is missing or invalid the DLL falls back to the building name chain.
+</HELP>
+    <FORMATHELP>A resource key of the form TGI (LP_TEXT type), group ID, instance ID. Omit the property, or set it to (0,0,0), to use the default display-name chain.</FORMATHELP>
+  </PROPERTY>
+  <PROPERTY Name="Adaptive Lot Tooltip Description Key" ID="0xa0907c15" Type="Uint32" Count="3" Default="0x00000000" ShowAsHex="Y">
+    <HELP>
+For use with Adaptive Lots DLL: LTEXT key whose text replaces the description line in the placement tooltip. A present-but-blank, whitespace-only, missing or badly formatted key hides the line entirely.
+</HELP>
+    <FORMATHELP>A resource key of the form TGI (LP_TEXT type), group ID, instance ID. Omit the property, or set it to (0,0,0), to use the default description chain.</FORMATHELP>
+  </PROPERTY>
   <PROPERTY Name="Port Type Exemplar IDs" ID="0x8a270fc3" Type="Uint32" Count="-1" Default="0x00000000" ShowAsHex="Y">
     <HELP>
 List of instance IDs for exemplars containing the properties for each distinct airport/seaport type
