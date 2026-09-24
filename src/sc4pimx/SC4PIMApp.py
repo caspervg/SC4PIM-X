@@ -2661,6 +2661,10 @@ class MixinList(wx.ListCtrl):
         wx.ListCtrl.__init__(self, parent, identifier, pos, size, style)
 
 
+# Widest the property table's Value column grows to fit its text.
+_PROP_VALUE_MAX_WIDTH = 6000
+
+
 class PropListCtrl(ULC.UltimateListCtrl):
     """The exemplar property table.
 
@@ -2677,6 +2681,11 @@ class PropListCtrl(ULC.UltimateListCtrl):
             self, parent, -1,
             agwStyle=ULC.ULC_REPORT | ULC.ULC_HRULES | ULC.ULC_SHOW_TOOLTIPS)
         self._mono = _monospace_font(self.GetFont())
+        # (text, font) of every Value cell, measured lazily so the Value column
+        # can grow past the client width (with a horizontal scrollbar) to fit
+        # its longest text. None means the measured width is stale.
+        self._value_cells = {}
+        self._value_width = None
         self.Bind(wx.EVT_SIZE, self._on_size)
 
     def _apply_text(self, info, label):
@@ -2717,11 +2726,37 @@ class PropListCtrl(ULC.UltimateListCtrl):
         info._itemId = index
         info._col = col
         self._apply_text(info, label)
-        if col == 1 or (col == 4 and _is_hex_value(info._text)):
+        mono = col == 1 or (col == 4 and _is_hex_value(info._text))
+        if mono:
             info.SetFont(self._mono)
             info._mask |= ULC.ULC_MASK_FONT
+        if col == self.GetColumnCount() - 1:
+            self._value_cells[index] = (info._text, self._mono if mono else None)
+            self._value_width = None
         self._mainWin.SetItem(info)
         return True
+
+    def DeleteAllItems(self):
+        self._value_cells = {}
+        self._value_width = None
+        return ULC.UltimateListCtrl.DeleteAllItems(self)
+
+    def DeleteItem(self, index):
+        self._value_cells = {i - (i > index): cell
+                             for i, cell in self._value_cells.items() if i != index}
+        self._value_width = None
+        return ULC.UltimateListCtrl.DeleteItem(self, index)
+
+    def _measure_value_width(self):
+        if self._value_width is None:
+            widest = 0
+            for text, font in self._value_cells.values():
+                if text:
+                    widest = max(widest, self.GetFullTextExtent(text, font)[0])
+            # Cell padding, capped so a huge array doesn't make the table
+            # absurdly wide; the tooltip and editor still show the rest.
+            self._value_width = min(widest + 16, _PROP_VALUE_MAX_WIDTH) if widest else 0
+        return self._value_width
 
     def _on_size(self, event):
         event.Skip()
@@ -2736,8 +2771,9 @@ class PropListCtrl(ULC.UltimateListCtrl):
             return
         used = sum(self.GetColumnWidth(c) for c in range(count - 1))
         remaining = self.GetClientSize().width - used - 4
-        if remaining > 60:
-            self.SetColumnWidth(count - 1, remaining)
+        width = max(remaining, self._measure_value_width())
+        if width > 60 and width != self.GetColumnWidth(count - 1):
+            self.SetColumnWidth(count - 1, width)
 
 
 class EditDialog(sc.SizedDialog):
