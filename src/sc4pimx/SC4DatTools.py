@@ -755,7 +755,8 @@ class SC4Exemplar():
         else:
             newBuff = 'CQZT1###'
         lines.append(newBuff)
-        lines.append('ParentCohort=Key:{0x%08X,0x%08X,0x%08X}' % (self.parentCohort[0], self.parentCohort[1], self.parentCohort[2]))
+        # Text keys are Group, Instance, Type; parentCohort is held as T, G, I.
+        lines.append('ParentCohort=Key:{0x%08X,0x%08X,0x%08X}' % (self.parentCohort[1], self.parentCohort[2], self.parentCohort[0]))
         lines.append('PropCount=0x%08X' % len(self.props))
         self.props.sort(key=lambda p: p.id)
         for p in self.props:
