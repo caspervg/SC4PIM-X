@@ -1,3 +1,4 @@
+import struct
 from types import SimpleNamespace
 
 from sc4pimx.SC4DatTools import SC4Exemplar
@@ -41,3 +42,21 @@ def test_scrambled_text_parent_cohort_is_repaired_on_save():
 
     assert virtual_dat.lookups == [(0x05342861, 0xA8FBD372, 0xAA1B5001)]
     assert _written_key(exemplar) == b'ParentCohort=Key:{0xA8FBD372,0xAA1B5001,0x05342861}'
+
+
+def test_text_parent_cohort_with_non_cohort_type_is_read_as_group_instance_type():
+    exemplar, virtual_dat = _exemplar('0xBADB57F1,0x54589520,0x5AD0E817')
+
+    assert virtual_dat.lookups == [(0x5AD0E817, 0xBADB57F1, 0x54589520)]
+    assert _written_key(exemplar) == b'ParentCohort=Key:{0xBADB57F1,0x54589520,0x5AD0E817}'
+
+
+def test_binary_parent_cohort_with_non_cohort_type_is_not_rotated():
+    content = b'EQZB1###' + struct.pack('<4I', 0x5AD0E817, 0xBADB57F1, 0x54589520, 0)
+    entry = SimpleNamespace(content=content, tgi=(0x6534284A, 1, 2), fileName='x.dat')
+    virtual_dat = _VirtualDat()
+
+    exemplar = SC4Exemplar(entry, virtual_dat)
+
+    assert virtual_dat.lookups == [(0x5AD0E817, 0xBADB57F1, 0x54589520)]
+    assert exemplar.BinaryRep()[8:20] == content[8:20]

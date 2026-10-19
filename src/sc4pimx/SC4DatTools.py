@@ -633,7 +633,13 @@ class SC4Exemplar():
         self.sig = lines[0]
         l = lines[1].find('{')
         lines[1] = lines[1][l + 1:-1]
-        self.parentCohort = tuple([ int(x, 16) for x in lines[1].split(',') ])
+        key = tuple([ int(x, 16) for x in lines[1].split(',') ])
+        # Text keys are Group, Instance, Type. Older SC4PIM-X builds wrote
+        # Type, Group, Instance; read those as-is so a save repairs them.
+        if key[0] == 87304289 and key[2] != 87304289:
+            self.parentCohort = key
+        else:
+            self.parentCohort = (key[2], key[0], key[1])
         self.LinkToParent()
         self.nbrProp = int(lines[2].split('=')[1], 16)
         lines = lines[3:]
@@ -692,9 +698,6 @@ class SC4Exemplar():
     def LinkToParent(self):
         self.link = None
         if self.parentCohort != (0, 0, 0):
-            if self.parentCohort[0] != 87304289:
-                self.parentCohort = (
-                 self.parentCohort[2], self.parentCohort[0], self.parentCohort[1])
             self.link = self.virtualDAT.getEntry(self.parentCohort[0], self.parentCohort[1], self.parentCohort[2])
             if self.link is not None:
                 if 'exemplar' not in self.link.__dict__:
