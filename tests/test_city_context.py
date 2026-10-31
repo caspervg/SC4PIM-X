@@ -582,6 +582,7 @@ def test_atc_billboards_are_depth_tested_without_writing_depth(monkeypatch):
         _render_context = preview.TransformStack()
         s3DTexturesHolder = object()
         glCanvas2D = type("Canvas", (), {"renderer": object()})()
+        _icon_render = False
 
         def _flush_model_batches(self, _batches):
             return None

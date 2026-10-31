@@ -1,15 +1,21 @@
 """S3D 3D model viewer with OpenGL rendering."""
 from OpenGL.GL import (
     GL_BLEND,
+    GL_CLAMP_TO_EDGE,
     GL_COLOR_BUFFER_BIT,
     GL_CULL_FACE,
     GL_DEPTH_BUFFER_BIT,
     GL_DEPTH_TEST,
+    GL_LINEAR,
     GL_LINES,
     GL_MULTISAMPLE,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA,
+    glBlendFunc,
     glClear,
     glClearColor,
     glClearDepth,
+    glDeleteTextures,
     glDisable,
     glEnable,
     glViewport,
@@ -19,6 +25,7 @@ from . import SC4Matrix
 from .S3DShaders import DAY_PRESET, NIGHT_PRESET, SC4LightingProgram
 from .S3DTexturesHolder import S3DTexturesHolder
 from .SC4OpenGL import rotate_around_x, rotate_around_y
+from .SC4Renderer import create_texture_2d
 
 
 class S3DViewer(object):
@@ -39,6 +46,10 @@ class S3DViewer(object):
         self.is_night = False
         self.is_prelit = False
         self.lighting_state = dict(DAY_PRESET)
+        # Optional static preview (e.g. a cached lot PNG) shown as a textured
+        # quad instead of a live S3D mesh; 0 when none is set.
+        self.preview_image_tex = 0
+        self.preview_image_size = (0, 0)
 
     @property
     def useBestFit(self):
@@ -97,7 +108,10 @@ class S3DViewer(object):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         self.draw_background()
         if self.s3d_mesh is None:
+            if self.preview_image_tex:
+                self._draw_preview_image()
             return
+        self._free_preview_texture()
         if self.use_best_fit:
             angleX = 45
             p = []
@@ -202,6 +216,66 @@ class S3DViewer(object):
                 (0.36, 0.39, 0.42, 1.0), (0.36, 0.39, 0.42, 1.0),
             ),
         )
+
+    def set_preview_image(self, pil_image):
+        """Show a static RGBA image (aspect-fit, alpha over the background).
+
+        Replaces any live mesh; used for cached lot previews that plug into the
+        same currentModel.draw() pipeline as real models.
+        """
+        self.openGLCanvas.displayer = self
+        self.openGLCanvas.SetCurrent()
+        self._free_preview_texture()
+        rgba = pil_image.convert("RGBA")
+        self.preview_image_size = (rgba.width, rgba.height)
+        # srgb=True so the GPU decodes the sRGB PNG on sample; the sRGB
+        # framebuffer then re-encodes on write, avoiding a washed-out result.
+        self.preview_image_tex = create_texture_2d(
+            rgba.width, rgba.height, rgba.tobytes(), channels=4, srgb=True
+        )
+        self.s3d_mesh = None
+        self.refresh(False)
+
+    def clear_preview_image(self):
+        if not self.preview_image_tex:
+            return
+        self.openGLCanvas.SetCurrent()
+        self._free_preview_texture()
+        self.refresh(False)
+
+    def _free_preview_texture(self):
+        if self.preview_image_tex:
+            glDeleteTextures([self.preview_image_tex])
+            self.preview_image_tex = 0
+            self.preview_image_size = (0, 0)
+
+    def _draw_preview_image(self):
+        w, h = self.openGLCanvas.GetPhysicalSize()
+        w = max(w, 1)
+        h = max(h, 1)
+        glViewport(0, 0, w, h)
+        glDisable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        iw, ih = self.preview_image_size
+        view_aspect = w / float(h)
+        img_aspect = iw / float(max(ih, 1))
+        if img_aspect > view_aspect:
+            sx, sy = 1.0, view_aspect / img_aspect
+        else:
+            sx, sy = img_aspect / view_aspect, 1.0
+        projection = SC4Matrix.ortho(-1, 1, -1, 1, -1, 1)
+        sampler = self.openGLCanvas.renderer.samplers.get(
+            GL_LINEAR, GL_LINEAR, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE,
+        )
+        self.openGLCanvas.renderer.primitives.quad(
+            ((-sx, -sy, 0), (sx, -sy, 0), (sx, sy, 0), (-sx, sy, 0)),
+            projection,
+            uvs=((0, 1), (1, 1), (1, 0), (0, 0)),
+            texture=self.preview_image_tex,
+            sampler=sampler,
+        )
+        glDisable(GL_BLEND)
 
     def _draw_axes_and_bounds(self, mvp):
         mesh = self.s3d_mesh

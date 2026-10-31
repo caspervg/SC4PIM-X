@@ -81,6 +81,26 @@ ROAD_FLAG_EDGES = (
     (8, EDGE_ZMAX),
 )
 
+# Rep-3 lot orientation (LotConfigPropertyLotObject spec): the compass edge
+# facing the viewer at each 90-degree view step. S=0, W=1, N=2, E=3.
+LOT_VIEW_SIDES = ("S", "W", "N", "E")
+
+# View rotation (index into LOT_VIEW_SIDES) that brings each lot-local edge to
+# the front. At the unrotated view (rotation 0, South) the lot's Front edge
+# (EDGE_ZMAX) faces the viewer; +X is East, +Z is South (see module docstring),
+# so the left/right edges resolve to West/East respectively.
+EDGE_VIEW_ROTATION = {
+    EDGE_ZMAX: 0,  # Front  -> South
+    EDGE_XMIN: 1,  # Left   -> West
+    EDGE_ZMIN: 2,  # Behind -> North
+    EDGE_XMAX: 3,  # Right  -> East
+}
+
+# Order edges are considered when a lot borders roads on several sides: the
+# South/front edge wins so corner lots default to the canonical South view,
+# then Left/Behind/Right.
+_ROAD_ROTATION_PREFERENCE = (EDGE_ZMAX, EDGE_XMIN, EDGE_ZMIN, EDGE_XMAX)
+
 STYLE_URBAN = "urban"
 STYLE_SUBURBAN = "suburban"
 STYLE_INDUSTRIAL = "industrial"
@@ -219,6 +239,22 @@ def road_edges_from_flags(flags):
     except (TypeError, ValueError):
         return frozenset()
     return frozenset(edge for bit, edge in ROAD_FLAG_EDGES if value & bit)
+
+
+def required_road_default_rotation(flags):
+    """View rotation (0-3) whose front edge faces a lot's road side.
+
+    Decodes the 0x4A4A88F0 "LotConfig Required Roads" bitmask and returns the
+    rotation (index into LOT_VIEW_SIDES) that brings a flagged edge to the
+    front, preferring the South/front edge so corner lots default to the South
+    view. Lots with no (or malformed) road flags default to the unrotated South
+    view (0), matching road_edges_from_flags's fail-safe.
+    """
+    edges = road_edges_from_flags(flags)
+    for edge in _ROAD_ROTATION_PREFERENCE:
+        if edge in edges:
+            return EDGE_VIEW_ROTATION[edge]
+    return 0
 
 
 def default_context_seed(tgi, version=CONTEXT_GENERATOR_VERSION):

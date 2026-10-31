@@ -871,6 +871,20 @@ class RenderTarget:
         glPixelStorei(GL_PACK_ALIGNMENT, 1)
         return glReadPixels(int(x), int(y), width, height, GL_RGB, GL_UNSIGNED_BYTE)
 
+    def read_rgba(self, x=0, y=0, width=None, height=None):
+        """Like :meth:`read_rgb`, but keeps the alpha channel.
+
+        The target's clear alpha survives in the resolved texture, so a scene
+        drawn over a fully-transparent clear (e.g. a context-free lot preview)
+        reads back with alpha=0 wherever nothing was drawn.
+        """
+        width = self.width if width is None else int(width)
+        height = self.height if height is None else int(height)
+        self._resolve()
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, self.framebuffer)
+        glPixelStorei(GL_PACK_ALIGNMENT, 1)
+        return glReadPixels(int(x), int(y), width, height, GL_RGBA, GL_UNSIGNED_BYTE)
+
     def release_gl(self):
         if getattr(self, "_ms_fbo", 0):
             glDeleteFramebuffers(1, [self._ms_fbo])
