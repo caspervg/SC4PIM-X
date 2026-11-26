@@ -73,6 +73,11 @@ def editor_kind(prop, prop_def):
     # entry + raw hex box), even with one value, so it can grow in place.
     if count <= 0 and prop_type in _INTEGER_TYPES and _has_named_options(prop_def):
         return "list"
+    # Count=-1 means variable-length: always use the growable table, even with
+    # one value. Properties that are really single-valued should be fixed to
+    # Count="1" in new_properties.xml.
+    if count == -1 and prop_type in _NUMERIC_TYPES:
+        return "list"
     if n == 1 and count <= 1:
         if prop_type == "Bool":
             return "bool"
